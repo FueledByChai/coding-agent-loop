@@ -26,3 +26,9 @@ kit_ref = ""
 code_paths = []
 proof_paths = []
 proof_pattern = ""
+# The coverage ratchet (scripts/coverage-ratchet.sh): `coverage` is a command whose output
+# ends in one percentage (your tool, wrapped to print the figure); the check fails when it
+# is below the number in coverage_floor, and a ticket that raises coverage raises the floor
+# in the same commit with `scripts/coverage-ratchet.sh --set`. Empty: ratchet off.
+coverage = ""
+coverage_floor = "coverage-floor.txt"

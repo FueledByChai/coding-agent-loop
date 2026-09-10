@@ -34,8 +34,10 @@ below it are this project's own and are what the loop prompts mean when they say
 - **Definition of done.** The full check (`check` in `.loop.toml`) passes, and the commit
   includes the test or fixture that proves the ticket's done line; `scripts/proof-gate.sh`,
   run from the check, fails a code change that brings none (a commit body line
-  `No new test: <reason>` is the stated exception). Run the fast check while iterating and
-  the full check before committing. CI runs the same script; there are no separate
+  `No new test: <reason>` is the stated exception), and `scripts/coverage-ratchet.sh` fails
+  a drop in coverage below the committed floor (a ticket that raises coverage raises the
+  floor with `--set` in its commit). Run the fast check while iterating and the full check
+  before committing. CI runs the same script; there are no separate
   hand-written CI steps to keep in sync.
 - **Isolation.** Prefer an isolated worktree per ticket. The check script knows how to run
   from one (see the project rules for what it resolves).

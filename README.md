@@ -59,7 +59,9 @@ them all plus the install (CI runs the same script).
   anything else, wrapped to print the figure), and `scripts/coverage-ratchet.sh` fails when
   that figure is below the number in `coverage_floor` (default `coverage-floor.txt`, committed).
   Above the floor it passes and names the new floor; the ticket that raised coverage records it
-  with `--set` in the same commit. The comparison is exact, so the floor only moves up.
+  with `--set` in the same commit, so the floor only moves up. `coverage_slack` (default 0)
+  absorbs run-to-run jitter: a measurement within the slack below the floor passes, and a
+  raise is suggested only when it clears the floor by more than the slack.
 
 ## Reviewing pull requests
 

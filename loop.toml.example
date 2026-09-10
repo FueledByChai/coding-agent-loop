@@ -19,3 +19,10 @@ trailer_required = true
 # scripts/loop-kit-sync.sh --check fails when the copied scripts and prompts drift from it.
 kit = ""
 kit_ref = ""
+# The proof gate (scripts/proof-gate.sh): a change under code_paths must come with a change
+# under proof_paths, or add a line matching proof_pattern (a test function beside the code),
+# or say why in the commit body: `No new test: <reason>`. Empty code_paths: gate off.
+# Rust: proof_pattern = "#\\[test\\]"; Java: "@Test"; Python: "def test_".
+code_paths = []
+proof_paths = []
+proof_pattern = ""

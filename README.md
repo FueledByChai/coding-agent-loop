@@ -17,6 +17,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `scripts/open-ticket-pr.sh` | claims (`--claim`), opens the PR, applies the merge policy |
 | `scripts/release-notes.sh` | what shipped between two refs; `--archive` into `CHANGELOG.md` |
 | `scripts/loop-kit-sync.sh` | keeps a project's copies of these files in step with the kit |
+| `scripts/proof-gate.sh` | fails a change to code that brings no change to a test, fixture, or check |
 | `prompts/next-ticket.md` | the prompt that takes the next ticket to done |
 | `prompts/grill-me.md` | the prompt that turns a loose idea into stories and tickets |
 | `AGENTS.md` | the standing instructions: the loop section, then an empty Project rules |
@@ -44,6 +45,12 @@ them all plus the install (CI runs the same script).
   `needs-review` and waits for a person.
 - **Done** means the project's check passes and the commit carries the proof. The check is
   the project's own script; CI runs the same script.
+- **The proof gate** makes "carries the proof" a check: with `code_paths`, `proof_paths`, and
+  `proof_pattern` set in `.loop.toml`, `scripts/proof-gate.sh` fails when a code file changed
+  and no proof path changed and no added line matches the pattern (`"#\\[test\\]"` for Rust,
+  `"@Test"` for Java, `"def test_"` for Python; a backslash in a TOML string is written `\\`). A commit body line `No new test: <reason>` lets
+  a change through and prints the reason. Run it from the project's check; in CI the checkout
+  needs the default branch fetched (`fetch-depth: 0`, or a fetch of that branch) for the diff.
 
 ## Installing it in a project
 

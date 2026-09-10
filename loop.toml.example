@@ -32,3 +32,7 @@ proof_pattern = ""
 # in the same commit with `scripts/coverage-ratchet.sh --set`. Empty: ratchet off.
 coverage = ""
 coverage_floor = "coverage-floor.txt"
+# The agent review (prompts/review-prs.md, scripts/review-status.sh): the commit status it
+# posts on each pull request's head; add it to the branch ruleset's required checks so a
+# merge waits for the review.
+review_context = "Agent review"

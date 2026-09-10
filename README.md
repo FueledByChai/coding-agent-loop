@@ -48,7 +48,7 @@ them all plus the install (CI runs the same script).
   the project's own script; CI runs the same script.
 - **The proof gate** makes "carries the proof" a check: with `code_paths`, `proof_paths`, and
   `proof_pattern` set in `.loop.toml`, `scripts/proof-gate.sh` fails when a code file changed
-  and no proof path changed and no added line matches the pattern (`"#\\[test\\]"` for Rust,
+  and no proof path changed and no added line in a code file matches the pattern (`"#\\[test\\]"` for Rust,
   `"@Test"` for Java, `"def test_"` for Python; a backslash in a TOML string is written `\\`). A commit body line `No new test: <reason>` lets
   a change through and prints the reason. Run it from the project's check; in CI the checkout
   needs the default branch fetched (`fetch-depth: 0`, or a fetch of that branch) for the diff.

@@ -18,6 +18,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `scripts/release-notes.sh` | what shipped between two refs; `--archive` into `CHANGELOG.md` |
 | `scripts/loop-kit-sync.sh` | keeps a project's copies of these files in step with the kit |
 | `scripts/proof-gate.sh` | fails a change to code that brings no change to a test, fixture, or check |
+| `scripts/coverage-ratchet.sh` | fails when the project's coverage figure is below the committed floor; `--set` raises the floor |
 | `prompts/next-ticket.md` | the prompt that takes the next ticket to done |
 | `prompts/grill-me.md` | the prompt that turns a loose idea into stories and tickets |
 | `AGENTS.md` | the standing instructions: the loop section, then an empty Project rules |
@@ -51,6 +52,12 @@ them all plus the install (CI runs the same script).
   `"@Test"` for Java, `"def test_"` for Python; a backslash in a TOML string is written `\\`). A commit body line `No new test: <reason>` lets
   a change through and prints the reason. Run it from the project's check; in CI the checkout
   needs the default branch fetched (`fetch-depth: 0`, or a fetch of that branch) for the diff.
+- **The coverage ratchet** keeps the test suite from eroding: `coverage` in `.loop.toml` is
+  a command whose output ends in one percentage (cargo-llvm-cov, JaCoCo, coverage.py, or
+  anything else, wrapped to print the figure), and `scripts/coverage-ratchet.sh` fails when
+  that figure is below the number in `coverage_floor` (default `coverage-floor.txt`, committed).
+  Above the floor it passes and names the new floor; the ticket that raised coverage records it
+  with `--set` in the same commit. The comparison is exact, so the floor only moves up.
 
 ## Installing it in a project
 

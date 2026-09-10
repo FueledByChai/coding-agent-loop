@@ -80,7 +80,7 @@ self_test() {
   echo "$out" | grep -q '^installed: .github/workflows/loop.yml' || { echo "self-test: the workflow should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .agent/commands/' || { echo "self-test: the wrappers should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '(present)' || { echo "self-test: the stub check should be reported present:"; echo "$out"; exit 1; }
-  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate; do
+  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet; do
     [ -x "$dir/scripts/$f.sh" ] || { echo "self-test: scripts/$f.sh missing or not executable"; exit 1; }
   done
   [ -e "$dir/loop/prompts/next-ticket.md" ] && [ -e "$dir/loop/prompts/grill-me.md" ] || { echo "self-test: prompts missing"; exit 1; }

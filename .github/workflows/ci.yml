@@ -1,0 +1,17 @@
+name: CI
+
+# The kit's definition of done, the same script a developer runs locally (check.sh): every
+# script's self-test and the install into a fresh repository.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: Check (check.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./check.sh

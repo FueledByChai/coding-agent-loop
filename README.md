@@ -25,8 +25,10 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `ci/ruleset.json` | the branch ruleset that makes merges wait for green, up-to-date CI |
 | `commands/*.md` | two-line wrappers for a harness with slash commands |
 | `install.sh` | copies all of the above into a checkout and says what is still missing |
+| `check.sh` | the kit's own check: every self-test, then an install into a fresh repository |
 
-Every script has a `--self-test`; a project's check runs them.
+Every script has a `--self-test`; a project's check runs them, and `./check.sh` here runs
+them all plus the install (CI runs the same script).
 
 ## How the loop works
 
@@ -46,7 +48,7 @@ Every script has a `--self-test`; a project's check runs them.
 ## Installing it in a project
 
 ```bash
-git clone <this repository> /tmp/loop-kit
+git clone https://github.com/FueledByChai/coding-agent-loop /tmp/loop-kit
 /tmp/loop-kit/install.sh /path/to/your/checkout [--commands <dir>]
 ```
 

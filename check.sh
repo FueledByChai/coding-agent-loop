@@ -5,7 +5,7 @@
 # project's own check.
 set -euo pipefail
 cd "$(dirname "$0")"
-for script in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet; do
+for script in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status; do
   "scripts/$script.sh" --self-test
 done
 ./install.sh --self-test

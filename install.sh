@@ -48,7 +48,7 @@ install_into() {
   if [ -n "$commands" ]; then
     mkdir -p "$target/$commands"
     for f in "$KIT"/commands/*.md; do cp "$f" "$target/$commands/"; done
-    echo "installed: $commands/{next-ticket,grill-me}.md wrappers"
+    echo "installed: $commands/{next-ticket,grill-me,review-prs}.md wrappers"
   fi
   if [ ! -e "$target/$(basename "$(cd "$target" && "$target/scripts/loop-config.sh" backlog)")" ]; then
     echo "note: the backlog file ($(cd "$target" && "$target/scripts/loop-config.sh" backlog)) does not exist yet; create it with a heading per section and a ticket per '### <ID> <title>'"
@@ -80,7 +80,7 @@ self_test() {
   echo "$out" | grep -q '^installed: .github/workflows/loop.yml' || { echo "self-test: the workflow should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .agent/commands/' || { echo "self-test: the wrappers should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '(present)' || { echo "self-test: the stub check should be reported present:"; echo "$out"; exit 1; }
-  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet; do
+  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status; do
     [ -x "$dir/scripts/$f.sh" ] || { echo "self-test: scripts/$f.sh missing or not executable"; exit 1; }
   done
   [ -e "$dir/loop/prompts/next-ticket.md" ] && [ -e "$dir/loop/prompts/grill-me.md" ] || { echo "self-test: prompts missing"; exit 1; }

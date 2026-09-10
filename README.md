@@ -19,6 +19,8 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `scripts/loop-kit-sync.sh` | keeps a project's copies of these files in step with the kit |
 | `scripts/proof-gate.sh` | fails a change to code that brings no change to a test, fixture, or check |
 | `scripts/coverage-ratchet.sh` | fails when the project's coverage figure is below the committed floor; `--set` raises the floor |
+| `scripts/review-status.sh` | lists pull requests awaiting the agent review (`--pending`) and posts its verdict as a commit status |
+| `prompts/review-prs.md` | the prompt that reviews pending pull requests against their ticket and the Project rules |
 | `prompts/next-ticket.md` | the prompt that takes the next ticket to done |
 | `prompts/grill-me.md` | the prompt that turns a loose idea into stories and tickets |
 | `AGENTS.md` | the standing instructions: the loop section, then an empty Project rules |
@@ -59,6 +61,29 @@ them all plus the install (CI runs the same script).
   Above the floor it passes and names the new floor; the ticket that raised coverage records it
   with `--set` in the same commit. The comparison is exact, so the floor only moves up.
 
+## Reviewing pull requests
+
+A green build is not a review. `prompts/review-prs.md` has an agent review every open pull
+request whose head commit carries no review status yet: it reads the ticket the title names
+(its done line), the diff, and the Project rules, posts one review comment with its findings,
+and posts a commit status (`review_context` in `.loop.toml`, default `Agent review`) through
+`scripts/review-status.sh`. The status is red only for a missing proof, an unmet done line,
+a Project-rules breach, or a defect named with file and line; everything else is a comment.
+Add the context to the branch ruleset's required status checks and auto-merge waits for it.
+Run the prompt from a schedule on a machine with the owner's agent subscription (every ten
+minutes is plenty): each head is reviewed once, a new push gets a fresh review, and no API
+key has to live on GitHub.
+
+When the review is wrong, the owner overrides it with a reason, which is recorded in the
+status and its history:
+
+```bash
+scripts/review-status.sh <sha> pass "override: <reason>"
+```
+
+`--pending` shows what is waiting; `gh api repos/<owner>/<repo>/commits/<sha>/status` shows
+what was posted.
+
 ## Installing it in a project
 
 ```bash
@@ -69,7 +94,7 @@ git clone https://github.com/FueledByChai/coding-agent-loop /tmp/loop-kit
 `install.sh` copies the scripts into `scripts/`, the prompts into `loop/prompts/`, writes
 `AGENTS.md` and `.loop.toml` when they do not exist (it never overwrites either), puts the
 workflow skeleton at `.github/workflows/loop.yml` when there is no workflow yet, and, with
-`--commands <dir>`, writes the two wrappers into the harness's command directory. Then it
+`--commands <dir>`, writes the three wrappers into the harness's command directory. Then it
 prints what the project still has to supply:
 
 1. `scripts/check.sh`: the definition of done, exit non-zero on anything not shippable. The

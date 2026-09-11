@@ -26,6 +26,8 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `prompts/review-prs.md` | the prompt that reviews pending pull requests against their ticket and the Project rules |
 | `prompts/next-ticket.md` | the prompt that takes the next ticket to done |
 | `prompts/grill-me.md` | the prompt that turns a loose idea into stories and tickets |
+| `prompts/grill-project.md` | the first-day interview: Project rules, decision records, first epics, and a check skeleton |
+| `templates/check/*.sh` | check skeletons per stack (Rust, Python, Node, Java, Go, other) that pass on an empty repository |
 | `AGENTS.md` | the standing instructions: the loop section, then an empty Project rules |
 | `loop.toml.example` | a `.loop.toml` to copy and fill in |
 | `ci/workflow.yml` | a workflow skeleton: one job per check command |
@@ -112,6 +114,18 @@ scripts/review-status.sh <sha> pass "override: <reason>"
 `--pending` shows what is waiting; `gh api repos/<owner>/<repo>/commits/<sha>/status` shows
 what was posted.
 
+## Starting a project
+
+On a new repository run `install.sh`, then the `grill-project` prompt. It interviews you in
+five rounds, one area each (who and where; the data; runtime and deploy; the UI;
+non-negotiables), and each area ends in a decision record or a dated deferral, never a guess.
+Then it writes the Project rules section of `AGENTS.md`, the records, a product backlog with
+the first epics, the ticket file with a first ticket, `.loop.toml`, and `scripts/check.sh`
+from the skeleton for your stack under `templates/check/` (Rust, Python, Node or TypeScript,
+Java with Maven or Gradle, Go; anything else gets a skeleton of TODO lines). The skeletons run
+the loop's own checks first and skip the stack steps until the manifest exists, so the check
+is green on day one and starts failing as code arrives. After that, `/next-ticket` works.
+
 ## Installing it in a project
 
 ```bash
@@ -122,7 +136,7 @@ git clone https://github.com/FueledByChai/coding-agent-loop /tmp/loop-kit
 `install.sh` copies the scripts into `scripts/`, the prompts into `loop/prompts/`, writes
 `AGENTS.md` and `.loop.toml` when they do not exist (it never overwrites either), puts the
 workflow skeleton at `.github/workflows/loop.yml` when there is no workflow yet, and, with
-`--commands <dir>`, writes the three wrappers into the harness's command directory. Then it
+`--commands <dir>`, writes the four wrappers into the harness's command directory. Then it
 prints what the project still has to supply:
 
 1. `scripts/check.sh`: the definition of done, exit non-zero on anything not shippable. The

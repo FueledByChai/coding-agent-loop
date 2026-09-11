@@ -25,7 +25,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `templates/decision.md` | the decision record: Context, Decision, Alternatives, Consequences, what would show it was wrong |
 | `prompts/review-prs.md` | the prompt that reviews pending pull requests against their ticket and the Project rules |
 | `prompts/next-ticket.md` | the prompt that takes the next ticket to done |
-| `prompts/grill-me.md` | the prompt that turns a loose idea into stories and tickets |
+| `prompts/grill-me.md` | the prompt that turns a loose idea into stories and tickets, with a text wireframe for every story that touches a screen |
 | `prompts/grill-project.md` | the first-day interview: Project rules, decision records, first epics, and a check skeleton |
 | `templates/check/*.sh` | check skeletons per stack (Rust, Python, Node, Java, Go, other) that pass on an empty repository |
 | `AGENTS.md` | the standing instructions: the loop section, then an empty Project rules |

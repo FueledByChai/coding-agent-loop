@@ -43,3 +43,7 @@ review_context = "Agent review"
 # Decision records (scripts/decisions.sh): one file per decision, numbered, never edited in
 # place; grill-me reads them before asking and writes one when a story needs a decision.
 decisions = "docs/decisions"
+# The sprint: the tickets chosen for now, in the order to work them. backlog-status.sh --next
+# takes the first ready one of these before falling back to file order; --sprint shows their
+# states. Choosing a sprint is a commit that edits this list; a ticket keeps no sprint state.
+sprint = []

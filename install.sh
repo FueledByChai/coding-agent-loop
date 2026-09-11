@@ -36,6 +36,13 @@ install_into() {
   else
     cp "$KIT/AGENTS.md" "$target/AGENTS.md"; echo "installed: AGENTS.md (fill in the Project rules)"
   fi
+  # Codex reads AGENTS.md on its own; Claude Code reads CLAUDE.md, so it gets a one-line
+  # pointer at the same file (HK-37).
+  if [ -e "$target/CLAUDE.md" ]; then
+    echo "kept: CLAUDE.md (already present; make sure it includes @AGENTS.md)"
+  else
+    printf '@AGENTS.md\n' > "$target/CLAUDE.md"; echo "installed: CLAUDE.md (@AGENTS.md, so Claude Code loads the same instructions Codex reads)"
+  fi
   if [ -e "$target/.loop.toml" ]; then
     echo "kept: .loop.toml (already present)"
   else
@@ -102,6 +109,8 @@ self_test() {
   (cd "$dir" && scripts/prompt-check.sh | grep -q 'rule(s) present') || { echo "self-test: the installed prompts should pass prompt-check"; exit 1; }
   [ -e "$dir/loop/prompts/next-ticket.md" ] && [ -e "$dir/loop/prompts/grill-me.md" ] || { echo "self-test: prompts missing"; exit 1; }
   grep -q '^## Project rules' "$dir/AGENTS.md" || { echo "self-test: AGENTS.md lacks the Project rules heading"; exit 1; }
+  echo "$out" | grep -q '^installed: CLAUDE.md' || { echo "self-test: CLAUDE.md should be installed:"; echo "$out"; exit 1; }
+  [ "$(cat "$dir/CLAUDE.md")" = "@AGENTS.md" ] || { echo "self-test: CLAUDE.md should be the one line @AGENTS.md"; exit 1; }
   # The installed scripts prove themselves from the fresh repository.
   (cd "$dir" && scripts/loop-config.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed loop-config self-test failed"; exit 1; }
   (cd "$dir" && scripts/backlog-status.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed backlog-status self-test failed"; exit 1; }
@@ -110,6 +119,7 @@ self_test() {
   # Installing again keeps what exists.
   out="$("$KIT/install.sh" "$dir")"
   echo "$out" | grep -q '^kept: AGENTS.md' || { echo "self-test: a second install must keep AGENTS.md:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q '^kept: CLAUDE.md' || { echo "self-test: a second install must keep CLAUDE.md:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^kept: .loop.toml' || { echo "self-test: a second install must keep .loop.toml:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^kept: .github/workflows' || { echo "self-test: a second install must keep the workflow:"; echo "$out"; exit 1; }
   echo "install self-test passed"

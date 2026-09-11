@@ -25,12 +25,13 @@ install_into() {
   local target="$1" commands="$2" f
   [ -d "$target" ] || { echo "no such directory: $target" >&2; return 1; }
   target="$(cd "$target" && pwd)"
-  mkdir -p "$target/scripts" "$target/loop/prompts" "$target/loop/templates/check"
+  mkdir -p "$target/scripts" "$target/loop/prompts" "$target/loop/templates/check" "$target/loop/templates/ci"
   for f in "$KIT"/scripts/*.sh; do cp "$f" "$target/scripts/"; chmod +x "$target/scripts/$(basename "$f")"; done
   for f in "$KIT"/prompts/*.md; do cp "$f" "$target/loop/prompts/"; done
   for f in "$KIT"/templates/*.md; do cp "$f" "$target/loop/templates/"; done
   for f in "$KIT"/templates/check/*.sh; do cp "$f" "$target/loop/templates/check/"; done
-  echo "installed: scripts/{$(cd "$KIT/scripts" && ls *.sh | sed 's/\.sh$//' | tr '\n' ',' | sed 's/,$//')}.sh, loop/prompts/*.md, loop/templates/*.md, and loop/templates/check/*.sh"
+  for f in "$KIT"/templates/ci/*.yml; do cp "$f" "$target/loop/templates/ci/"; done
+  echo "installed: scripts/{$(cd "$KIT/scripts" && ls *.sh | sed 's/\.sh$//' | tr '\n' ',' | sed 's/,$//')}.sh, loop/prompts/*.md, loop/templates/*.md, loop/templates/check/*.sh, and loop/templates/ci/*.yml"
   if [ -e "$target/AGENTS.md" ]; then
     echo "kept: AGENTS.md (already present; compare its loop section with the kit's when you update)"
   else
@@ -98,6 +99,22 @@ self_test() {
   done
   [ -f "$dir/loop/templates/decision.md" ] || { echo "self-test: the decision template should be installed"; exit 1; }
   for f in common rust python node java go other; do [ -f "$dir/loop/templates/check/$f.sh" ] || { echo "self-test: the $f check skeleton should be installed"; exit 1; }; done
+  for f in rust python node java go other; do [ -f "$dir/loop/templates/ci/$f.yml" ] || { echo "self-test: the $f CI snippet should be installed"; exit 1; }; done
+  # Each CI snippet spliced into the workflow skeleton where grill-project puts it (between
+  # the checkout step and the run line) is a workflow a YAML parser accepts, with the check
+  # still the last step (HK-38). ruby ships with YAML on macOS and the GitHub runners;
+  # python's yaml is the fallback.
+  local parser=""
+  if ruby -ryaml -e 'exit 0' >/dev/null 2>&1; then parser=ruby; elif python3 -c 'import yaml' >/dev/null 2>&1; then parser=python; fi
+  for f in rust python node java go other; do
+    awk -v snip="$dir/loop/templates/ci/$f.yml" '{print} /uses: actions\/checkout/ {while ((getline line < snip) > 0) if (line !~ /^#/) print line}' "$dir/.github/workflows/loop.yml" > "$dir/loop-$f.yml"
+    grep -q 'run: scripts/check.sh' "$dir/loop-$f.yml" || { echo "self-test: the spliced $f workflow lost the check step"; exit 1; }
+    case "$parser" in
+      ruby) ruby -ryaml -e 'w = YAML.safe_load(File.read(ARGV[0])); s = w["jobs"]["check"]["steps"]; abort("steps") unless s.length >= 3 && s.last["run"] == "scripts/check.sh"' "$dir/loop-$f.yml" || { echo "self-test: the spliced $f workflow should parse with the check last:"; cat "$dir/loop-$f.yml"; exit 1; } ;;
+      python) python3 -c 'import sys, yaml; w = yaml.safe_load(open(sys.argv[1])); s = w["jobs"]["check"]["steps"]; assert len(s) >= 3 and s[-1]["run"] == "scripts/check.sh"' "$dir/loop-$f.yml" || { echo "self-test: the spliced $f workflow should parse with the check last:"; cat "$dir/loop-$f.yml"; exit 1; } ;;
+      *) echo "self-test: no YAML parser (ruby or python yaml); the spliced workflows were not parsed" ;;
+    esac
+  done
   [ -f "$dir/.agent/commands/grill-project.md" ] || { echo "self-test: the grill-project wrapper should be installed"; exit 1; }
   # Every skeleton runs green on the empty repository (the loop's checks pass, the stack steps skip).
   for f in rust python node java go other; do

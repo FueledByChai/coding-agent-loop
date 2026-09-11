@@ -28,6 +28,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `prompts/grill-me.md` | the prompt that turns a loose idea into stories and tickets, with a text wireframe for every story that touches a screen |
 | `prompts/grill-project.md` | the first-day interview: Project rules, decision records, first epics, and a check skeleton |
 | `templates/check/*.sh` | check skeletons per stack (Rust, Python, Node, Java, Go, other) that pass on an empty repository |
+| `templates/ci/*.yml` | the CI toolchain steps per stack that grill-project splices into the workflow |
 | `AGENTS.md` | the standing instructions: the loop section, then an empty Project rules |
 | `loop.toml.example` | a `.loop.toml` to copy and fill in |
 | `ci/workflow.yml` | a workflow skeleton: one job per check command |
@@ -124,7 +125,9 @@ the first epics, the ticket file with a first ticket, `.loop.toml`, and `scripts
 from the skeleton for your stack under `templates/check/` (Rust, Python, Node or TypeScript,
 Java with Maven or Gradle, Go; anything else gets a skeleton of TODO lines). The skeletons run
 the loop's own checks first and skip the stack steps until the manifest exists, so the check
-is green on day one and starts failing as code arrives. After that, `/next-ticket` works.
+is green on day one and starts failing as code arrives. The workflow gets the stack's
+toolchain steps from `templates/ci/` the same way, so the first real ticket does not fail in
+CI for want of a toolchain. After that, `/next-ticket` works.
 
 ## Installing it in a project
 

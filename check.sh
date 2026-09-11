@@ -5,8 +5,10 @@
 # project's own check.
 set -euo pipefail
 cd "$(dirname "$0")"
-for script in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status; do
+for script in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check; do
   "scripts/$script.sh" --self-test
 done
+# The prompts carry their rules: a phrase that states a rule may not be edited away.
+scripts/prompt-check.sh
 ./install.sh --self-test
 echo "KIT CHECKS PASSED"

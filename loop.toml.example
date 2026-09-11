@@ -40,3 +40,6 @@ coverage_slack = "0"
 # posts on each pull request's head; add it to the branch ruleset's required checks so a
 # merge waits for the review.
 review_context = "Agent review"
+# Decision records (scripts/decisions.sh): one file per decision, numbered, never edited in
+# place; grill-me reads them before asking and writes one when a story needs a decision.
+decisions = "docs/decisions"

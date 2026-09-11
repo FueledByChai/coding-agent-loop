@@ -25,10 +25,11 @@ install_into() {
   local target="$1" commands="$2" f
   [ -d "$target" ] || { echo "no such directory: $target" >&2; return 1; }
   target="$(cd "$target" && pwd)"
-  mkdir -p "$target/scripts" "$target/loop/prompts"
+  mkdir -p "$target/scripts" "$target/loop/prompts" "$target/loop/templates"
   for f in "$KIT"/scripts/*.sh; do cp "$f" "$target/scripts/"; chmod +x "$target/scripts/$(basename "$f")"; done
   for f in "$KIT"/prompts/*.md; do cp "$f" "$target/loop/prompts/"; done
-  echo "installed: scripts/{$(cd "$KIT/scripts" && ls *.sh | sed 's/\.sh$//' | tr '\n' ',' | sed 's/,$//')}.sh and loop/prompts/*.md"
+  for f in "$KIT"/templates/*.md; do cp "$f" "$target/loop/templates/"; done
+  echo "installed: scripts/{$(cd "$KIT/scripts" && ls *.sh | sed 's/\.sh$//' | tr '\n' ',' | sed 's/,$//')}.sh, loop/prompts/*.md, and loop/templates/*.md"
   if [ -e "$target/AGENTS.md" ]; then
     echo "kept: AGENTS.md (already present; compare its loop section with the kit's when you update)"
   else
@@ -59,7 +60,8 @@ Still to supply:
   1. scripts/check.sh: the definition of done for this project (exit non-zero on anything not
      shippable; run the loop self-tests from it: scripts/loop-config.sh --self-test,
      scripts/backlog-status.sh --self-test, scripts/open-ticket-pr.sh --self-test,
-     scripts/release-notes.sh --self-test, scripts/loop-kit-sync.sh --check).
+     scripts/release-notes.sh --self-test, scripts/loop-kit-sync.sh --check,
+     scripts/decisions.sh --check, scripts/prompt-check.sh).
      $( [ -x "$target/scripts/check.sh" ] && echo "(present)" || echo "(missing)" )
   2. Optionally a deploy script, if a merged PR should reach a running service on its own.
   3. The repository settings and branch ruleset, once, with gh (see README.md and ci/ruleset.json).
@@ -80,9 +82,12 @@ self_test() {
   echo "$out" | grep -q '^installed: .github/workflows/loop.yml' || { echo "self-test: the workflow should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .agent/commands/' || { echo "self-test: the wrappers should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '(present)' || { echo "self-test: the stub check should be reported present:"; echo "$out"; exit 1; }
-  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status; do
+  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check; do
     [ -x "$dir/scripts/$f.sh" ] || { echo "self-test: scripts/$f.sh missing or not executable"; exit 1; }
   done
+  [ -f "$dir/loop/templates/decision.md" ] || { echo "self-test: the decision template should be installed"; exit 1; }
+  (cd "$dir" && scripts/decisions.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed decisions self-test failed"; exit 1; }
+  (cd "$dir" && scripts/prompt-check.sh | grep -q 'rule(s) present') || { echo "self-test: the installed prompts should pass prompt-check"; exit 1; }
   [ -e "$dir/loop/prompts/next-ticket.md" ] && [ -e "$dir/loop/prompts/grill-me.md" ] || { echo "self-test: prompts missing"; exit 1; }
   grep -q '^## Project rules' "$dir/AGENTS.md" || { echo "self-test: AGENTS.md lacks the Project rules heading"; exit 1; }
   # The installed scripts prove themselves from the fresh repository.

@@ -20,6 +20,9 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `scripts/proof-gate.sh` | fails a change to code that brings no change to a test, fixture, or check |
 | `scripts/coverage-ratchet.sh` | fails when the project's coverage figure is below the committed floor; `--set` raises the floor |
 | `scripts/review-status.sh` | lists pull requests awaiting the agent review (`--pending`) and posts its verdict as a commit status |
+| `scripts/decisions.sh` | decision records: `new "<title>" [--supersedes NNNN]`, `index`, `--check` |
+| `scripts/prompt-check.sh` | fails when a prompt no longer carries a phrase that states one of its rules |
+| `templates/decision.md` | the decision record: Context, Decision, Alternatives, Consequences, what would show it was wrong |
 | `prompts/review-prs.md` | the prompt that reviews pending pull requests against their ticket and the Project rules |
 | `prompts/next-ticket.md` | the prompt that takes the next ticket to done |
 | `prompts/grill-me.md` | the prompt that turns a loose idea into stories and tickets |
@@ -67,6 +70,24 @@ them all plus the install (CI runs the same script).
   with `--set` in the same commit, so the floor only moves up. `coverage_slack` (default 0)
   absorbs run-to-run jitter: a measurement within the slack below the floor passes, and a
   raise is suggested only when it clears the floor by more than the slack.
+
+## Deciding things once
+
+An architecture or product decision is not a story and not a ticket: it is a choice with
+alternatives, a reason, and consequences, and it needs writing down once where every later
+story and every agent can cite it. `scripts/decisions.sh new "<title>"` creates the next
+numbered record in the decisions directory (`decisions` in `.loop.toml`, `docs/decisions` by
+default) from `templates/decision.md`; the record is never edited in place, a change is a new
+record with `--supersedes NNNN`, and `index` keeps `README.md` there listing them. `--check`
+fails when a record lacks a section or the index is out of step; run it from the project's
+check. `prompts/grill-me.md` reads the index before asking anything, stops to write a record
+when a story implies a decision none covers, asks which wins when a story contradicts one,
+and cites the records in every ticket.
+
+A prompt cannot be unit-tested, so its rules are asserted instead: `scripts/prompt-check.sh`
+fails when a prompt no longer contains a phrase that states one of its rules ("at least three
+rounds", "docs/decisions", "superseding", ...). The other half of a prompt's proof is a recorded
+real run in the pull request that changed it.
 
 ## Reviewing pull requests
 

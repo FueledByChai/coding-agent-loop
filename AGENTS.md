@@ -43,6 +43,11 @@ below it are this project's own and are what the loop prompts mean when they say
   from one (see the project rules for what it resolves).
 - **Releases.** Tag them: `scripts/release-notes.sh <from> <to>` lists what shipped, and
   `--archive <tag>` moves the shipped tickets out of the backlog into `CHANGELOG.md`.
+- **Decisions.** Architecture and product decisions live as records in the decisions
+  directory (`decisions` in `.loop.toml`, `docs/decisions` by default), one numbered file each,
+  never edited in place; a change is a new record that supersedes the old
+  (`scripts/decisions.sh new "<title>" [--supersedes NNNN]`). Read the index before deciding
+  anything; cite records by number; write one when a choice is made.
 - **Prompts.** `loop/prompts/next-ticket.md` takes the next ticket to done;
   `loop/prompts/grill-me.md` turns a loose idea into stories, acceptance criteria, and
   tickets; `loop/prompts/review-prs.md` reviews the open pull requests and posts the

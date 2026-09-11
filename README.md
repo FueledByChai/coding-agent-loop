@@ -49,6 +49,10 @@ them all plus the install (CI runs the same script).
   id is on the default branch. The file carries only claims: `doing` and `blocked <reason>`.
 - **Claims** are `ticket/<id>` branches on origin. `--next` passes over claimed ids, so
   several agents can hold several tickets.
+- **The sprint** is `sprint = [...]` in `.loop.toml`: the tickets chosen for now, in order.
+  `--next` takes the first ready one of them before file order, `--sprint` shows their
+  states, and choosing a sprint is a commit that edits the list. Tickets carry no sprint
+  state, so a sprint change forgets nothing.
 - **Hand-off** is a pull request from that branch. A green PR that is up to date with the
   default branch merges on its own; one that touches a `review_paths` entry is labelled
   `needs-review` and waits for a person.

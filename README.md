@@ -52,8 +52,10 @@ them all plus the install (CI runs the same script).
   `proof_pattern` set in `.loop.toml`, `scripts/proof-gate.sh` fails when a code file changed
   and no proof path changed and no added line in a code file matches the pattern (`"#\\[test\\]"` for Rust,
   `"@Test"` for Java, `"def test_"` for Python; a backslash in a TOML string is written `\\`). A commit body line `No new test: <reason>` lets
-  a change through and prints the reason. Run it from the project's check; in CI the checkout
-  needs the default branch fetched (`fetch-depth: 0`, or a fetch of that branch) for the diff.
+  a change through and prints the reason. It judges the working tree, uncommitted and
+  untracked files included, against where the branch left the default branch, so a check run
+  before the commit exercises it. Run it from the project's check; in CI the checkout needs
+  the default branch fetched (`fetch-depth: 0`, or a fetch of that branch) for the diff.
   `scripts/proof-gate.sh --code-changed` is the query on its own (exit 1 when no code path
   changed), so a check can skip work only code can move, such as the coverage ratchet, on a
   docs-only branch.

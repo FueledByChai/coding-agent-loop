@@ -92,7 +92,7 @@ case "$cmd" in
     me="$ROOT/scripts/sprint.sh"
     (cd "$dir" && git init -q && git config user.email t@example.com && git config user.name t
      printf '# Queue\n\n## Alpha\n\n### AA-01 First\n### AA-02 Second\n### AA-03 Third\n' > BACKLOG.md
-     git add -A && git commit -q -m "Scaffold" && git commit -q --allow-empty -m "AA-03: third landed")
+     git add -A && git commit -q -m "Scaffold" && git branch -q -M main && git commit -q --allow-empty -m "AA-03: third landed")
     printf '[loop]\ndefault_branch = "main"\n' > "$dir/.loop.toml"
     export LOOP_CONFIG="$dir/.loop.toml"
     out="$("$me" add AA-01)"; [ "$out" = "sprint: AA-01" ] || { echo "self-test: add should start the list: $out"; exit 1; }

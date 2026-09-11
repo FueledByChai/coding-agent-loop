@@ -50,7 +50,9 @@ below it are this project's own and are what the loop prompts mean when they say
   anything; cite records by number; write one when a choice is made.
 - **Prompts.** `loop/prompts/next-ticket.md` takes the next ticket to done;
   `loop/prompts/grill-me.md` turns a loose idea into stories, acceptance criteria, and
-  tickets; `loop/prompts/review-prs.md` reviews the open pull requests and posts the
+  tickets; `loop/prompts/grill-project.md` is the first-day interview that writes the
+  Project rules, the decision records, the first epics, and the check skeleton for a new
+  project; `loop/prompts/review-prs.md` reviews the open pull requests and posts the
   `review_context` status the branch rules require (red only for a missing proof, an unmet
   done line, a rules breach, or a named defect). A harness with slash commands wraps them
   in its command directory; any other agent is pointed at the prompt file directly.

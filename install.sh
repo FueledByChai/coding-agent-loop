@@ -25,11 +25,12 @@ install_into() {
   local target="$1" commands="$2" f
   [ -d "$target" ] || { echo "no such directory: $target" >&2; return 1; }
   target="$(cd "$target" && pwd)"
-  mkdir -p "$target/scripts" "$target/loop/prompts" "$target/loop/templates"
+  mkdir -p "$target/scripts" "$target/loop/prompts" "$target/loop/templates/check"
   for f in "$KIT"/scripts/*.sh; do cp "$f" "$target/scripts/"; chmod +x "$target/scripts/$(basename "$f")"; done
   for f in "$KIT"/prompts/*.md; do cp "$f" "$target/loop/prompts/"; done
   for f in "$KIT"/templates/*.md; do cp "$f" "$target/loop/templates/"; done
-  echo "installed: scripts/{$(cd "$KIT/scripts" && ls *.sh | sed 's/\.sh$//' | tr '\n' ',' | sed 's/,$//')}.sh, loop/prompts/*.md, and loop/templates/*.md"
+  for f in "$KIT"/templates/check/*.sh; do cp "$f" "$target/loop/templates/check/"; done
+  echo "installed: scripts/{$(cd "$KIT/scripts" && ls *.sh | sed 's/\.sh$//' | tr '\n' ',' | sed 's/,$//')}.sh, loop/prompts/*.md, loop/templates/*.md, and loop/templates/check/*.sh"
   if [ -e "$target/AGENTS.md" ]; then
     echo "kept: AGENTS.md (already present; compare its loop section with the kit's when you update)"
   else
@@ -49,7 +50,7 @@ install_into() {
   if [ -n "$commands" ]; then
     mkdir -p "$target/$commands"
     for f in "$KIT"/commands/*.md; do cp "$f" "$target/$commands/"; done
-    echo "installed: $commands/{next-ticket,grill-me,review-prs}.md wrappers"
+    echo "installed: $commands/{next-ticket,grill-me,review-prs,grill-project}.md wrappers"
   fi
   if [ ! -e "$target/$(basename "$(cd "$target" && "$target/scripts/loop-config.sh" backlog)")" ]; then
     echo "note: the backlog file ($(cd "$target" && "$target/scripts/loop-config.sh" backlog)) does not exist yet; create it with a heading per section and a ticket per '### <ID> <title>'"
@@ -58,14 +59,17 @@ install_into() {
 
 Still to supply:
   1. scripts/check.sh: the definition of done for this project (exit non-zero on anything not
-     shippable; run the loop self-tests from it: scripts/loop-config.sh --self-test,
+     shippable). On a new project run the grill-project prompt first: it interviews you and
+     writes it from the skeleton for your stack (loop/templates/check/), along with the
+     Project rules, the decision records, and the first epics. On an existing project write
+     it by hand and run the loop self-tests from it (scripts/loop-config.sh --self-test,
      scripts/backlog-status.sh --self-test, scripts/open-ticket-pr.sh --self-test,
      scripts/release-notes.sh --self-test, scripts/loop-kit-sync.sh --check,
      scripts/decisions.sh --check, scripts/prompt-check.sh).
      $( [ -x "$target/scripts/check.sh" ] && echo "(present)" || echo "(missing)" )
   2. Optionally a deploy script, if a merged PR should reach a running service on its own.
   3. The repository settings and branch ruleset, once, with gh (see README.md and ci/ruleset.json).
-  4. The Project rules section of AGENTS.md.
+  4. The Project rules section of AGENTS.md (grill-project writes it on a new project).
 EOF
 }
 
@@ -86,6 +90,14 @@ self_test() {
     [ -x "$dir/scripts/$f.sh" ] || { echo "self-test: scripts/$f.sh missing or not executable"; exit 1; }
   done
   [ -f "$dir/loop/templates/decision.md" ] || { echo "self-test: the decision template should be installed"; exit 1; }
+  for f in common rust python node java go other; do [ -f "$dir/loop/templates/check/$f.sh" ] || { echo "self-test: the $f check skeleton should be installed"; exit 1; }; done
+  [ -f "$dir/.agent/commands/grill-project.md" ] || { echo "self-test: the grill-project wrapper should be installed"; exit 1; }
+  # Every skeleton runs green on the empty repository (the loop's checks pass, the stack steps skip).
+  for f in rust python node java go other; do
+    cp "$dir/loop/templates/check/$f.sh" "$dir/scripts/check.sh"; chmod +x "$dir/scripts/check.sh"
+    (cd "$dir" && scripts/check.sh > "$dir/check-$f.log" 2>&1) || { echo "self-test: the $f skeleton should pass on an empty repository:"; tail -15 "$dir/check-$f.log"; exit 1; }
+    grep -q 'ALL CHECKS PASSED' "$dir/check-$f.log" || { echo "self-test: the $f skeleton should print the pass line"; exit 1; }
+  done
   (cd "$dir" && scripts/decisions.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed decisions self-test failed"; exit 1; }
   (cd "$dir" && scripts/prompt-check.sh | grep -q 'rule(s) present') || { echo "self-test: the installed prompts should pass prompt-check"; exit 1; }
   [ -e "$dir/loop/prompts/next-ticket.md" ] && [ -e "$dir/loop/prompts/grill-me.md" ] || { echo "self-test: prompts missing"; exit 1; }

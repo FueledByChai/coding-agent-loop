@@ -54,6 +54,9 @@ them all plus the install (CI runs the same script).
   `"@Test"` for Java, `"def test_"` for Python; a backslash in a TOML string is written `\\`). A commit body line `No new test: <reason>` lets
   a change through and prints the reason. Run it from the project's check; in CI the checkout
   needs the default branch fetched (`fetch-depth: 0`, or a fetch of that branch) for the diff.
+  `scripts/proof-gate.sh --code-changed` is the query on its own (exit 1 when no code path
+  changed), so a check can skip work only code can move, such as the coverage ratchet, on a
+  docs-only branch.
 - **The coverage ratchet** keeps the test suite from eroding: `coverage` in `.loop.toml` is
   a command whose output ends in one percentage (cargo-llvm-cov, JaCoCo, coverage.py, or
   anything else, wrapped to print the figure), and `scripts/coverage-ratchet.sh` fails when

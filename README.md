@@ -61,7 +61,9 @@ them all plus the install (CI runs the same script).
   and `--show <id>` prints a ticket or a story in full.
 - **Hand-off** is a pull request from that branch. A green PR that is up to date with the
   default branch merges on its own; one that touches a `review_paths` entry is labelled
-  `needs-review` and waits for a person.
+  `needs-review` and waits for a person. With several agents at once, each merge leaves the
+  other PRs behind the default branch: `scripts/open-ticket-pr.sh --update-all` rebases them,
+  and the review pass runs it first, so parallel lanes drain without a hand on the wheel.
 - **Done** means the project's check passes and the commit carries the proof. The check is
   the project's own script; CI runs the same script.
 - **The proof gate** makes "carries the proof" a check: with `code_paths`, `proof_paths`, and

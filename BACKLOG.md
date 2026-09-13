@@ -150,7 +150,7 @@ and when the index omits a record, and passes on the kit's own records; `install
 self-test still passes, since a freshly installed project has no records for it to check.
 
 ### LK-06 The kit's ruleset requires the agent review — Blocked by LK-09
-`ci/ruleset.json` names one required status, `Check (scripts/check.sh)`, and Tessera's ruleset
+`.github/ruleset.json` (LK-13) names one required status, `Check (check.sh)`, and Tessera's ruleset
 also waits for the agent review. `prompts/review-prs.md` reviews every open pull request whose
 head carries no review status, but it runs from a schedule on a machine with the owner's
 subscription and nothing runs it for this repository yet — so requiring its status before
@@ -184,8 +184,8 @@ carries their bodies under the archive tag; and `scripts/backlog-status.sh --spr
 no HK-41.
 
 ### LK-09 The repository's branch ruleset is applied, and auto-merge is on — Blocked by LK-13
-`ci/ruleset.json` and the README's setup commands exist, but this repository has none of them
-applied: `gh api repos/FueledByChai/coding-agent-loop/rulesets` is empty, `allow_auto_merge` is
+`.github/ruleset.json` (LK-13) and the README's setup commands exist, but this repository has none
+of them applied: `gh api repos/FueledByChai/coding-agent-loop/rulesets` is empty, `allow_auto_merge` is
 false, `allow_merge_commit` and `allow_squash_merge` are still true, and
 `delete_branch_on_merge` is false — so nothing gates a merge, and `--auto` is worse than useless:
 with auto-merge disabled it does not arm anything, it merges on the spot. Both pull requests this
@@ -198,8 +198,10 @@ documents:
 `gh api -X PATCH repos/FueledByChai/coding-agent-loop -F allow_auto_merge=true -F
 delete_branch_on_merge=true -F allow_merge_commit=false -F allow_squash_merge=false -F
 allow_rebase_merge=true`, then `gh api -X POST repos/FueledByChai/coding-agent-loop/rulesets
---input ci/ruleset.json`. This is the prerequisite for LK-06, which extends the ruleset, and for
-the loop's own hand-off, whose merge policy arms auto-merge and has nothing to arm without it.
+--input .github/ruleset.json`, the file LK-13 gives this repository. It is not `ci/ruleset.json`,
+which has to keep the context a project's workflow reports. This is the prerequisite for LK-06,
+which extends the ruleset, and for the loop's own hand-off, whose merge policy arms auto-merge and
+has nothing to arm without it.
 **Done when:** `gh api repos/FueledByChai/coding-agent-loop` reports `allow_auto_merge: true`,
 `delete_branch_on_merge: true`, `allow_merge_commit: false`, `allow_squash_merge: false`, and
 `allow_rebase_merge: true`; `gh api repos/FueledByChai/coding-agent-loop/rulesets` lists the
@@ -245,12 +247,17 @@ hand-written sibling of that template rather than a copy of it, and nothing comp
 file is being asked to serve two repositories whose check scripts sit in different places, and
 neither the kit's check nor its CI notices when the pair drifts.
 
-Give this repository a ruleset whose context is the job it actually reports, keep the template
-matching the workflow the kit installs into projects, and make the pairing something the check
-tests rather than something a person is asked to look at. LK-06's paragraph and LK-09's done-when
-both quote the context; whichever of them lands after this one carries the corrected string.
-**Done when:** the ruleset file this repository applies names `Check (check.sh)` and not
-`Check (scripts/check.sh)`; `ci/ruleset.json` still names `Check (scripts/check.sh)` and still
-matches `ci/workflow.yml`, so nothing a project installs changes; and `./check.sh` fails when a
-ruleset file and the workflow it pairs with disagree, proved by a self-test that renames the job
-and one that renames the context.
+Give this repository its own ruleset at `.github/ruleset.json` — beside `.github/workflows/ci.yml`,
+the workflow it has to match, while `ci/ruleset.json` stays the template a project applies beside
+`ci/workflow.yml` — whose context is the job this repository actually reports, and make the pairing
+something the check tests rather than something a person is asked to look at. Naming the file is
+part of this ticket rather than a detail left open: LK-09's command and LK-06's paragraph each name
+a ruleset file and both land after this one, so the name has to be fixed before either can be
+written down correctly — LK-09's command still posts `ci/ruleset.json`, the very file this ticket
+says must keep the context that deadlocks this repository. `README.md`'s table and `AGENTS.md`'s
+`ci/` line then want a word about which file belongs to whom.
+**Done when:** `.github/ruleset.json` names `Check (check.sh)` and not
+`Check (scripts/check.sh)`, and is the file LK-09 applies; `ci/ruleset.json` still names
+`Check (scripts/check.sh)` and still matches `ci/workflow.yml`, so nothing a project installs
+changes; and `./check.sh` fails when a ruleset file and the workflow it pairs with disagree,
+proved by a self-test that renames the job and one that renames the context.

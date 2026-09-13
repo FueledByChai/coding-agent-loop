@@ -187,9 +187,14 @@ no HK-41.
 `ci/ruleset.json` and the README's setup commands exist, but this repository has none of them
 applied: `gh api repos/FueledByChai/coding-agent-loop/rulesets` is empty, `allow_auto_merge` is
 false, `allow_merge_commit` and `allow_squash_merge` are still true, and
-`delete_branch_on_merge` is false — so a pull request here merges on the button alone. PR #19
-merged while its `Check (scripts/check.sh)` run was still pending, and `gh pr merge --auto`
-silently did nothing because auto-merge is off. Apply what the README documents:
+`delete_branch_on_merge` is false — so nothing gates a merge, and `--auto` is worse than useless:
+with auto-merge disabled it does not arm anything, it merges on the spot. Both pull requests this
+repository has merged went in mid-check: PR #19 at 19:44:26Z, five seconds into a run that
+started at 19:44:21Z and finished green at 19:45:13Z, and PR #20 at 19:57:30Z, thirteen seconds
+into a run that started at 19:57:17Z and finished green at 19:58:06Z. The second was
+`gh pr merge 20 --auto --rebase`, which printed `✓ Rebased and merged pull request #20` — the
+flag the loop's merge policy depends on did the opposite of arming. Apply what the README
+documents:
 `gh api -X PATCH repos/FueledByChai/coding-agent-loop -F allow_auto_merge=true -F
 delete_branch_on_merge=true -F allow_merge_commit=false -F allow_squash_merge=false -F
 allow_rebase_merge=true`, then `gh api -X POST repos/FueledByChai/coding-agent-loop/rulesets

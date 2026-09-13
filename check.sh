@@ -10,5 +10,7 @@ for script in loop-config backlog-status open-ticket-pr release-notes loop-kit-s
 done
 # The prompts carry their rules: a phrase that states a rule may not be edited away.
 scripts/prompt-check.sh
+# The kit's records answer to the same sections and index a project's check demands of them.
+scripts/decisions.sh --check
 ./install.sh --self-test
 echo "KIT CHECKS PASSED"

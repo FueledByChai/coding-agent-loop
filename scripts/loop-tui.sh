@@ -18,14 +18,17 @@
 #
 # The data comes from the loop's own scripts, never from a second reading of the backlog:
 # scripts/backlog-status.sh --sprint gives the rows and the counts, --open what sits outside the
-# sprint, --stories the story line. Each call is a subprocess, and the one that resolves claims
-# reaches origin, so the frame makes three calls and no more — a frame per ticket would cost
-# about a second each (measured: scripts/backlog-status.sh --show is ~1.4s, mostly the fetch).
+# sprint, --stories the story line, and --next the ticket to work when the sprint holds nothing
+# ready. Each call is a subprocess, and the one that resolves claims reaches origin, so the frame
+# makes three calls, and a fourth only when the sprint has no ready ticket to name - a frame per
+# ticket would cost about a second each (measured: scripts/backlog-status.sh --show is ~1.4s,
+# mostly the fetch).
 #
 # The table columns are cut by position because that is how scripts/backlog-status.sh prints
 # them (%-6s %-8s %-10s %-8s %-6s %-6s %-22s %s). The state is the one field that can hold a
-# space, so a `blocked <reason>` claim makes it wider than its 8 and shifts the rest of the row;
-# the parse reads the state up to the date column, which puts the row back in step.
+# space, so a `blocked <reason>` claim makes it wider than its 8 and shifts the rest of the row.
+# The boundary is found by testing each date-or-dash against the fixed columns that follow it,
+# because the reason itself can hold a date or a lone dash.
 #
 # Settings, from .loop.toml through scripts/loop-config.sh: default_branch, backlog, stories.
 set -euo pipefail
@@ -71,6 +74,25 @@ frame_width() {
   echo "$cols"
 }
 
+# A failed scripts/backlog-status.sh is not an empty sprint. Given a ref that does not exist it
+# reports every ticket as unfinished, so swallowing the failure would print counts and a claim
+# command for tickets that already landed - a frame that reads as project state while being
+# false. Say what failed, print no figures, and exit non-zero.
+error_frame() {
+  local width="$1" ref="$2" message="$3" line
+  local rule; rule="$(printf '%*s' "$width" '' | tr ' ' '-')"
+  echo "TICKET LOOP  backlog-status.sh failed"
+  echo "$rule"
+  echo " The ref it was given: $ref"
+  while IFS= read -r line; do
+    [ -n "$line" ] && echo "   $line"
+  done <<EOF
+$message
+EOF
+  echo "$rule"
+  echo " Fix the ref, or drop --ref to judge done against the default branch."
+}
+
 # Gathers the three scripts' output and draws the frame. The data is handed to perl as
 # environment, which keeps the renderer free of temp files.
 render() {
@@ -92,17 +114,35 @@ render() {
     echo "$rule"
     return 0
   fi
-  sprint="$("$STATUS" --sprint --ref "$ref" --backlog "$backlog" 2>/dev/null || true)"
+  # The rows and the counts come from --sprint, so a failure there is not "no tickets in the
+  # sprint": keep the message and draw an error frame rather than a false one.
+  local sprint_out ready_count next_id
+  if sprint_out="$("$STATUS" --sprint --ref "$ref" --backlog "$backlog" 2>&1)"; then
+    sprint="$sprint_out"
+  else
+    error_frame "$width" "$ref" "$sprint_out"
+    return 1
+  fi
   # --local on the two calls that never look at a ticket's state: neither the count of what is
   # outside the sprint nor a story's derived status depends on a claim, and --local skips the
   # git ls-remote that the claim lookup would run against origin.
   open_line="$("$STATUS" --open --ref "$ref" --local --backlog "$backlog" 2>/dev/null | tail -1 || true)"
   stories_line="$("$STATUS" --stories --ref "$ref" --local --backlog "$backlog" 2>/dev/null | tail -1 || true)"
+  # NEXT follows --next, which falls back to file order when nothing in the sprint is ready: a
+  # ticket outside the sprint is still the ticket to work, and the dashboard must not call that
+  # "nothing ready". Ask only in that case - the call resolves claims against origin, and a
+  # sprint that holds a ready ticket already answers.
+  next_id=""
+  ready_count="$(printf '%s\n' "$sprint" | sed -n 's/.*, \([0-9][0-9]*\) ready,.*/\1/p' | tail -1)"
+  if [ -z "$ready_count" ] || [ "$ready_count" = 0 ]; then
+    next_id="$("$STATUS" --next --ref "$ref" --backlog "$backlog" 2>/dev/null | tail -1 || true)"
+  fi
   project="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '-')"
   sha="$(git rev-parse --short HEAD 2>/dev/null || echo '-')"
   TUI_WIDTH="$width" TUI_PROJECT="$project" TUI_BRANCH="$branch" TUI_SHA="$sha" \
   TUI_SPRINT="$sprint" TUI_OPEN="$open_line" TUI_STORIES="$stories_line" TUI_MAX="$MAX_ROWS" \
+  TUI_NEXT="$next_id" \
     perl -e '
       use strict; use warnings;
       use Encode qw(decode);
@@ -113,6 +153,9 @@ render() {
       my $branch = $d->($ENV{TUI_BRANCH});
       my $sha = $d->($ENV{TUI_SHA});
       my $max = $d->($ENV{TUI_MAX}) + 0;
+      # What scripts/backlog-status.sh --next names when nothing in the sprint is ready; empty
+      # whenever the sprint answered for itself.
+      my $next_id = $d->($ENV{TUI_NEXT});
       my $ELL = "\x{2026}";
 
       # Cuts a string to a width, marking the cut with an ellipsis rather than splitting a
@@ -143,11 +186,36 @@ render() {
           # The id column is 6 wide; a longer id pushes the state right by the difference.
           my $pos = (length($id) > 6 ? length($id) : 6) + 1;
           my $rest = substr($line, $pos);
-          # The state runs up to the date column, which is a date or a single dash.
-          my $state = "";
-          if ($rest =~ /^(.*?)\s+(?=(?:\d{4}-\d{2}-\d{2}|-) )/) { $state = $1 }
-          else { $state = $rest; $state =~ s/\s.*$// }
-          my $after = substr($rest, length($state));
+          # The state runs up to the date column. Finding that boundary by the first date-or-dash
+          # is not enough: a `blocked <reason>` claim can hold a date of its own ("blocked until
+          # 2026-10-01 response") or a lone dash ("blocked owner - waiting"), and splitting there
+          # shifts every column after it. So each candidate boundary is tested against the fixed
+          # columns that follow the date - the date, the short sha, `ready`, the sprint position -
+          # and the first whose tail holds is the real boundary.
+          my @starts;
+          while ($rest =~ /(?=(?:\d{4}-\d{2}-\d{2}|-) )/g) { push @starts, $-[0] }
+          my ($state, $after) = ("", "");
+          for my $start (@starts) {
+            my $cand = substr($rest, 0, $start);
+            my $tail = substr($rest, $start);
+            next if length($tail) < 33;
+            my ($d10, $h8, $r6, $p6) = (substr($tail, 0, 10), substr($tail, 11, 8),
+                                        substr($tail, 20, 6), substr($tail, 27, 6));
+            s/\s+$// for ($d10, $h8, $r6, $p6);
+            next unless $d10 =~ /^(?:\d{4}-\d{2}-\d{2}|-)$/;
+            next unless $h8 =~ /^(?:[0-9a-f]{6,40}|-)$/;
+            next unless $r6 =~ /^(?:yes)?$/;
+            next unless $p6 =~ /^[0-9]*$/;
+            $state = $cand; $after = $tail; last;
+          }
+          if ($after eq "") {
+            # Nothing validated: fall back to the first candidate, or to the first word.
+            my $start = @starts ? $starts[0] : length($rest);
+            $state = substr($rest, 0, $start);
+            $after = substr($rest, $start);
+            $state =~ s/\s.*$// if !@starts;
+          }
+          $state =~ s/\s+$//;
           $after =~ s/^ +//;
           my $ready = substr($after, 20, 6); $ready =~ s/\s+$//;
           my $spos = substr($after, 27, 6); $spos =~ s/\s+$//;
@@ -243,14 +311,26 @@ render() {
       }
       push @out, "-" x $width;
 
-      # ---- NEXT: the first ready row in sprint order, which is what backlog-status.sh --next
-      #      takes before it falls back to file order. ----
+      # ---- NEXT: what scripts/backlog-status.sh --next names. That script takes the first ready
+      #      ticket in sprint order and falls back to file order, so when the sprint holds nothing
+      #      ready it still names a ticket; the frame has to say the same thing it would. ----
       my ($next) = grep { $_->{ready} eq "yes" } @rows;
-      if ($next) {
-        push @out, " NEXT  " . $next->{id} . "  " . $cut->($next->{title}, $width - 8 - length($next->{id}));
-        push @out, "       -> scripts/open-ticket-pr.sh " . $next->{id} . " --claim";
+      my $target = $next_id ne "" ? $next_id : ($next ? $next->{id} : "");
+      if ($target ne "") {
+        my $row = ($next && $next->{id} eq $target) ? $next : undef;
+        my $title = $row ? $row->{title} : "(outside the sprint)";
+        push @out, " NEXT  $target  " . $cut->($title, $width - 8 - length($target));
+        # The claim command is the headline output of the frame, so it is never cut: it loses its
+        # indent first, and wraps at the script name if even that will not fit.
+        my $cmd = "scripts/open-ticket-pr.sh $target --claim";
+        if (length("       -> $cmd") <= $width) { push @out, "       -> $cmd" }
+        elsif (length($cmd) <= $width) { push @out, $cmd }
+        else {
+          push @out, " -> scripts/open-ticket-pr.sh";
+          push @out, "    $target --claim";
+        }
       } else {
-        push @out, " NEXT  nothing ready - every ticket in the sprint is done, claimed, or waiting on a blocker";
+        push @out, " NEXT  nothing ready - every ticket is done, claimed, or waiting on a blocker";
       }
       push @out, "-" x $width;
       # The summary lines give up their tail, clause by clause, rather than being cut across a
@@ -332,8 +412,10 @@ EOF
     git push -q -u origin main 2>/dev/null
     # AA-02 is claimed: a ticket/<id> branch on origin.
     git push -q origin "HEAD:refs/heads/ticket/AA-02" 2>/dev/null
-    # AA-03 carries a `blocked <reason>` claim, which makes its state wider than its column.
-    perl -i -pe 's/^### AA-03 (.*)$/### AA-03 $1 — `blocked waiting on data`/' BACKLOG.md
+    # AA-03 carries a `blocked <reason>` claim, which makes its state wider than its column, and
+    # the reason holds a date of its own - the case a parse that splits at the first date gets
+    # wrong, shifting every column after it.
+    perl -i -pe 's/^### AA-03 (.*)$/### AA-03 $1 — `blocked until 2026-10-01 response`/' BACKLOG.md
     git add -A; git commit -q -m "Backlog: AA-03 is blocked"
   )
   local work="$dir/work"
@@ -357,8 +439,11 @@ EOF
   echo "$out" | grep -q '^   1 AA-01  done' || { echo "self-test: the done ticket's row is off:"; echo "$out"; exit 1; }
   echo "$out" | grep -q 'AA-02  claimed' || { echo "self-test: the claimed ticket should show as claimed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q 'AA-03  blocked' || { echo "self-test: the blocked ticket should show as blocked:"; echo "$out"; exit 1; }
-  # AA-03's claim is longer than its column, so this row also proves the parse put the columns
-  # after it back in step: AA-05 keeps its blocker and its own state.
+  # AA-03's claim is wider than its column and holds a date of its own, so these two rows prove
+  # the parse found the real column boundary: AA-03 keeps its own columns, and AA-05 - the row
+  # after it - keeps its blocker and its own state.
+  echo "$out" | grep -qE '^   3 AA-03  blocked  - +A ticket waiting on someone else$' \
+    || { echo "self-test: a date inside the blocked reason shifted AA-03's own row:"; echo "$out"; exit 1; }
   echo "$out" | grep -q 'AA-05  todo     -     AA-03!' || { echo "self-test: the row after a long state should stay aligned:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^ NEXT  AA-04' || { echo "self-test: NEXT should be the first ready ticket:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^       -> scripts/open-ticket-pr.sh AA-04 --claim$' \
@@ -371,7 +456,7 @@ EOF
   # 2. Every line fits the width; a narrower frame drops the blocked column. The width is
   #    counted in characters, as the renderer draws them, not in the bytes the ellipsis takes.
   local w line n
-  for w in 60 78 200; do
+  for w in 40 60 78 200; do
     out="$(cd "$work" && LOOP_ROOT="$work" "$me" --width "$w" 2>&1)"
     while IFS= read -r line; do
       n="$(printf '%s' "$line" | perl -CS -ne 'chomp; print length($_)')"
@@ -384,6 +469,11 @@ EOF
   echo "$out" | grep -q 'ready blocked' && { echo "self-test: 60 columns should drop the blocked column:"; echo "$out"; exit 1; }
   out="$(cd "$work" && LOOP_ROOT="$work" "$me" --width 78 2>&1)"
   echo "$out" | grep -q 'ready blocked' || { echo "self-test: 78 columns should keep the blocked column:"; echo "$out"; exit 1; }
+  # The claim command is the headline output of the frame, so at the 40-column floor it gives up
+  # its indent rather than being cut into an unrunnable "scripts/open-ticket-pr.sh AA-…".
+  out="$(cd "$work" && LOOP_ROOT="$work" "$me" --width 40 2>&1)"
+  echo "$out" | grep -q '^scripts/open-ticket-pr.sh AA-04 --claim$' \
+    || { echo "self-test: 40 columns cut the claim command:"; echo "$out"; exit 1; }
   # 3. At 200 columns the titles stop being cut.
   out="$(cd "$work" && LOOP_ROOT="$work" "$me" --width 200 2>&1)"
   echo "$out" | grep -q 'A ticket behind an unlanded blocker$' \
@@ -414,7 +504,7 @@ TICKET LOOP  work   5 in sprint: 1 done 1 ready 1 claimed
 G60
 )"
   golden78="$(cat <<'G78'
-TICKET LOOP  work  main@023df28   5 in sprint: 1 done 1 ready 1 claimed
+TICKET LOOP  work  main@ff5d3b3   5 in sprint: 1 done 1 ready 1 claimed
 ------------------------------------------------------------------------------
  SPRINT
    # id     state    ready blocked          title
@@ -434,7 +524,7 @@ TICKET LOOP  work  main@023df28   5 in sprint: 1 done 1 ready 1 claimed
 G78
 )"
   golden200="$(cat <<'G200'
-TICKET LOOP  work  main@023df28   5 in sprint: 1 done 1 ready 1 claimed
+TICKET LOOP  work  main@ff5d3b3   5 in sprint: 1 done 1 ready 1 claimed
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  SPRINT
    # id     state    ready blocked          title
@@ -469,6 +559,26 @@ G200
       exit 1
     fi
   done
+
+  # 5. When nothing in the sprint is ready, NEXT follows --next, which falls back to file order:
+  #    the ticket to work sits outside the sprint, and the frame names it and its claim command
+  #    rather than saying "nothing ready" while the loop would hand you a ticket.
+  printf '[loop]\ndefault_branch = "main"\nsprint = ["AA-01"]\nstories = "PRODUCT.md"\n' > "$work/done-only.toml"
+  out="$(cd "$work" && LOOP_CONFIG="$work/done-only.toml" LOOP_ROOT="$work" "$me" --width 78 2>&1)"
+  echo "$out" | grep -q '^ NEXT  AA-04  (outside the sprint)$' \
+    || { echo "self-test: NEXT should fall back to the ticket outside the sprint:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q '^       -> scripts/open-ticket-pr.sh AA-04 --claim$' \
+    || { echo "self-test: the fallback claim command is off:"; echo "$out"; exit 1; }
+
+  # 6. A failed scripts/backlog-status.sh is an error, not an empty sprint. A ref that does not
+  #    exist makes it report every ticket as unfinished; rendered, that would print counts and a
+  #    claim command for a ticket that already landed.
+  if out="$(cd "$work" && LOOP_ROOT="$work" "$me" --width 78 --ref nosuchref 2>&1)"; then
+    echo "self-test: a --ref that does not exist must exit non-zero:"; echo "$out"; exit 1
+  fi
+  echo "$out" | grep -q '^TICKET LOOP  backlog-status.sh failed$' \
+    || { echo "self-test: a failed run should say what failed:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q 'AA-04 --claim' && { echo "self-test: a failed run must not print a claim command:"; echo "$out"; exit 1; }
 
   echo "loop-tui self-test passed"
 }

@@ -93,6 +93,52 @@ proves that `--archive <tag> <from> <to> --prefix AA` moves exactly the AA ticke
 it moved; that a prefix matching nothing archives nothing and exits 0; and that the behaviour
 without the flag is unchanged.
 
+### LK-08 `backlog-status.sh --stories` counts the archived tickets
+`scripts/release-notes.sh --archive` moves shipped tickets out of the ticket file into
+`CHANGELOG.md`, so a story served only by archived tickets reads `unticketed` once a release is
+archived — as this project's own LS-01 and LS-02 would, since the tickets that serve them are
+archived as they land. Make the kit's `scripts/backlog-status.sh` read the archived tickets
+under `CHANGELOG.md` (the `#### <id> <title>` headings `--archive` writes) for their `Serves`
+lines and count them as done, in `--stories` and in `--show`. Moved here from Tessera's HK-41,
+which is kit work.
+**Done when:** `scripts/backlog-status.sh --self-test` archives a fixture release with
+`scripts/release-notes.sh --archive` and shows the story it served still `done` rather than
+`unticketed`, and `--show <story>` lists the archived ticket as done with its archive date.
+
+### LK-10 `backlog-status.sh --self-test` does not read the project's own config
+`scripts/backlog-status.sh --self-test` builds a fixture repository, but most of the calls it
+makes leave `LOOP_CONFIG` unset, so they resolve the `sprint` list through the checkout the test
+is run in. The moment this repository gained a `.loop.toml` with a sprint, the self-test began
+writing 125 lines to stderr — 120 of `sprint: LK-nn is not in the backlog file`, one per sprint
+entry per call that resolves the sprint, and five of `sprint: nothing ready in it; falling back
+to file order` — while its stdout stayed the single line `backlog-status self-test passed`.
+Nothing fails, but a self-test whose output depends on the project it runs in cannot be read, and
+a real fixture mismatch would be lost in the noise. `scripts/sprint.sh --self-test` already gets
+this right, exporting `LOOP_CONFIG` to its own fixture before it calls anything; make
+`backlog-status.sh`'s fixture point every call at its own config the same way, so its output is
+the same wherever the test runs.
+**Done when:** `scripts/backlog-status.sh --self-test` writes nothing to stderr and prints the
+same stdout, both in this checkout and in a copy with `.loop.toml` removed, and still passes;
+`scripts/sprint.sh --self-test` is unchanged and still writes nothing to stderr; and `./check.sh`'s
+output is byte-identical between the two checkouts.
+
+## The prompts
+
+### LK-12 grill-me grounds itself in the repository it is run in
+`prompts/grill-me.md` assumes the project it runs in is loop-managed: it takes its settings from
+`.loop.toml`, names `scripts/backlog-status.sh`, and says stories go at the top of the ticket
+file when there is no product backlog. Run in a repository that has neither a settings file nor
+a ticket file — as this one was before the bootstrap — it has no step that stops and asks where
+the stories and tickets belong, and the session that produced LK-01 to LK-08 had to work that
+out over two extra rounds. Add to section 1 a check for the settings file and the ticket file,
+and when either is missing, a stop that asks the owner where the artifacts belong — this
+repository, a new one, or a sibling — before any other question.
+**Done when:** `scripts/prompt-check.sh`'s rules carry the new phrase, so deleting the step from
+`prompts/grill-me.md` fails the check; and the pull request records a real run of the prompt in a
+fixture checkout with no `.loop.toml`, showing it stop to ask where the artifacts belong.
+
+## The kit as a project
+
 ### LK-05 The kit's check runs the decision-record check
 `./check.sh` runs every script's `--self-test`, `scripts/prompt-check.sh`, and
 `install.sh --self-test`, but not `scripts/decisions.sh --check`, which the skeletons the kit
@@ -103,13 +149,15 @@ in every project that carries the kit. Add the check to `./check.sh` beside `pro
 and when the index omits a record, and passes on the kit's own records; `install.sh`'s
 self-test still passes, since a freshly installed project has no records for it to check.
 
-### LK-06 The kit's ruleset requires the agent review
-`ci/ruleset.json` requires one status, `Check (scripts/check.sh)`, so a kit pull request merges
-on green CI alone, where Tessera also waits for the agent review. `prompts/review-prs.md`
-reviews every open pull request whose head carries no review status, but it runs from a schedule
-on a machine with the owner's subscription and nothing runs it for this repository yet — so
-adding the required context first would hold every kit pull request forever. Set the review
-running for this repository, confirm it posts, and only then require its status.
+### LK-06 The kit's ruleset requires the agent review — Blocked by LK-09
+`ci/ruleset.json` names one required status, `Check (scripts/check.sh)`, and Tessera's ruleset
+also waits for the agent review. `prompts/review-prs.md` reviews every open pull request whose
+head carries no review status, but it runs from a schedule on a machine with the owner's
+subscription and nothing runs it for this repository yet — so requiring its status before
+something produces it would hold every kit pull request forever. Set the review running for this
+repository, confirm it posts, and only then require its status. LK-09 applies the ruleset this
+ticket then extends: until it lands this repository has no required status at all, not even the
+check.
 **Done when:** `scripts/review-status.sh --pending` lists a kit pull request whose head has no
 review status, the review prompt has posted a verdict for it, and
 `gh api repos/FueledByChai/coding-agent-loop/rulesets` shows the `Agent review` context among
@@ -135,14 +183,34 @@ there still finds the forty-three landed commits, so the archive lost nothing; `
 carries their bodies under the archive tag; and `scripts/backlog-status.sh --sprint` there lists
 no HK-41.
 
-### LK-08 `backlog-status.sh --stories` counts the archived tickets
-`scripts/release-notes.sh --archive` moves shipped tickets out of the ticket file into
-`CHANGELOG.md`, so a story served only by archived tickets reads `unticketed` once a release is
-archived — as this project's own LS-01 and LS-02 would, since the tickets that serve them are
-archived as they land. Make the kit's `scripts/backlog-status.sh` read the archived tickets
-under `CHANGELOG.md` (the `#### <id> <title>` headings `--archive` writes) for their `Serves`
-lines and count them as done, in `--stories` and in `--show`. Moved here from Tessera's HK-41,
-which is kit work.
-**Done when:** `scripts/backlog-status.sh --self-test` archives a fixture release with
-`scripts/release-notes.sh --archive` and shows the story it served still `done` rather than
-`unticketed`, and `--show <story>` lists the archived ticket as done with its archive date.
+### LK-09 The repository's branch ruleset is applied, and auto-merge is on
+`ci/ruleset.json` and the README's setup commands exist, but this repository has none of them
+applied: `gh api repos/FueledByChai/coding-agent-loop/rulesets` is empty, `allow_auto_merge` is
+false, `allow_merge_commit` and `allow_squash_merge` are still true, and
+`delete_branch_on_merge` is false — so a pull request here merges on the button alone. PR #19
+merged while its `Check (scripts/check.sh)` run was still pending, and `gh pr merge --auto`
+silently did nothing because auto-merge is off. Apply what the README documents:
+`gh api -X PATCH repos/FueledByChai/coding-agent-loop -F allow_auto_merge=true -F
+delete_branch_on_merge=true -F allow_merge_commit=false -F allow_squash_merge=false -F
+allow_rebase_merge=true`, then `gh api -X POST repos/FueledByChai/coding-agent-loop/rulesets
+--input ci/ruleset.json`. This is the prerequisite for LK-06, which extends the ruleset, and for
+the loop's own hand-off, whose merge policy arms auto-merge and has nothing to arm without it.
+**Done when:** `gh api repos/FueledByChai/coding-agent-loop` reports `allow_auto_merge: true`,
+`delete_branch_on_merge: true`, `allow_merge_commit: false`, `allow_squash_merge: false`, and
+`allow_rebase_merge: true`; `gh api repos/FueledByChai/coding-agent-loop/rulesets` lists the
+ruleset with `enforcement: active` and `Check (scripts/check.sh)` among its required status
+checks; and a test pull request shows the check required, with `gh pr merge <n> --auto --rebase`
+arming auto-merge and the merge happening only once the check is green.
+
+### LK-11 The check's cost is measured, and the install self-test stops repeating the suite
+`./check.sh` takes about eight minutes, not the seconds `README.md` claims, because
+`install.sh --self-test` runs the whole self-test suite once per stack skeleton — rust, python,
+node, java, go, other — six full passes, each redirected to its own log so nothing appears on
+the terminal while it happens. Only the stack step differs between the six; the loop checks each
+one runs are identical, and repeating them is what makes the check slow enough that a
+contributor assumes it has hung. Run the loop checks once and prove the six skeletons' stack
+steps separately.
+**Done when:** `install.sh --self-test` prints how many times it ran the loop checks and that
+number is 1; each of the six skeletons is still proven to pass on an empty repository; and
+`time ./check.sh` is reported in the pull request and matches the figure `README.md` and
+`AGENTS.md` state.

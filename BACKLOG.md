@@ -219,3 +219,16 @@ steps separately.
 number is 1; each of the six skeletons is still proven to pass on an empty repository; and
 `time ./check.sh` is reported in the pull request and matches the figure `README.md` and
 `AGENTS.md` state.
+
+### LK-14 The kit's check and a project's check keep the loop's check list in two places
+`check.sh` and `templates/check/common.sh`'s `loop_checks` both enumerate the loop's checks by
+hand: the same eleven `--self-test` calls, then `prompt-check.sh` and `decisions.sh --check`.
+`AGENTS.md` asks the author of a new script to add it in three places — `check.sh`, `install.sh`'s
+self-test, and `templates/check/common.sh` — and nothing compares them, so the only thing keeping
+the two lists equal is that someone remembered. They have already drifted once: the kit's check ran
+no `decisions.sh --check` while every project's did, which is LK-05. The next script, or the next
+check added to one side, repeats it silently, because a check line that is missing looks exactly
+like a check line that passed.
+**Done when:** adding a check to the kit's `check.sh` or to `templates/check/common.sh` without
+the other cannot leave them apart — one list derived from the other, or a test comparing them —
+proved by a self-test that drops a check from one side and sees `./check.sh` fail naming it.

@@ -37,6 +37,13 @@
 # the date and sha. `done` beats a `doing` or `blocked` claim left behind. A `ticket/<id>`
 # branch on origin (scripts/open-ticket-pr.sh --claim) marks the ticket `claimed`: someone is on
 # it in another checkout, and --next passes over it (HK-09).
+#
+# Tickets that have left the file still count. scripts/release-notes.sh --archive moves shipped
+# tickets into `CHANGELOG.md` at the repository root as `#### <id> <title> — <date> · <sha>`
+# blocks, and those blocks carry the ticket's text with them, so their `Serves` lines are read
+# back: a story whose tickets have all been archived reads done rather than unticketed, and
+# --show <story> lists them as done with the date they were archived. A missing changelog is
+# simply no archived tickets.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REF="$("$ROOT/scripts/loop-config.sh" default_branch)"
@@ -83,20 +90,22 @@ judged_ref() {
 status() {
   local backlog="$1" ref mode="$3"
   ref="$(judged_ref "$2")"
-  local claimed="" sprint stories=""
+  local claimed="" sprint stories="" changelog=""
   sprint="$("$ROOT/scripts/loop-config.sh" sprint | tr '\n' ',')"
   # The product backlog sits beside the ticket file's root; a relative path is resolved from
   # the ticket file's repository root, an absolute one (--stories-file) as given.
   if [ -n "$STORIES_FILE" ]; then
     case "$STORIES_FILE" in /*) stories="$STORIES_FILE" ;; *) stories="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/$STORIES_FILE" ;; esac
   fi
+  # The changelog --archive writes sits at that same root; a missing one is no archived tickets.
+  changelog="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/CHANGELOG.md"
   if [ "$LOCAL" = 0 ]; then
     # No origin, or one that does not answer, means no claims (and no failure).
     claimed="$( (git ls-remote --heads origin 'refs/heads/ticket/*' 2>/dev/null || true) | sed 's#.*refs/heads/ticket/##' | tr '\n' ',')"
   fi
   git log --reverse --date=short --format='%h %ad %s' "$ref" -- 2>/dev/null \
     | perl -e '
-      my ($backlog, $mode, $claimed, $sprint, $stories_file, $want, $section_filter) = @ARGV;
+      my ($backlog, $mode, $claimed, $sprint, $stories_file, $changelog, $want, $section_filter) = @ARGV;
       my %claimed = map { $_ => 1 } grep { length } split /,/, $claimed;
       my @sprint = grep { length } split /,/, $sprint;
       my %sprint; my $pos = 0; $sprint{$_} //= ++$pos for @sprint;
@@ -141,6 +150,29 @@ status() {
         my $text = join " ", @{ $t->{body} };
         while ($text =~ /\bserves\s+([A-Z]+-\d+(?:\s*,\s*[A-Z]+-\d+)*)/gi) { push @{ $t->{serves} }, split /\s*,\s*/, $1; }
       }
+      # Tickets that have left the file. release-notes.sh --archive writes each as
+      # `#### <id> <title> — <date> · <sha>` with its own text underneath, so the `Serves` lines
+      # come back with them; a heading ends the block, and a missing changelog is no archived
+      # tickets. They are kept out of @tickets so the tables and --open stay the file contents.
+      my @archived;
+      if ($changelog ne "" && open my $cf, "<", $changelog) {
+        my $a;
+        while (my $line = <$cf>) {
+          chomp $line;
+          if ($line =~ /^#### ([A-Z]+-\d+) (.*?) — (\d{4}-\d{2}-\d{2}) · ([0-9a-f]{4,40})/) {
+            $a = { id => $1, title => $2, date => $3, sha => $4, state => "done", claim => "",
+                   archived => 1, section => "", heading => $line, body => [], serves => [] };
+            push @archived, $a; next;
+          }
+          if ($line =~ /^#/) { $a = undef; next; }
+          push @{ $a->{body} }, $line if $a;
+        }
+        close $cf;
+        for my $a (@archived) {
+          my $text = join " ", @{ $a->{body} };
+          while ($text =~ /\bserves\s+([A-Z]+-\d+(?:\s*,\s*[A-Z]+-\d+)*)/gi) { push @{ $a->{serves} }, split /\s*,\s*/, $1; }
+        }
+      }
       # The product backlog, when the project keeps one: `## <epic>` and `### <ID> — <title>`
       # stories with their body; the status of a story is derived from the tickets that serve it.
       my (@stories, %story);
@@ -158,7 +190,7 @@ status() {
           push @{ $s->{body} }, $line;
         }
         close $sf;
-        for my $t (@tickets) { for my $id (@{ $t->{serves} }) { push @{ $story{$id}{tickets} }, $t if $story{$id}; } }
+        for my $t (@tickets, @archived) { for my $id (@{ $t->{serves} }) { push @{ $story{$id}{tickets} }, $t if $story{$id}; } }
       }
       my $story_status = sub {
         my $s = shift;
@@ -183,6 +215,7 @@ status() {
       my $state_of = sub {
         my $t = shift; my $state = $t->{state};
         $state .= " (was $t->{claim})" if $state eq "done" && $t->{claim} ne "" && $t->{claim} ne "todo";
+        $state .= " (archived $t->{date})" if $t->{archived};
         $state = $t->{claim} if $state eq "blocked";
         return $state;
       };
@@ -255,7 +288,7 @@ status() {
           scalar(@rows), $n{done} // 0, $ready_n, ($n{claimed} // 0) + ($n{doing} // 0),
           scalar(@rows) - ($n{done} // 0) - $ready_n - ($n{claimed} // 0) - ($n{doing} // 0);
       }
-    ' "$backlog" "$mode" "$claimed" "$sprint" "$stories" "$WANT" "$SECTION"
+    ' "$backlog" "$mode" "$claimed" "$sprint" "$stories" "$changelog" "$WANT" "$SECTION"
 }
 
 self_test() {
@@ -369,8 +402,21 @@ EOF2
     git commit -q --allow-empty -m "AA-01: first" && git commit -q --allow-empty -m "AA-02: second"
     out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --stories-file "$PWD/PRODUCT.md" --stories 2>&1)"
     echo "$out" | grep -q '^BT-1 *done ' || { echo "self-test: BT-1 should be done once both tickets landed:"; echo "$out"; exit 1; }
+    # LK-08: archiving a release moves those tickets into CHANGELOG.md, and the story they served
+    # is still done - the archived blocks carry their Serves lines with them.
+    "$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --changelog CHANGELOG.md --archive v0.1.0 HEAD~2 HEAD >/dev/null
+    grep -q '^#### AA-01 ' CHANGELOG.md || { echo "self-test: the archive should have written AA-01:"; cat CHANGELOG.md; exit 1; }
+    if grep -q '^### AA-01 ' BACKLOG.md; then echo "self-test: AA-01 should have left the backlog"; exit 1; fi
+    archive_date="$(grep '^#### AA-01 ' CHANGELOG.md | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)"
+    [ -n "$archive_date" ] || { echo "self-test: the AA-01 block should carry its archive date:"; grep '^#### AA-01 ' CHANGELOG.md; exit 1; }
+    out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --stories-file "$PWD/PRODUCT.md" --stories 2>&1)"
+    echo "$out" | grep -q '^BT-1 *done *2 ' || { echo "self-test: BT-1 should still be done on its archived tickets:"; echo "$out"; exit 1; }
+    echo "$out" | grep -q '^stories: 3, 1 done, 1 open, 1 unticketed$' || { echo "self-test: the stories summary after archiving is off:"; echo "$out"; exit 1; }
+    out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --stories-file "$PWD/PRODUCT.md" --show BT-1 2>&1)"
+    echo "$out" | grep -q "^ticket: AA-01  done (archived $archive_date) " || { echo "self-test: --show BT-1 should list AA-01 as done with its archive date:"; echo "$out"; exit 1; }
+    echo "$out" | grep -q "^ticket: AA-02  done (archived $archive_date) " || { echo "self-test: --show BT-1 should list AA-02 the same way:"; echo "$out"; exit 1; }
     git reset -q --hard HEAD~2
-    git checkout -q -- BACKLOG.md; rm -f PRODUCT.md sprint.toml
+    git checkout -q -- BACKLOG.md; rm -f PRODUCT.md sprint.toml CHANGELOG.md
     # AA-01 lands while its line still says doing: git wins, with the commit's date and sha.
     git commit -q --allow-empty -m "AA-01: first landed"
     sha="$(git rev-parse --short HEAD)"

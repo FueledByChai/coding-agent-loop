@@ -18,7 +18,10 @@
 #                                                      alike, so one prefix's work can leave a
 #                                                      backlog without touching the rest. When
 #                                                      nothing matches, nothing moves and the
-#                                                      exit status is still 0.
+#                                                      exit status is still 0. A --prefix that
+#                                                      names no prefix at all is refused, since
+#                                                      read as "no filter" it would archive
+#                                                      every prefix's tickets.
 #   --self-test                                        a fixture repo proves both modes
 #
 # Tag releases; the notes for a release are the diff between its tag and the previous one.
@@ -30,8 +33,10 @@ ARCHIVE=""
 MODE=notes
 REFS=()
 PREFIXES=""
+PREFIX_GIVEN=0
 # --prefix accumulates, splitting on commas, so `--prefix AA --prefix BB` and `--prefix AA,BB`
-# mean the same thing.
+# mean the same thing. An empty component is dropped: it names no prefix, and dropping it cannot
+# widen the filter.
 add_prefix() {
   local list="$1" p
   local IFS=','
@@ -45,13 +50,20 @@ while [ $# -gt 0 ]; do
     --archive) ARCHIVE="$2"; shift ;;
     --backlog) BACKLOG="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift ;;
     --changelog) CHANGELOG="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift ;;
-    --prefix) add_prefix "$2"; shift ;;
+    --prefix) PREFIX_GIVEN=1; add_prefix "$2"; shift ;;
     --self-test) MODE=selftest ;;
     --*) echo "unknown flag: $1" >&2; exit 2 ;;
     *) REFS+=("$1") ;;
   esac
   shift
 done
+# A --prefix that was asked for and named nothing is a mistake, not an omission. Read as "no
+# filter" it would archive every prefix's tickets, which is the opposite of what it asked for, so
+# it is refused before either file is touched.
+if [ "$PREFIX_GIVEN" = 1 ] && [ -z "$PREFIXES" ]; then
+  echo "usage: --prefix needs at least one prefix; an empty list is not the same as leaving the flag off" >&2
+  exit 2
+fi
 # The filter reaches the renderer through the environment: the perl block below is a black box
 # that already takes its inputs positionally, and the sibling TUI script passes its width the
 # same way.
@@ -239,6 +251,16 @@ EOF
     # A prefix with nothing in the range moves nothing, changes nothing, and is not an error.
     changelog_before="$(cat CHANGELOG.md)"
     backlog_before="$(cat BACKLOG.md)"
+    # A --prefix that names no prefix is refused rather than read as "no filter". Read as no
+    # filter it would archive every prefix's tickets, which is the opposite of what it asked for.
+    for empty in "" ","; do
+      if "$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --changelog CHANGELOG.md --prefix "$empty" --archive v0.1.0 v0.0.0 HEAD >empty.out 2>&1; then
+        echo "self-test: --prefix '$empty' must be refused, not read as no filter:"; cat empty.out; exit 1
+      fi
+      grep -q 'at least one prefix' empty.out || { echo "self-test: the refusal should say what is wrong:"; cat empty.out; exit 1; }
+      [ "$changelog_before" = "$(cat CHANGELOG.md)" ] || { echo "self-test: a refused --prefix rewrote the changelog"; exit 1; }
+      [ "$backlog_before" = "$(cat BACKLOG.md)" ] || { echo "self-test: a refused --prefix rewrote the backlog"; exit 1; }
+    done
     if ! "$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --changelog CHANGELOG.md --prefix ZZ --archive v0.1.0 v0.0.0 HEAD >zz.out 2>&1; then
       echo "self-test: a prefix matching nothing must still exit 0:"; cat zz.out; exit 1
     fi
@@ -247,7 +269,7 @@ EOF
     [ "$backlog_before" = "$(cat BACKLOG.md)" ] || { echo "self-test: a prefix matching nothing rewrote the backlog"; exit 1; }
     # Put the fixture back the way the rest of the test expects it, then prove the flag-less run
     # still behaves exactly as it did before.
-    rm -f CHANGELOG.md zz.out
+    rm -f CHANGELOG.md zz.out empty.out
     git checkout -- BACKLOG.md
     "$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --changelog CHANGELOG.md --archive v0.1.0 v0.0.0 HEAD >/dev/null
     grep -q '^# Changelog' CHANGELOG.md || { echo "self-test: no changelog header"; cat CHANGELOG.md; exit 1; }

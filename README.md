@@ -39,7 +39,10 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `check.sh` | the kit's own check: every self-test, then an install into a fresh repository |
 
 Every script has a `--self-test`; a project's check runs them, and `./check.sh` here runs
-them all plus the install (CI runs the same script).
+them all plus the install (CI runs the same script). It takes about three minutes on a laptop,
+down from about nine: the install self-test runs the loop's suite once and proves the six stack
+skeletons' own stack steps separately, instead of running the whole suite once per skeleton
+(LK-11).
 
 ## How the loop works
 

@@ -1,0 +1,148 @@
+# Work queue
+
+The ticket list an agent loop works through. `docs/PRODUCT_BACKLOG.md` holds product intent and
+long-form acceptance criteria; this file is the executable queue. Protocol:
+
+- One ticket per commit. The commit message starts with the id. `./check.sh` must pass.
+- A ticket's **Done when** line names a test, fixture, or measurable output that ships in the
+  same commit. If it cannot be tested, rewrite the ticket until it can.
+- Git is the record of done: a ticket is done when a commit whose subject starts with its id
+  is on `main`. `scripts/backlog-status.sh` lists every ticket with its derived state, date,
+  and sha; `--next` names the first `todo` whose `Blocked by` tickets have landed. This file
+  carries only the claims: no state (or `todo`), `doing` while someone works it,
+  `blocked <reason>`. Take what `--next` reports, never two at once, and clear the `doing`
+  claim in the ticket's own commit; never write a done line.
+- Anything discovered while working goes in as a new ticket, not into the current one.
+- The loop's work used to be ticketed in `FueledByChai/tessera` under `HK-`; the kit is its own
+  project now and its work is ticketed here (decision 0001). The first forty-eight `HK-` tickets
+  stay in Tessera's history.
+
+## The loop's scripts
+
+### LK-01 `loop-tui.sh` renders the loop's state as a frame
+The loop's state is spread over `scripts/backlog-status.sh` (eight flags), `scripts/sprint.sh`
+(five subcommands), and the files themselves, and nothing prints one screen that answers "what
+is left, and what do I run next". Add `scripts/loop-tui.sh` to the kit: a renderer that turns
+the existing scripts' output into frames at a given width, plus the dashboard view — a header,
+the sprint as a table with a `ready` and a `blocked by` column, a `NEXT` line carrying the
+exact `scripts/open-ticket-pr.sh <id> --claim` command, the counts of what is left, a stories
+line, and a keybar. The renderer is split from the terminal: `--render` prints one frame and
+exits, `--width <n>` fixes the width, and the script takes no keys and writes nothing, so the
+interactive mode of LK-03 is a key handler over these frames rather than a second
+implementation. Serves LS-01. Decisions: 0002.
+**Done when:** `scripts/loop-tui.sh --self-test` builds a fixture repository — a backlog with a
+done, a claimed, a blocked, and a ready ticket, a `.loop.toml` with a sprint, and a product
+backlog with ticketed and unticketed stories — and asserts, by named line, the header's sprint
+counts, the done ticket's row, the `NEXT` line and the claim command it prints, the `LEFT`
+counts, and the stories line at 78 columns; the same frame at 60 columns drops columns with no
+line wider than the width, and at 200 columns stops truncating titles; and the golden frames for
+60, 78, and 200 columns, kept in the script as heredocs so that `scripts/loop-kit-sync.sh`
+(which ships `scripts/*.sh` only) carries them to a project, match byte for byte.
+`loop-tui` is added to the script list in `check.sh`, to `install.sh`'s self-test, and to
+`templates/check/common.sh`, and `README.md`'s table names it.
+
+### LK-02 `loop-tui.sh` shows the stories, the open tickets, and one item in full — Blocked by LK-01
+`scripts/backlog-status.sh` has the three views but prints them as fixed-width tables that cut
+the epic at about thirty columns (`Epic F: Data inventory, cover…`), and `--open` prints a
+single summary line whenever the sprint holds every open ticket. Add the `stories`, `open`, and
+`show` views to `scripts/loop-tui.sh` on LK-01's renderer: the stories view lists every story in
+the product backlog with its derived status (done, open k/n, unticketed), its ticket count, and
+its epic untruncated when the width allows; the open view groups the tickets outside the sprint
+by section with their blockers and the story each serves; the show view prints one ticket or
+story in full with its state, its sprint position, and the story it serves. The dashboard's
+stories line counts every story rather than the ticketed ones. Serves LS-01. Decisions: 0002.
+**Done when:** `scripts/loop-tui.sh --self-test` asserts the stories view's status column for a
+done, an open k/n, and an unticketed story from the fixture; the open view's grouping by section
+and its blockers; the show view's `state:` and `serves:` lines for a ticket and its `status:`
+and `ticket:` lines for a story; that a fixture epic name appears in full at 200 columns and
+truncated at 78; that a fixture with no `stories` file prints its "none configured" line rather
+than an empty table; and the golden frames for the three views at 78 columns match byte for
+byte.
+
+### LK-03 The sprint is worked from the terminal — Blocked by LK-02
+Choosing what to work on next means `scripts/sprint.sh add|remove` and reading `.loop.toml` by
+hand, with nowhere to see the sprint and act on it at once. Add the interactive mode to
+`scripts/loop-tui.sh`: with a terminal it takes the alternate screen, hides the cursor, and
+reads single keys to move through the sprint, open a ticket or a story in full, add a ticket to
+the sprint, remove one, switch to the stories and open views, refresh, and quit. Every write
+goes through `scripts/sprint.sh` and edits only the `sprint` list in `.loop.toml`; the screen
+marks the change as uncommitted, and the script never runs `git add`, `git commit`, or
+`git push`. An add is refused, with the reason on screen, when the id is not a ticket heading,
+is already done, or is already in the sprint. Refresh is on keypress and `r` fetches from origin
+first; nothing is fetched otherwise. `--keys '<keys>'` and a stdout that is not a terminal
+render frames instead of taking the screen, so the whole program is driven without a
+pseudo-terminal, and a `trap` restores the terminal on every exit path. Serves LS-02.
+Decisions: 0002, 0003.
+**Done when:** `scripts/loop-tui.sh --self-test` drives the fixture with `--keys` and asserts
+the frames — the selection marker moves and wraps, `<sp>` opens the selected ticket, `a` adds a
+ready ticket and marks the sprint uncommitted, `x` removes it, and an add of a done id, an
+unknown id, and an id already in the sprint each leaves the sprint unchanged with the reason on
+screen; `--keys 'q'` writes nothing; and `git status --porcelain` in the fixture shows only
+`.loop.toml` modified and no commit.
+
+### LK-04 `release-notes.sh --archive` takes a prefix filter
+`scripts/release-notes.sh --archive` selects the tickets it moves by commit range alone
+(`git log from..to` for subjects that start with a ticket id), so it cannot archive one prefix's
+work: in a history where one prefix's commits interleave with another's, an archive over the
+range moves both. Add `--prefix <P>` (repeatable, or comma-separated) to the kit's
+`release-notes.sh`, filtering both the notes and the archive to the prefixes named, so that one
+prefix's tickets can leave a backlog without touching the rest. Serves the migration in LK-07.
+**Done when:** `scripts/release-notes.sh --self-test` extends its fixture with two prefixes and
+proves that `--archive <tag> <from> <to> --prefix AA` moves exactly the AA tickets into
+`CHANGELOG.md`, leaves the other prefix's tickets in the backlog untouched, and prints the count
+it moved; that a prefix matching nothing archives nothing and exits 0; and that the behaviour
+without the flag is unchanged.
+
+### LK-05 The kit's check runs the decision-record check
+`./check.sh` runs every script's `--self-test`, `scripts/prompt-check.sh`, and
+`install.sh --self-test`, but not `scripts/decisions.sh --check`, which the skeletons the kit
+installs into projects do run (`templates/check/common.sh`, `loop_checks`). A record that loses
+a section, or an index that falls out of step, therefore passes the kit's own CI while failing
+in every project that carries the kit. Add the check to `./check.sh` beside `prompt-check.sh`.
+**Done when:** `./check.sh` fails when `docs/decisions/` holds a record with a section removed
+and when the index omits a record, and passes on the kit's own records; `install.sh`'s
+self-test still passes, since a freshly installed project has no records for it to check.
+
+### LK-06 The kit's ruleset requires the agent review
+`ci/ruleset.json` requires one status, `Check (scripts/check.sh)`, so a kit pull request merges
+on green CI alone, where Tessera also waits for the agent review. `prompts/review-prs.md`
+reviews every open pull request whose head carries no review status, but it runs from a schedule
+on a machine with the owner's subscription and nothing runs it for this repository yet — so
+adding the required context first would hold every kit pull request forever. Set the review
+running for this repository, confirm it posts, and only then require its status.
+**Done when:** `scripts/review-status.sh --pending` lists a kit pull request whose head has no
+review status, the review prompt has posted a verdict for it, and
+`gh api repos/FueledByChai/coding-agent-loop/rulesets` shows the `Agent review` context among
+the required status checks with a merge held until it is green.
+
+### LK-07 Tessera's backlog stops carrying the loop's work — Blocked by LK-04
+`FueledByChai/tessera`'s `BACKLOG.md` still holds the kit's history under `## Housekeeping`:
+forty-eight `HK-` tickets, forty-three of them done, mixed in with Tessera's own housekeeping
+(the deploy loop, `scripts/coverage.sh`, `scripts/scratch-console.sh`, the console layout
+checks). With the kit its own project that section should hold only Tessera's own work. Move the
+loop's share out with LK-04's filter: archive the forty-three done `HK-` tickets into a new
+`CHANGELOG.md` there with `scripts/release-notes.sh --archive <tag> <from> <to> --prefix HK`,
+note in the changelog's header that the commits proving them are in Tessera's history, remove
+HK-41 from `BACKLOG.md` (it is kit work, and it moves to this backlog as LK-08) and from the
+`sprint` list in `.loop.toml`, and leave HK-43, HK-45, HK-46, and HK-48 — Tessera's own code —
+where they are. Tessera's `.loop.toml` moves `kit_ref` to the tag carrying LK-04 first, so the
+filtered archive is the synced script. HK-46 is the one ticket that spans both repositories (a
+kit default and a Tessera `.loop.toml` line); it stays whole there rather than being split for
+one regex, and record 0001 names it as the exception.
+**Done when:** `scripts/loop-kit-sync.sh --check` is clean in Tessera at the new `kit_ref`;
+`grep -c '^### HK-' BACKLOG.md` there counts four; `git log --format=%s main | grep -c '^HK-'`
+there still finds the forty-three landed commits, so the archive lost nothing; `CHANGELOG.md`
+carries their bodies under the archive tag; and `scripts/backlog-status.sh --sprint` there lists
+no HK-41.
+
+### LK-08 `backlog-status.sh --stories` counts the archived tickets
+`scripts/release-notes.sh --archive` moves shipped tickets out of the ticket file into
+`CHANGELOG.md`, so a story served only by archived tickets reads `unticketed` once a release is
+archived — as this project's own LS-01 and LS-02 would, since the tickets that serve them are
+archived as they land. Make the kit's `scripts/backlog-status.sh` read the archived tickets
+under `CHANGELOG.md` (the `#### <id> <title>` headings `--archive` writes) for their `Serves`
+lines and count them as done, in `--stories` and in `--show`. Moved here from Tessera's HK-41,
+which is kit work.
+**Done when:** `scripts/backlog-status.sh --self-test` archives a fixture release with
+`scripts/release-notes.sh --archive` and shows the story it served still `done` rather than
+`unticketed`, and `--show <story>` lists the archived ticket as done with its archive date.

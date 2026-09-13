@@ -69,6 +69,66 @@ below it are this project's own and are what the loop prompts mean when they say
 
 ## Project rules
 
-(What this project is; its layout; how to build, run, and restart it; what the check covers
-and what it resolves from a worktree; what never to touch; conventions the prompts should
-follow; docs to keep current.)
+This repository is the ticket loop itself: the scripts, the prompts, the templates, and the
+installer that other projects copy from a tag. It is a bash project — nothing is compiled — and
+since the kit's own work is ticketed here (decision 0001), it is also the loop's first user.
+
+### Layout
+
+- `scripts/*.sh` is the shipping surface. Every script is bash that stays within bash 3.2
+  (macOS's system bash: no `declare -A`, no `mapfile`, no `${var,,}`) and carries a
+  `--self-test` that proves it against a fixture repository it builds in a temporary directory.
+  `scripts/loop-config.sh` reads `.loop.toml`; every other script takes its project-specific
+  values from it and names no branch, path, or build command of a project.
+- `prompts/*.md` are what an agent follows: `next-ticket`, `grill-me`, `grill-project`,
+  `review-prs`. A prompt carries its rules as phrases, and `scripts/prompt-check.sh` fails when
+  one loses a phrase that states a rule.
+- `templates/` is what a project receives: `decision.md` and the per-stack check and CI
+  skeletons (`templates/check/*.sh`, `templates/ci/*.yml`). `commands/*.md` are the wrappers a
+  harness with slash commands installs.
+- `check.sh` sits at the repository root on purpose, so `install.sh` never copies it over a
+  project's own `scripts/check.sh`. `install.sh` copies everything else and never overwrites a
+  project's `AGENTS.md`, `CLAUDE.md`, `.loop.toml`, or workflow.
+- `ci/` holds the workflow skeleton and `ruleset.json`, the branch ruleset a project applies.
+- `BACKLOG.md` is this project's executable queue, `docs/PRODUCT_BACKLOG.md` its stories, and
+  `docs/decisions/` its records (index in its `README.md`; cite a record by number and never
+  restate one in a doc or a ticket).
+
+### Build, run, restart
+
+Nothing is built and no service runs. `./check.sh` is both the build and the test. A change to
+`scripts/*.sh` reaches a project only when it is tagged and that project's `kit_ref` moves;
+until then `scripts/loop-kit-sync.sh --check` fails there, which is the intended signal.
+
+### The check
+
+`./check.sh` is the definition of done, and CI runs the same script: every script's `--self-test`
+in a fixed order, then `scripts/prompt-check.sh` (a prompt may not lose a rule), then
+`./install.sh --self-test`, which installs into a fresh repository and runs the installed
+scripts' self-tests there. There is no fast variant — the whole thing takes seconds. Nothing is
+resolved from a worktree, since there is nothing to build. `scripts/decisions.sh --check` is not
+wired in yet (LK-05).
+
+### Conventions
+
+- **A new script is not done until it is wired in.** Add it to the list in `check.sh`, to
+  `install.sh`'s self-test, and to `templates/check/common.sh`, or its `--self-test` never runs
+  in the kit or in any project. `install.sh` copies `scripts/*.sh` by glob, so nothing else there
+  needs changing.
+- **`scripts/*.sh` is the only thing that ships.** `scripts/loop-kit-sync.sh` and `install.sh`
+  both glob that extension, so a helper in another language, or a fixture directory beside the
+  scripts, silently never reaches a project (decision 0002). A fixture a self-test needs is
+  written into a temporary directory by the test itself.
+- **Nothing here writes to a project's default branch, and nothing here commits.** The scripts
+  print and the agent or the owner commits: `scripts/open-ticket-pr.sh` pushes a `ticket/<id>`
+  branch, and `scripts/sprint.sh` and the terminal UI edit the working tree only (decision 0003).
+- **`--self-test` is the proof.** A change with no fixture behind it has not met its done line;
+  the exception is a commit body line `No new test: <reason>`.
+- **A prompt changes with its phrases.** Editing a rule out of a prompt fails
+  `scripts/prompt-check.sh`, and a prompt's change also wants a recorded real run in its pull
+  request.
+
+### Docs to keep current
+
+`README.md` — the kit's inventory, whose table names every script — and this file, when the
+loop's rules change.

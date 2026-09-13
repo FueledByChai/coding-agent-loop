@@ -1,0 +1,47 @@
+# Settings for the ticket loop, read by scripts/loop-config.sh. One flat table; strings
+# double-quoted, arrays on one line; a missing key takes its default. `scripts/loop-config.sh
+# --all` shows the effective values. TOML is only the config format: nothing here depends on
+# the project's language.
+[loop]
+# The branch pull requests target and done is judged on.
+default_branch = "main"
+# The ticket file.
+backlog = "BACKLOG.md"
+# The definition of done. The kit's check sits at the repository root on purpose, so
+# install.sh never copies it over a project's own scripts/check.sh.
+check = "./check.sh"
+check_fast = "./check.sh"
+# The kit has no baseline the checks cannot judge: a prompt's rules are asserted by
+# scripts/prompt-check.sh and a script's behaviour by its own --self-test.
+review_paths = []
+# Commits must end with a Co-Authored-By trailer naming the agent and model that did the work.
+trailer_required = true
+# The kit is its own source of truth, so there is nothing to sync it against. A project sets
+# this to the kit's URL and kit_ref to a tag; scripts/loop-kit-sync.sh --check then fails on
+# drift.
+kit = ""
+kit_ref = ""
+# The proof gate is off. The kit's code is bash and its proof is the --self-test each script
+# carries, which ./check.sh runs; turning the gate on means deciding a proof_pattern for shell
+# first.
+code_paths = []
+proof_paths = []
+proof_pattern = ""
+# No coverage tool measures the kit's bash, so the ratchet is off.
+coverage = ""
+coverage_floor = "coverage-floor.txt"
+coverage_slack = "0"
+# The agent review (prompts/review-prs.md, scripts/review-status.sh): the commit status it
+# posts on each pull request's head. ci/ruleset.json does not require it here yet (LK-06):
+# nothing runs the review for this repository, and a required status nothing produces would
+# hold every pull request forever.
+review_context = "Agent review"
+# Decision records (scripts/decisions.sh): one file per decision, numbered, never edited in
+# place; grill-me reads them before asking and writes one when a story needs a decision.
+decisions = "docs/decisions"
+# Every open ticket, in the order to work them. backlog-status.sh --next takes the first ready
+# one of these before falling back to file order.
+sprint = ["LK-01", "LK-02", "LK-03", "LK-04", "LK-05", "LK-06", "LK-07", "LK-08"]
+# The product backlog: the stories with their acceptance criteria that tickets say they serve
+# ("Serves LS-01"). backlog-status.sh --stories derives each story's status from those tickets.
+stories = "docs/PRODUCT_BACKLOG.md"

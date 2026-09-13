@@ -1,0 +1,8 @@
+# Decisions
+
+One file per decision, never edited in place: a change is a new record that supersedes
+the old one. Cite a decision by its number. `scripts/decisions.sh new "<title>"` adds one.
+
+- [0001](0001-the-kit-is-its-own-project-the-loop-s-work-is-ticketed-here.md) The kit is its own project; the loop's work is ticketed here — accepted
+- [0002](0002-the-terminal-ui-is-bash-with-tput-and-stty-and-the-kit-ships.md) The terminal UI is bash with tput and stty, and the kit ships only scripts — accepted
+- [0003](0003-the-terminal-ui-edits-the-working-tree-and-never-commits.md) The terminal UI edits the working tree and never commits — accepted

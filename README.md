@@ -16,7 +16,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views |
 | `scripts/sprint.sh` | edits the sprint list in `.loop.toml` (`add`, `remove`, `set`, `clear`) |
 | `scripts/open-ticket-pr.sh` | claims (`--claim`), opens the PR, applies the merge policy |
-| `scripts/release-notes.sh` | what shipped between two refs; `--archive` into `CHANGELOG.md` |
+| `scripts/release-notes.sh` | what shipped between two refs; `--archive` into `CHANGELOG.md`; `--prefix` narrows either to one ticket prefix |
 | `scripts/loop-kit-sync.sh` | keeps a project's copies of these files in step with the kit |
 | `scripts/proof-gate.sh` | fails a change to code that brings no change to a test, fixture, or check |
 | `scripts/coverage-ratchet.sh` | fails when the project's coverage figure is below the committed floor; `--set` raises the floor |

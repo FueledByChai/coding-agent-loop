@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 # here or there alone fails naming it. What sits outside the markers is deliberately one-sided -
 # ./install.sh --self-test proves the install, which only the kit has.
 # >>> loop checks: shared with templates/check/common.sh (scripts/check-list.sh compares this block)
-for script in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint loop-tui check-list; do
+for script in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint loop-tui check-list ruleset-check; do
   "scripts/$script.sh" --self-test
 done
 # The prompts carry their rules: a phrase that states a rule may not be edited away.
@@ -20,5 +20,9 @@ scripts/decisions.sh --check
 # <<< loop checks
 # The block above and a project's are one list; this fails when they have drifted apart (LK-14).
 scripts/check-list.sh check.sh templates/check/common.sh
+# A ruleset that requires a status its paired workflow never reports holds every pull request
+# forever, and both pairs here are one context apart from each other: this repository's workflow
+# reports `Check (check.sh)`, the template a project installs reports `Check (scripts/check.sh)`.
+scripts/ruleset-check.sh .github/ruleset.json .github/workflows/ci.yml ci/ruleset.json ci/workflow.yml
 ./install.sh --self-test
 echo "KIT CHECKS PASSED"

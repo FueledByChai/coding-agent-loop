@@ -89,7 +89,13 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
 - `check.sh` sits at the repository root on purpose, so `install.sh` never copies it over a
   project's own `scripts/check.sh`. `install.sh` copies everything else and never overwrites a
   project's `AGENTS.md`, `CLAUDE.md`, `.loop.toml`, or workflow.
-- `ci/` holds the workflow skeleton and `ruleset.json`, the branch ruleset a project applies.
+- `ci/` holds what a project applies: the workflow skeleton and the `ruleset.json` that pairs
+  with it, whose required context is the job that skeleton reports (`Check (scripts/check.sh)`).
+  `.github/` holds this repository's own pair — `.github/workflows/ci.yml` and
+  `.github/ruleset.json` — whose context is the job this repository reports
+  (`Check (check.sh)`). The two pairs differ by that one context and are not interchangeable: a
+  project's check sits under `scripts/`, the kit's at the root. `scripts/ruleset-check.sh` fails
+  when either pair disagrees, so neither can drift.
 - `BACKLOG.md` is this project's executable queue, `docs/PRODUCT_BACKLOG.md` its stories, and
   `docs/decisions/` its records (index in its `README.md`; cite a record by number and never
   restate one in a doc or a ticket).

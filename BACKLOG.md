@@ -219,3 +219,29 @@ steps separately.
 number is 1; each of the six skeletons is still proven to pass on an empty repository; and
 `time ./check.sh` is reported in the pull request and matches the figure `README.md` and
 `AGENTS.md` state.
+
+### LK-15 The sprint is said to hold every open ticket, and nothing checks that it does
+`.loop.toml` says the `sprint` list is "Every open ticket, in the order to work them", and
+`scripts/backlog-status.sh --next` takes the first ready one of these before falling back to file
+order. The pairing is checked in one direction only: a sprint id with no heading is reported —
+`sprint: ZZ-99 is not in the backlog file` (`backlog-status.sh:181`, with a self-test at `:310`) —
+while a heading with no sprint entry is reported nowhere. `--next` walks the sprint and, only when
+nothing in it is ready, announces the fallback and walks the file (`:190-192`), so a ticket filed
+without a sprint entry sits outside the order the list claims and is worked in file order once the
+sprint drains — and file order is not sprint order: this repository's headings run LK-01, LK-02,
+LK-03, LK-04, LK-08, LK-10, LK-12, LK-05, LK-06, LK-07, LK-09, LK-11 while its sprint runs
+LK-01…LK-12. The only sign of the omission is a count in another flag's output: `--open` ends
+`open: N ticket(s) not done and not in the sprint`, which reads as a design — the flag's own comment
+calls those the list for the next sprint (HK-40) — rather than as an omission, and nothing fails.
+`scripts/sprint.sh add` will not let an id into the sprint that is not a heading and not done, but
+nothing keeps the other direction whole; two tickets filed in parallel make it likelier, because
+both append to the one `sprint` line and both edit `BACKLOG.md`, so one resolution can drop the
+other's entry with nothing noticing. That is how this ticket was found.
+
+Decide which the sprint is — every open ticket, as `.loop.toml` says, or the current sprint's subset,
+as `--open`'s comment assumes — and make the check say so, both directions of the pairing checked
+alike.
+**Done when:** a heading in the backlog file that `sprint` omits makes `./check.sh` fail naming it —
+or, if the subset reading is chosen, the `sprint` comment and `--next` state it and `--next` or
+`--sprint` report the omission rather than only `--open` counting it — proved by a self-test that
+drops a heading's id from `sprint` and one that adds an id with no heading.

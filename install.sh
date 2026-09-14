@@ -84,7 +84,7 @@ EOF
 self_test() {
   SELF_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/loop-install.XXXXXX")"
   trap 'rm -rf "$SELF_TEST_DIR"' EXIT
-  local dir="$SELF_TEST_DIR/fresh" out loop_runs=0 pair f want marker first=1
+  local dir="$SELF_TEST_DIR/fresh" out loop_runs=0 pair f want marker first=1 suite='== loop self-tests'
   mkdir -p "$dir/scripts"
   (cd "$dir" && git init -q && git config user.email t@example.com && git config user.name t)
   printf '#!/usr/bin/env bash\necho stub check\n' > "$dir/scripts/check.sh"; chmod +x "$dir/scripts/check.sh"
@@ -127,7 +127,7 @@ self_test() {
     f="${pair%%|*}"; want="${pair#*|}"
     cp "$dir/loop/templates/check/$f.sh" "$dir/scripts/check.sh"; chmod +x "$dir/scripts/check.sh"
     if [ "$first" = 1 ]; then
-      loop_runs=1; marker='== loop self-tests'
+      marker="$suite"
     else
       marker="loop checks: stubbed for the $f skeleton"
       printf 'loop_checks() { echo "%s"; }\nratchet() { :; }\n' "$marker" > "$dir/loop/templates/check/common.sh"
@@ -136,8 +136,13 @@ self_test() {
     grep -q 'ALL CHECKS PASSED' "$dir/check-$f.log" || { echo "self-test: the $f skeleton should print the pass line"; exit 1; }
     grep -qF "$marker" "$dir/check-$f.log" || { echo "self-test: the $f skeleton should call the shared loop checks:"; tail -15 "$dir/check-$f.log"; exit 1; }
     grep -qF "$want" "$dir/check-$f.log" || { echo "self-test: the $f skeleton should reach its own stack step:"; tail -15 "$dir/check-$f.log"; exit 1; }
+    # Measured, not asserted: the count is how many times the shared suite actually ran across
+    # the six logs, so a skeleton that called loop_checks twice - the regression LK-11 exists to
+    # catch - reads as 2 here instead of being reported as 1 (LK-11).
+    loop_runs=$((loop_runs + $(grep -cF "$suite" "$dir/check-$f.log" || true)))
     first=0
   done
+  [ "$loop_runs" = 1 ] || { echo "self-test: the shared loop checks should run exactly once, ran $loop_runs time(s)"; exit 1; }
   echo "loop checks: $loop_runs run (the six skeletons' stack steps are proved separately)"
   (cd "$dir" && scripts/decisions.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed decisions self-test failed"; exit 1; }
   (cd "$dir" && scripts/prompt-check.sh | grep -q 'rule(s) present') || { echo "self-test: the installed prompts should pass prompt-check"; exit 1; }

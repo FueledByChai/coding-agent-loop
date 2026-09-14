@@ -104,10 +104,10 @@ until then `scripts/loop-kit-sync.sh --check` fails there, which is the intended
 
 `./check.sh` is the definition of done, and CI runs the same script: every script's `--self-test`
 in a fixed order, then `scripts/prompt-check.sh` (a prompt may not lose a rule), then
-`./install.sh --self-test`, which installs into a fresh repository and runs the installed
-scripts' self-tests there. There is no fast variant — the whole thing takes seconds. Nothing is
-resolved from a worktree, since there is nothing to build. `scripts/decisions.sh --check` is not
-wired in yet (LK-05).
+`scripts/decisions.sh --check` (the kit's records answer to the same sections and index a project's
+check demands of them), then `./install.sh --self-test`, which installs into a fresh repository and
+runs the installed scripts' self-tests there. There is no fast variant — the whole thing takes
+seconds. Nothing is resolved from a worktree, since there is nothing to build.
 
 ### Conventions
 

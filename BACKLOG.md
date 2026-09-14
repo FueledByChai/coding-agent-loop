@@ -137,6 +137,36 @@ repository, a new one, or a sibling — before any other question.
 `prompts/grill-me.md` fails the check; and the pull request records a real run of the prompt in a
 fixture checkout with no `.loop.toml`, showing it stop to ask where the artifacts belong.
 
+### LK-18 The kit installs its commands but not its skills, so the skills a harness loads are copies that drift
+The kit's prompts exist once, in `prompts/<name>.md`, and `commands/<name>.md` deliberately does not
+restate them: it is a pointer — "Read `loop/prompts/<name>.md` and follow it exactly, with
+`AGENTS.md` as the standing instructions" — so there is nothing to keep in step. The skills a
+harness loads are the other half of that integration, and the kit does not own them. `install.sh`
+takes `--commands <dir>` and has no flag for skills; the `SKILL.md` files a harness reads are copies
+of the prompt body that someone made by hand. Nothing compares a skill with its prompt, so they
+drift silently, and a drifted skill is worse than a missing one: the harness loads it, the agent
+follows the older rule, and no check can see it, because the file it would have to compare is not in
+the repository. It has already happened. On 2026-09-14 `next-ticket`'s skill was missing the
+sentence that has `--next` take the `sprint` list first, in its order, then file order — so an agent
+that loaded the skill worked tickets out of the order the list states, which is the failure LK-15
+exists to catch; `review-prs`'s skill was missing the whole `scripts/open-ticket-pr.sh --update-all`
+paragraph; and `grill-me`'s was missing four passages, among them the sprint paragraph LK-17 is
+about. All three were re-synced by hand, which fixes the copies and not the cause: the next prompt
+edit drifts them again, and an agent that reads the prompt and an agent that loads the skill
+disagree about what the loop does.
+
+Give the kit the skills the way it has the commands. Either ship a `skills/<name>/SKILL.md` per
+prompt and install it with a `--skills <dir>`, so the skill is a pointer to the prompt and cannot
+restate a rule — the `commands/` pattern, which makes drift impossible rather than merely
+detectable — or keep the skills outside the kit and add the check that compares each one against its
+prompt. Decide which, and say in `README.md` what a harness has to load.
+**Done when:** a skill that states a rule its prompt does not fails `./check.sh` naming the skill
+and the passage, proved by a self-test that drifts a paragraph into a skill and one that drops a
+paragraph from it — or, if the skills ship as pointers instead, `install.sh --skills <dir>` installs
+one per prompt, its self-test asserts each is the pointer naming `loop/prompts/<name>.md`, and a
+self-test that replaces a skill's body with the prompt's fails — so a fresh install cannot
+reproduce the drift this ticket was filed from.
+
 ## The kit as a project
 
 ### LK-05 The kit's check runs the decision-record check

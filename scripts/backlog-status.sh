@@ -84,16 +84,25 @@ while [ $# -gt 0 ]; do
 done
 
 # The ref done is judged against, from the current directory's repository: the default branch
-# as origin has it (fetched first) unless --ref named one, --local asked for no origin, or
-# there is no such remote branch.
+# as origin has it, fetched first so a checkout that has not pulled never re-offers a merged
+# ticket, unless --ref named one or --local asked for no origin.
+#
+# The fetch comes before the lookup, not after it. A shallow or single-ref checkout - CI's, from
+# actions/checkout - has no refs/remotes/origin/<branch> until something fetches it, and often no
+# local <branch> either, so asking whether the ref is already there and only then fetching leaves
+# nothing to resolve and `git log main` fails with 128. So: origin's branch once the fetch has
+# run, else the local branch, else HEAD, which is what such a checkout has. An explicit --ref is
+# still used verbatim, so a ref that does not exist still fails loudly rather than silently
+# becoming HEAD (LK-15).
 judged_ref() {
   local ref="$1"
-  if [ "$REF_GIVEN" = 0 ] && [ "$LOCAL" = 0 ] && git rev-parse -q --verify "refs/remotes/origin/$ref" >/dev/null 2>&1; then
+  if [ "$REF_GIVEN" = 0 ] && [ "$LOCAL" = 0 ]; then
     git fetch -q origin "$ref" 2>/dev/null || true
-    echo "origin/$ref"
-  else
-    echo "$ref"
+    if git rev-parse -q --verify "refs/remotes/origin/$ref" >/dev/null 2>&1; then echo "origin/$ref"; return; fi
+    if git rev-parse -q --verify "$ref" >/dev/null 2>&1; then echo "$ref"; return; fi
+    echo "HEAD"; return
   fi
+  echo "$ref"
 }
 
 # Prints the table (mode table) or the next ticket id (mode next) for a backlog file against a
@@ -518,6 +527,30 @@ EOF2
     echo "$out" | grep -q 'sprint: ZZ-99 is not in the backlog file' \
       || { echo "self-test: --sprint-check should name the dangling sprint id:"; echo "$out"; exit 1; }
     rm -f sprint.toml
+    # A detached checkout with no local default branch - CI's, from actions/checkout - has to
+    # still resolve the ref it judges against. The lookup used to ask whether the ref was
+    # already there and only then fetch it, so with nothing local to find it fell through to a
+    # branch name that is not there and `git log main` failed with 128; the fetch now comes
+    # first, so origin's branch is found, and with no origin to fetch from either HEAD is what
+    # the checkout has. AA-01 landed locally, so the table still reports it done (LK-15).
+    git checkout -q --detach HEAD
+    git branch -q -D main 2>/dev/null || true
+    git update-ref -d refs/remotes/origin/main 2>/dev/null || true
+    # `|| true` so a failure here reports which case it was rather than aborting the subshell
+    # under `set -e` with the fixture's stderr already redirected away.
+    out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md 2>&1)" || true
+    echo "$out" | grep -q '^AA-01  done' \
+      || { echo "self-test: a detached checkout should still judge against a ref:"; echo "$out"; exit 1; }
+    git remote remove origin
+    git update-ref -d refs/remotes/origin/main 2>/dev/null || true
+    out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md 2>&1)" || true
+    echo "$out" | grep -q '^AA-01  done' \
+      || { echo "self-test: with no origin, a detached checkout should fall back to HEAD:"; echo "$out"; exit 1; }
+    # An explicit --ref is used verbatim, so one that does not exist fails rather than quietly
+    # becoming HEAD.
+    if "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref nosuchref >/dev/null 2>&1; then
+      echo "self-test: an explicit --ref that does not exist must fail"; exit 1
+    fi
     if [ -s "$dir/.stderr" ]; then
       echo "self-test: the fixture wrote to stderr, so its output depends on the checkout it runs in:"
       sed 's/^/  /' "$dir/.stderr"

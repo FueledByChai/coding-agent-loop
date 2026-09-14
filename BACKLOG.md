@@ -178,10 +178,11 @@ filtered archive is the synced script. HK-46 is the one ticket that spans both r
 kit default and a Tessera `.loop.toml` line); it stays whole there rather than being split for
 one regex, and record 0001 names it as the exception.
 **Done when:** `scripts/loop-kit-sync.sh --check` is clean in Tessera at the new `kit_ref`;
-`grep -c '^### HK-' BACKLOG.md` there counts four; `git log --format=%s main | grep -c '^HK-'`
-there still finds the forty-three landed commits, so the archive lost nothing; `CHANGELOG.md`
-carries their bodies under the archive tag; and `scripts/backlog-status.sh --sprint` there lists
-no HK-41.
+`grep -c '^### HK-' BACKLOG.md` there counts four; `git log --format=%s main | grep -oE
+'^HK-[0-9]+' | sort -u | wc -l` there still finds the forty-three landed tickets, so the archive
+lost nothing (count tickets, not commits: HK-27 carries two, so a raw `grep -c '^HK-'` reads
+44); `CHANGELOG.md` carries their bodies under the archive tag; and
+`scripts/backlog-status.sh --sprint` there lists no HK-41.
 
 ### LK-09 The repository's branch ruleset is applied, and auto-merge is on — Blocked by LK-13
 `.github/ruleset.json` (LK-13) and the README's setup commands exist, but this repository has none

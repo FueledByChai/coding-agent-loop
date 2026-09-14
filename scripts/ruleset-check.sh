@@ -59,10 +59,26 @@ verdict() { # <ruleset.json> <workflow.yml>
     }
     @contexts = grep { defined $_ && length $_ } @contexts;
 
+    # A `#` outside a quoted scalar opens a comment that runs to the end of the line, so
+    # `name: Check (check.sh) # required status` names the job `Check (check.sh)` rather than the
+    # whole line. Comments are dropped here, once, so no pattern below has to allow for one - and
+    # a `#` inside quotes is left alone, since there it is part of the name (LK-13).
+    my $strip_comment = sub {
+      my ($line) = @_;
+      my $out = ""; my $quote;
+      for my $ch (split //, $line) {
+        if (defined $quote) { $out .= $ch; $quote = undef if $ch eq $quote; next }
+        if ($ch eq q{"} || $ch eq chr(39)) { $quote = $ch; $out .= $ch; next }
+        last if $ch eq "#" && ($out eq "" || substr($out, -1) =~ /\s/);
+        $out .= $ch;
+      }
+      return $out;
+    };
+
     # The workflow: its job names. `jobs:` at the top level opens the block; a key-only line at
     # the smallest indent inside it starts a job, and the next such line starts the next one.
     open my $wf, "<", $workflow or die "ruleset-check: cannot read $workflow: $!\n";
-    my @lines = <$wf>;
+    my @lines = map { $strip_comment->($_) } <$wf>;
     close $wf;
     my $start;
     for my $i (0 .. $#lines) { if ($lines[$i] =~ /^jobs:\s*$/) { $start = $i + 1; last } }
@@ -189,6 +205,47 @@ jobs:
 YML
   "$ME" "$SELF_TEST_DIR/ruleset.json" "$SELF_TEST_DIR/keyed.yml" \
     || { echo "self-test: a job with no name is reported by its key, which should match"; exit 1; }
+
+  # A `#` outside quotes is a comment and not part of the name, so a workflow that annotates its
+  # job name still reports the context the ruleset requires (LK-13).
+  cat > "$SELF_TEST_DIR/commented.yml" <<'YML'
+jobs:
+  check:
+    name: Check (check.sh) # required status
+    runs-on: ubuntu-latest
+YML
+  "$ME" "$SELF_TEST_DIR/ruleset.json" "$SELF_TEST_DIR/commented.yml" \
+    || { echo "self-test: an inline comment on a job name should be ignored"; exit 1; }
+
+  # A `#` inside quotes is part of the name, so a name containing one is read whole rather than
+  # cut at the `#` - and the comment after the closing quote is still dropped.
+  cat > "$SELF_TEST_DIR/hash.json" <<'JSON'
+{ "rules": [ { "type": "required_status_checks",
+  "parameters": { "required_status_checks": [ { "context": "Check #1" } ] } } ] }
+JSON
+  cat > "$SELF_TEST_DIR/hash.yml" <<'YML'
+jobs:
+  check:
+    name: "Check #1" # the first of two
+    runs-on: ubuntu-latest
+YML
+  "$ME" "$SELF_TEST_DIR/hash.json" "$SELF_TEST_DIR/hash.yml" \
+    || { echo "self-test: a quoted name should be read whole, not cut at the hash"; exit 1; }
+
+  # A comment on the job's own key line must not hide the job. Before the comments were dropped,
+  # `check: # the only job` did not look like a key at all, so the parser took the next key-only
+  # line - `steps:` - for the job and reported it instead of the real one. The `name:` here is
+  # clean, so this case turns on the key line alone.
+  cat > "$SELF_TEST_DIR/keycomment.yml" <<'YML'
+jobs:
+  check: # the only job
+    name: Check (check.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./check.sh
+YML
+  "$ME" "$SELF_TEST_DIR/ruleset.json" "$SELF_TEST_DIR/keycomment.yml" \
+    || { echo "self-test: a comment on the job key should not hide the job"; exit 1; }
 
   # A ruleset requiring nothing cannot disagree with anything.
   printf '{ "rules": [ { "type": "deletion" } ] }\n' > "$SELF_TEST_DIR/none.json"

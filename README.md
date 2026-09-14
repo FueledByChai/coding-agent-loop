@@ -156,7 +156,8 @@ git clone https://github.com/FueledByChai/coding-agent-loop /tmp/loop-kit
 
 `install.sh` copies the scripts into `scripts/`, the prompts into `loop/prompts/`, writes
 `AGENTS.md` and `.loop.toml` when they do not exist (it never overwrites either), puts the
-workflow skeleton at `.github/workflows/loop.yml` when there is no workflow yet, and, with
+workflow skeleton at `.github/workflows/loop.yml` and the ruleset that pairs with it at
+`ci/ruleset.json` when neither is there, and, with
 `--commands <dir>`, writes the four wrappers into the harness's command directory. `CLAUDE.md` is written as the one line `@AGENTS.md` when absent: Codex reads
 `AGENTS.md` on its own, Claude Code reads `CLAUDE.md`, and both then follow the same file. Then it
 prints what the project still has to supply:
@@ -164,8 +165,8 @@ prints what the project still has to supply:
 1. `scripts/check.sh`: the definition of done, exit non-zero on anything not shippable. The
    kit does not know how to build or test your code. Have it run the loop self-tests too.
 2. Optionally a deploy script, if a merged PR should reach a running service on its own.
-3. The branch ruleset, applied once with `gh api` (see `ci/ruleset.json` and the commands
-   below); repository settings that allow auto-merge and delete merged branches.
+3. The branch ruleset, applied once with `gh api` (the installed `ci/ruleset.json` and the
+   commands below); repository settings that allow auto-merge and delete merged branches.
 4. The **Project rules** section of `AGENTS.md`: what never to touch, build and run commands,
    conventions the prompts should follow.
 

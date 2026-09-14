@@ -55,6 +55,17 @@ install_into() {
     mkdir -p "$target/.github/workflows"; cp "$KIT/ci/workflow.yml" "$target/.github/workflows/loop.yml"
     echo "installed: .github/workflows/loop.yml (one job per check command; its job names are the required status checks)"
   fi
+  # The ruleset is the other half of that pair: `Check (scripts/check.sh)` is the context the
+  # installed workflow's job reports. A project gets both, so the README's
+  # `gh api ... --input ci/ruleset.json` names a file that is actually there, and the check
+  # skeleton's `scripts/ruleset-check.sh ci/ruleset.json .github/workflows/loop.yml` has a pair to
+  # judge rather than quietly finding nothing to check (LK-13).
+  if [ -e "$target/ci/ruleset.json" ]; then
+    echo "kept: ci/ruleset.json (already present)"
+  else
+    mkdir -p "$target/ci"; cp "$KIT/ci/ruleset.json" "$target/ci/ruleset.json"
+    echo "installed: ci/ruleset.json (the branch ruleset that pairs with .github/workflows/loop.yml; apply it with the gh command in README.md)"
+  fi
   if [ -n "$commands" ]; then
     mkdir -p "$target/$commands"
     for f in "$KIT"/commands/*.md; do cp "$f" "$target/$commands/"; done
@@ -77,9 +88,11 @@ Still to supply:
      scripts/decisions.sh --check, scripts/prompt-check.sh).
      $( [ -x "$target/scripts/check.sh" ] && echo "(present)" || echo "(missing)" )
   2. Optionally a deploy script, if a merged PR should reach a running service on its own.
-  3. The repository settings and branch ruleset, once, with gh (see README.md and ci/ruleset.json),
-     and the pair named in the check (scripts/ruleset-check.sh <ruleset.json> <workflow.yml>) so
-     a ruleset requiring a status the workflow never reports cannot land unnoticed.
+  3. The repository settings and branch ruleset, once, with gh: apply the ci/ruleset.json
+     install.sh wrote (README.md has the commands). It pairs with .github/workflows/loop.yml,
+     and the check skeleton already names that pair - scripts/ruleset-check.sh ci/ruleset.json
+     .github/workflows/loop.yml - so a ruleset requiring a status the workflow never reports
+     cannot land unnoticed.
   4. The Project rules section of AGENTS.md (grill-project writes it on a new project).
 EOF
 }
@@ -95,6 +108,8 @@ self_test() {
   echo "$out" | grep -q '^installed: AGENTS.md' || { echo "self-test: AGENTS.md should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .loop.toml' || { echo "self-test: .loop.toml should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .github/workflows/loop.yml' || { echo "self-test: the workflow should be installed:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q '^installed: ci/ruleset.json' || { echo "self-test: the ruleset should be installed:"; echo "$out"; exit 1; }
+  [ -f "$dir/ci/ruleset.json" ] || { echo "self-test: ci/ruleset.json should be installed"; exit 1; }
   echo "$out" | grep -q '^installed: .agent/commands/' || { echo "self-test: the wrappers should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '(present)' || { echo "self-test: the stub check should be reported present:"; echo "$out"; exit 1; }
   for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint loop-tui ruleset-check; do
@@ -147,6 +162,14 @@ self_test() {
   done
   [ "$loop_runs" = 1 ] || { echo "self-test: the shared loop checks should run exactly once, ran $loop_runs time(s)"; exit 1; }
   echo "loop checks: $loop_runs run (the six skeletons' stack steps are proved separately)"
+  # The ruleset and the workflow are installed as a pair, and the generated check judges them:
+  # both halves are there, so the guard runs the verdict rather than reporting there is nothing
+  # to check. The pair itself is consistent - the workflow's job name is the context the ruleset
+  # requires - and the first skeleton's log proves the check reached it (LK-13).
+  (cd "$dir" && scripts/ruleset-check.sh ci/ruleset.json .github/workflows/loop.yml) \
+    || { echo "self-test: the installed ruleset should match the installed workflow"; exit 1; }
+  grep -q 'ruleset pair: none to check' "$dir/check-rust.log" \
+    && { echo "self-test: the installed pair should be checked, not skipped:"; grep 'ruleset' "$dir/check-rust.log"; exit 1; }
   (cd "$dir" && scripts/decisions.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed decisions self-test failed"; exit 1; }
   (cd "$dir" && scripts/prompt-check.sh | grep -q 'rule(s) present') || { echo "self-test: the installed prompts should pass prompt-check"; exit 1; }
   [ -e "$dir/loop/prompts/next-ticket.md" ] && [ -e "$dir/loop/prompts/grill-me.md" ] || { echo "self-test: prompts missing"; exit 1; }
@@ -166,6 +189,7 @@ self_test() {
   echo "$out" | grep -q '^kept: CLAUDE.md' || { echo "self-test: a second install must keep CLAUDE.md:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^kept: .loop.toml' || { echo "self-test: a second install must keep .loop.toml:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^kept: .github/workflows' || { echo "self-test: a second install must keep the workflow:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q '^kept: ci/ruleset.json' || { echo "self-test: a second install must keep the ruleset:"; echo "$out"; exit 1; }
   echo "install self-test passed"
 }
 

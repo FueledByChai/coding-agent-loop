@@ -25,4 +25,9 @@ scripts/check-list.sh check.sh templates/check/common.sh
 # reports `Check (check.sh)`, the template a project installs reports `Check (scripts/check.sh)`.
 scripts/ruleset-check.sh .github/ruleset.json .github/workflows/ci.yml ci/ruleset.json ci/workflow.yml
 ./install.sh --self-test
+# The `sprint` list here is every open ticket (LK-15), so an open heading it omits is a fault:
+# --next would work that ticket in file order once the sprint drains, which is not the order the
+# list states. It is deliberately one-sided - a project whose sprint is a chosen subset does not
+# name it - so it sits outside the shared block, with the install self-test.
+scripts/backlog-status.sh --sprint-check
 echo "KIT CHECKS PASSED"

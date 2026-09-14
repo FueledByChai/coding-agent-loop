@@ -14,7 +14,16 @@
 #   scripts/backlog-status.sh --open [--section <name>]
 #                                             the tickets not done and not in the sprint, grouped
 #                                             by section, with the story each serves: the pick
-#                                             list for the next sprint (HK-40)
+#                                             list for the next sprint (HK-40) where the sprint
+#                                             is a chosen subset. Where the sprint is every open
+#                                             ticket they are omissions instead, which
+#                                             --sprint-check fails on (LK-15)
+#   scripts/backlog-status.sh --sprint-check  both directions of the sprint pairing at once: a
+#                                             sprint id with no heading, and an open ticket the
+#                                             sprint omits. Exit 1 naming each, for a check to
+#                                             run when the `sprint` list is "every open ticket"
+#                                             (LK-15); a project whose sprint is a chosen subset
+#                                             does not name it
 #   scripts/backlog-status.sh --show <id>     a ticket's text, state, and the story it serves, or
 #                                             a story's text, derived status, and its tickets
 #   scripts/backlog-status.sh --stories       every story in the product backlog (`stories` in
@@ -66,6 +75,7 @@ while [ $# -gt 0 ]; do
     --next) MODE=next ;;
     --sprint) MODE=sprint ;;
     --open) MODE=open ;;
+    --sprint-check) MODE=sprint-check ;;
     --section) SECTION="$2"; shift ;;
     --show) MODE=show; WANT="$2"; shift ;;
     --stories) MODE=stories ;;
@@ -81,16 +91,25 @@ while [ $# -gt 0 ]; do
 done
 
 # The ref done is judged against, from the current directory's repository: the default branch
-# as origin has it (fetched first) unless --ref named one, --local asked for no origin, or
-# there is no such remote branch.
+# as origin has it, fetched first so a checkout that has not pulled never re-offers a merged
+# ticket, unless --ref named one or --local asked for no origin.
+#
+# The fetch comes before the lookup, not after it. A shallow or single-ref checkout - CI's, from
+# actions/checkout - has no refs/remotes/origin/<branch> until something fetches it, and often no
+# local <branch> either, so asking whether the ref is already there and only then fetching leaves
+# nothing to resolve and `git log main` fails with 128. So: origin's branch once the fetch has
+# run, else the local branch, else HEAD, which is what such a checkout has. An explicit --ref is
+# still used verbatim, so a ref that does not exist still fails loudly rather than silently
+# becoming HEAD (LK-15).
 judged_ref() {
   local ref="$1"
-  if [ "$REF_GIVEN" = 0 ] && [ "$LOCAL" = 0 ] && git rev-parse -q --verify "refs/remotes/origin/$ref" >/dev/null 2>&1; then
+  if [ "$REF_GIVEN" = 0 ] && [ "$LOCAL" = 0 ]; then
     git fetch -q origin "$ref" 2>/dev/null || true
-    echo "origin/$ref"
-  else
-    echo "$ref"
+    if git rev-parse -q --verify "refs/remotes/origin/$ref" >/dev/null 2>&1; then echo "origin/$ref"; return; fi
+    if git rev-parse -q --verify "$ref" >/dev/null 2>&1; then echo "$ref"; return; fi
+    echo "HEAD"; return
   fi
+  echo "$ref"
 }
 
 # Prints the table (mode table) or the next ticket id (mode next) for a backlog file against a
@@ -218,7 +237,8 @@ status() {
         return 1;
       };
       my %by_id = map { $_->{id} => $_ } @tickets;
-      for my $id (@sprint) { print STDERR "sprint: $id is not in the backlog file\n" unless $by_id{$id}; }
+      my $sprint_dangling = 0;
+      for my $id (@sprint) { next if $by_id{$id}; print STDERR "sprint: $id is not in the backlog file\n"; $sprint_dangling = 1; }
       my $blockers_of = sub { my $t = shift; join ",", map { $_ . ($landed->($_) ? "" : "!") } @{ $t->{blockers} }; };
       my $state_of = sub {
         my $t = shift; my $state = $t->{state};
@@ -227,6 +247,21 @@ status() {
         $state = $t->{claim} if $state eq "blocked";
         return $state;
       };
+      if ($mode eq "sprint-check") {
+        # Both directions of the sprint pairing, checked alike (LK-15). A sprint id with no
+        # heading is a list pointing at nothing, reported above; an open ticket with no sprint
+        # id is work the list claims to hold and does not, and it is worked in file order once
+        # the sprint drains - which is not the order the list states. `sprint` here is "every
+        # open ticket", so an omission is a fault; a ticket that has landed may leave freely,
+        # since done-ness is derived from git.
+        my $bad = $sprint_dangling;
+        for my $t (@tickets) {
+          next if $t->{state} eq "done" || $sprint{ $t->{id} };
+          printf STDERR "sprint: %s is open and not in the sprint: %s\n", $t->{id}, $t->{title};
+          $bad = 1;
+        }
+        exit($bad ? 1 : 0);
+      }
       if ($mode eq "next") {
         for my $id (@sprint) { my $t = $by_id{$id} or next; if ($ready->($t)) { print "$t->{id}\n"; exit 0; } }
         print STDERR "sprint: nothing ready in it; falling back to file order\n" if @sprint;
@@ -519,6 +554,53 @@ EOF2
       echo "self-test: --local should judge the local main, where AA-03 has not landed"; exit 1
     fi
     [ "$(git rev-parse main)" != "$(git rev-parse origin/main)" ] || { echo "self-test: the local main must not have moved"; exit 1; }
+    # LK-15: `sprint` is this repository's ordering of every open ticket, so a ticket that has
+    # landed may leave it freely - the invariant is about open tickets, and completion is
+    # derived from git - while an open one it omits is a fault, because --next would work it in
+    # file order once the sprint drains. Locally AA-01, AA-02, AA-04 and AA-06 have landed and
+    # AA-03 and AA-05 are open, so a sprint holding just those two passes and one that drops
+    # AA-05 fails naming it.
+    printf '[loop]\nsprint = ["AA-03", "AA-05"]\n' > sprint.toml
+    LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --sprint-check \
+      || { echo "self-test: a sprint holding every open ticket, landed ones left out, should pass"; exit 1; }
+    printf '[loop]\nsprint = ["AA-03"]\n' > sprint.toml
+    if out="$(LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --sprint-check 2>&1)"; then
+      echo "self-test: --sprint-check must fail when the sprint omits an open ticket"; exit 1
+    fi
+    echo "$out" | grep -q '^sprint: AA-05 is open and not in the sprint: Fifth$' \
+      || { echo "self-test: --sprint-check should name the omitted ticket:"; echo "$out"; exit 1; }
+    # The other direction, in the same call: an id the file has no heading for.
+    printf '[loop]\nsprint = ["AA-03", "AA-05", "ZZ-99"]\n' > sprint.toml
+    if out="$(LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --sprint-check 2>&1)"; then
+      echo "self-test: --sprint-check must fail on a sprint id with no heading"; exit 1
+    fi
+    echo "$out" | grep -q 'sprint: ZZ-99 is not in the backlog file' \
+      || { echo "self-test: --sprint-check should name the dangling sprint id:"; echo "$out"; exit 1; }
+    rm -f sprint.toml
+    # A detached checkout with no local default branch - CI's, from actions/checkout - has to
+    # still resolve the ref it judges against. The lookup used to ask whether the ref was
+    # already there and only then fetch it, so with nothing local to find it fell through to a
+    # branch name that is not there and `git log main` failed with 128; the fetch now comes
+    # first, so origin's branch is found, and with no origin to fetch from either HEAD is what
+    # the checkout has. AA-01 landed locally, so the table still reports it done (LK-15).
+    git checkout -q --detach HEAD
+    git branch -q -D main 2>/dev/null || true
+    git update-ref -d refs/remotes/origin/main 2>/dev/null || true
+    # `|| true` so a failure here reports which case it was rather than aborting the subshell
+    # under `set -e` with the fixture's stderr already redirected away.
+    out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md 2>&1)" || true
+    echo "$out" | grep -q '^AA-01  done' \
+      || { echo "self-test: a detached checkout should still judge against a ref:"; echo "$out"; exit 1; }
+    git remote remove origin
+    git update-ref -d refs/remotes/origin/main 2>/dev/null || true
+    out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md 2>&1)" || true
+    echo "$out" | grep -q '^AA-01  done' \
+      || { echo "self-test: with no origin, a detached checkout should fall back to HEAD:"; echo "$out"; exit 1; }
+    # An explicit --ref is used verbatim, so one that does not exist fails rather than quietly
+    # becoming HEAD.
+    if "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref nosuchref >/dev/null 2>&1; then
+      echo "self-test: an explicit --ref that does not exist must fail"; exit 1
+    fi
     if [ -s "$dir/.stderr" ]; then
       echo "self-test: the fixture wrote to stderr, so its output depends on the checkout it runs in:"
       sed 's/^/  /' "$dir/.stderr"

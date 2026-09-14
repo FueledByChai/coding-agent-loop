@@ -13,7 +13,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | Path | What it is |
 | --- | --- |
 | `scripts/loop-config.sh` | reads `.loop.toml` (`<key>`, `--all`), with defaults |
-| `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views; `--plain` gives `--stories` and `--open` as tab-separated fields for a renderer |
+| `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views; `--plain` gives `--stories` and `--open` as tab-separated fields for a renderer; `--sprint-check` fails when the sprint and the open tickets disagree |
 | `scripts/sprint.sh` | edits the sprint list in `.loop.toml` (`add`, `remove`, `set`, `clear`) |
 | `scripts/loop-tui.sh` | the loop's state as one screen: the dashboard (the sprint, the next ticket and the command that claims it, what is left, the stories), and the `stories`, `open`, and `show <id>` views; `--width` fixes the width and `--render` prints one frame and exits |
 | `scripts/open-ticket-pr.sh` | claims (`--claim`), opens the PR, applies the merge policy |
@@ -61,11 +61,16 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   `--next` takes the first ready one of them before file order, `--sprint` shows their
   states, and choosing a sprint is a commit that edits the list (`scripts/sprint.sh add
   <id> [--before <id>]`). Tickets carry no sprint state, so a sprint change forgets nothing.
+  A project may mean either of two things by the list, and says which in the comment above it:
+  the tickets chosen for now, so what is left out is the pick list `--open` prints, or **every
+  open ticket**, so an omission is a fault. This repository means the second, and runs
+  `scripts/backlog-status.sh --sprint-check` from `./check.sh`, which fails naming an open
+  ticket the list leaves out or an id the backlog has no heading for (LK-15).
 - **Stories** live in the product backlog (`stories` in `.loop.toml`, `docs/PRODUCT_BACKLOG.md`
   by default) as `### BT-nnn — <title>` with acceptance criteria; a ticket says which it
   serves (`Serves BT-nnn`). `--stories` derives each story's status from git (done when every
-  serving ticket landed, open k/n, unticketed), `--open` is the pick list for the next sprint,
-  and `--show <id>` prints a ticket or a story in full.
+  serving ticket landed, open k/n, unticketed), `--open` is the pick list for the next sprint
+  where the sprint is a subset, and `--show <id>` prints a ticket or a story in full.
 - **Hand-off** is a pull request from that branch. A green PR that is up to date with the
   default branch merges on its own; one that touches a `review_paths` entry is labelled
   `needs-review` and waits for a person. With several agents at once, each merge leaves the

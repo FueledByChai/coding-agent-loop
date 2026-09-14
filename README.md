@@ -15,8 +15,9 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `scripts/loop-config.sh` | reads `.loop.toml` (`<key>`, `--all`), with defaults |
 | `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views |
 | `scripts/sprint.sh` | edits the sprint list in `.loop.toml` (`add`, `remove`, `set`, `clear`) |
+| `scripts/loop-tui.sh` | the loop's state as one screen — the sprint, the next ticket and the command that claims it, what is left, the stories; `--width` fixes the width and `--render` prints one frame and exits |
 | `scripts/open-ticket-pr.sh` | claims (`--claim`), opens the PR, applies the merge policy |
-| `scripts/release-notes.sh` | what shipped between two refs; `--archive` into `CHANGELOG.md` |
+| `scripts/release-notes.sh` | what shipped between two refs; `--archive` into `CHANGELOG.md`; `--prefix` narrows either to one ticket prefix |
 | `scripts/loop-kit-sync.sh` | keeps a project's copies of these files in step with the kit |
 | `scripts/proof-gate.sh` | fails a change to code that brings no change to a test, fixture, or check |
 | `scripts/coverage-ratchet.sh` | fails when the project's coverage figure is below the committed floor; `--set` raises the floor |
@@ -39,7 +40,10 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `check.sh` | the kit's own check: every self-test, then an install into a fresh repository |
 
 Every script has a `--self-test`; a project's check runs them, and `./check.sh` here runs
-them all plus the install (CI runs the same script).
+them all plus the install (CI runs the same script). It takes about three minutes on a laptop,
+down from about nine: the install self-test runs the loop's suite once and proves the six stack
+skeletons' own stack steps separately, instead of running the whole suite once per skeleton
+(LK-11).
 
 ## How the loop works
 

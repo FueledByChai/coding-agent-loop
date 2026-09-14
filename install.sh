@@ -72,7 +72,8 @@ Still to supply:
      Project rules, the decision records, and the first epics. On an existing project write
      it by hand and run the loop self-tests from it (scripts/loop-config.sh --self-test,
      scripts/backlog-status.sh --self-test, scripts/open-ticket-pr.sh --self-test,
-     scripts/release-notes.sh --self-test, scripts/loop-kit-sync.sh --check,
+     scripts/release-notes.sh --self-test, scripts/loop-tui.sh --self-test,
+     scripts/loop-kit-sync.sh --check,
      scripts/decisions.sh --check, scripts/prompt-check.sh).
      $( [ -x "$target/scripts/check.sh" ] && echo "(present)" || echo "(missing)" )
   2. Optionally a deploy script, if a merged PR should reach a running service on its own.
@@ -84,7 +85,7 @@ EOF
 self_test() {
   SELF_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/loop-install.XXXXXX")"
   trap 'rm -rf "$SELF_TEST_DIR"' EXIT
-  local dir="$SELF_TEST_DIR/fresh" out
+  local dir="$SELF_TEST_DIR/fresh" out loop_runs=0 pair f want marker first=1 suite='== loop self-tests'
   mkdir -p "$dir/scripts"
   (cd "$dir" && git init -q && git config user.email t@example.com && git config user.name t)
   printf '#!/usr/bin/env bash\necho stub check\n' > "$dir/scripts/check.sh"; chmod +x "$dir/scripts/check.sh"
@@ -94,7 +95,7 @@ self_test() {
   echo "$out" | grep -q '^installed: .github/workflows/loop.yml' || { echo "self-test: the workflow should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .agent/commands/' || { echo "self-test: the wrappers should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '(present)' || { echo "self-test: the stub check should be reported present:"; echo "$out"; exit 1; }
-  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint; do
+  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint loop-tui; do
     [ -x "$dir/scripts/$f.sh" ] || { echo "self-test: scripts/$f.sh missing or not executable"; exit 1; }
   done
   [ -f "$dir/loop/templates/decision.md" ] || { echo "self-test: the decision template should be installed"; exit 1; }
@@ -116,12 +117,34 @@ self_test() {
     esac
   done
   [ -f "$dir/.agent/commands/grill-project.md" ] || { echo "self-test: the grill-project wrapper should be installed"; exit 1; }
-  # Every skeleton runs green on the empty repository (the loop's checks pass, the stack steps skip).
-  for f in rust python node java go other; do
+  # Every skeleton runs green on the empty repository. The loop checks each one sources from
+  # loop/templates/check/common.sh are identical and are the bulk of the run, so they are proved
+  # once, in full, through the first skeleton; the other five run with that file stubbed to a
+  # marker, which still proves the skeleton sources it, calls loop_checks, and reaches its own
+  # stack step - without repeating the suite six times (LK-11).
+  for pair in "rust|skipped: no Cargo.toml yet" "python|skipped: no pyproject.toml yet" \
+              "node|skipped: no package.json yet" "java|skipped: no pom.xml or build.gradle yet" \
+              "go|skipped: no go.mod yet" "other|TODO: the formatter's check command"; do
+    f="${pair%%|*}"; want="${pair#*|}"
     cp "$dir/loop/templates/check/$f.sh" "$dir/scripts/check.sh"; chmod +x "$dir/scripts/check.sh"
+    if [ "$first" = 1 ]; then
+      marker="$suite"
+    else
+      marker="loop checks: stubbed for the $f skeleton"
+      printf 'loop_checks() { echo "%s"; }\nratchet() { :; }\n' "$marker" > "$dir/loop/templates/check/common.sh"
+    fi
     (cd "$dir" && scripts/check.sh > "$dir/check-$f.log" 2>&1) || { echo "self-test: the $f skeleton should pass on an empty repository:"; tail -15 "$dir/check-$f.log"; exit 1; }
     grep -q 'ALL CHECKS PASSED' "$dir/check-$f.log" || { echo "self-test: the $f skeleton should print the pass line"; exit 1; }
+    grep -qF "$marker" "$dir/check-$f.log" || { echo "self-test: the $f skeleton should call the shared loop checks:"; tail -15 "$dir/check-$f.log"; exit 1; }
+    grep -qF "$want" "$dir/check-$f.log" || { echo "self-test: the $f skeleton should reach its own stack step:"; tail -15 "$dir/check-$f.log"; exit 1; }
+    # Measured, not asserted: the count is how many times the shared suite actually ran across
+    # the six logs, so a skeleton that called loop_checks twice - the regression LK-11 exists to
+    # catch - reads as 2 here instead of being reported as 1 (LK-11).
+    loop_runs=$((loop_runs + $(grep -cF "$suite" "$dir/check-$f.log" || true)))
+    first=0
   done
+  [ "$loop_runs" = 1 ] || { echo "self-test: the shared loop checks should run exactly once, ran $loop_runs time(s)"; exit 1; }
+  echo "loop checks: $loop_runs run (the six skeletons' stack steps are proved separately)"
   (cd "$dir" && scripts/decisions.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed decisions self-test failed"; exit 1; }
   (cd "$dir" && scripts/prompt-check.sh | grep -q 'rule(s) present') || { echo "self-test: the installed prompts should pass prompt-check"; exit 1; }
   [ -e "$dir/loop/prompts/next-ticket.md" ] && [ -e "$dir/loop/prompts/grill-me.md" ] || { echo "self-test: prompts missing"; exit 1; }
@@ -133,6 +156,7 @@ self_test() {
   (cd "$dir" && scripts/backlog-status.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed backlog-status self-test failed"; exit 1; }
   (cd "$dir" && scripts/release-notes.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed release-notes self-test failed"; exit 1; }
   (cd "$dir" && scripts/open-ticket-pr.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed open-ticket-pr self-test failed"; exit 1; }
+  (cd "$dir" && scripts/loop-tui.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed loop-tui self-test failed"; exit 1; }
   # Installing again keeps what exists.
   out="$("$KIT/install.sh" "$dir")"
   echo "$out" | grep -q '^kept: AGENTS.md' || { echo "self-test: a second install must keep AGENTS.md:"; echo "$out"; exit 1; }

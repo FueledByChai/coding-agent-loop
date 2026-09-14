@@ -24,6 +24,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `scripts/review-status.sh` | lists pull requests awaiting the agent review (`--pending`) and posts its verdict as a commit status |
 | `scripts/decisions.sh` | decision records: `new "<title>" [--supersedes NNNN]`, `index`, `--check` |
 | `scripts/prompt-check.sh` | fails when a prompt no longer carries a phrase that states one of its rules |
+| `scripts/check-list.sh` | fails when the kit's `check.sh` and a project's `templates/check/common.sh` do not run the same checks, naming the one that only one of them runs |
 | `templates/decision.md` | the decision record: Context, Decision, Alternatives, Consequences, what would show it was wrong |
 | `prompts/review-prs.md` | the prompt that reviews pending pull requests against their ticket and the Project rules |
 | `prompts/next-ticket.md` | the prompt that takes the next ticket to done |

@@ -117,10 +117,11 @@ seconds. Nothing is resolved from a worktree, since there is nothing to build.
 
 ### Conventions
 
-- **A new script is not done until it is wired in.** Add it to the list in `check.sh`, to
-  `install.sh`'s self-test, and to `templates/check/common.sh`, or its `--self-test` never runs
-  in the kit or in any project. `install.sh` copies `scripts/*.sh` by glob, so nothing else there
-  needs changing.
+- **A new script is not done until it is wired in.** Add it to the marked block in `check.sh` and
+  to the one in `templates/check/common.sh` — `scripts/check-list.sh` compares the two blocks and
+  fails naming a check only one of them runs (LK-14) — and to `install.sh`'s self-test, or its
+  `--self-test` never runs in the kit or in any project. `install.sh` copies `scripts/*.sh` by
+  glob, so nothing else there needs changing.
 - **`scripts/*.sh` is the only thing that ships.** `scripts/loop-kit-sync.sh` and `install.sh`
   both glob that extension, so a helper in another language, or a fixture directory beside the
   scripts, silently never reaches a project (decision 0002). A fixture a self-test needs is

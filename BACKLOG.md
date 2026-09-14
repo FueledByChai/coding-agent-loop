@@ -122,6 +122,23 @@ same stdout, both in this checkout and in a copy with `.loop.toml` removed, and 
 `scripts/sprint.sh --self-test` is unchanged and still writes nothing to stderr; and `./check.sh`'s
 output is byte-identical between the two checkouts.
 
+### LK-19 `loop.toml.example` reaches a project once and is never synced again
+`install.sh` copies `loop.toml.example` into a project's `.loop.toml` at install time and never
+overwrites it afterwards, which is right — that file is the project's own. But `loop-kit-sync.sh`
+copies only `scripts/*.sh`, `prompts/*.md`, `templates/*.md`, `templates/check/*.sh` and
+`templates/ci/*.yml`, so a change to the example after a project installed never reaches it, and
+nothing reports the drift while every script around it is compared and reported. LK-15 is the case
+in hand: it added a paragraph on the two readings of `sprint` to the example and to this
+repository's `.loop.toml`, and pointed at the example as the thing that settles which one applies —
+but a project that installed before LK-15 has neither the paragraph nor the file, so the pointer
+resolves to nothing. Tessera is such a project: its sprint is a chosen subset, its `.loop.toml`
+still carries only HK-39's one-line comment, and it has no `loop.toml.example` at all.
+**Done when:** either `scripts/loop-kit-sync.sh` carries `loop.toml.example` and `--check` fails in
+a project whose copy differs from the kit's, with `install.sh` still keeping a project's own
+`.loop.toml`, or the ticket is answered the other way and the kit's `.loop.toml` no longer points
+at a file a project cannot have; and whichever route is taken is proved in the self-tests of
+`install.sh` and `loop-kit-sync.sh`.
+
 ## The prompts
 
 ### LK-12 grill-me grounds itself in the repository it is run in

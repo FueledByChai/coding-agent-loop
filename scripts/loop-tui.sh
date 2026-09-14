@@ -97,17 +97,49 @@ frame_width() {
 }
 
 # A frame that says why there is nothing to draw rather than printing an empty table (LS-01):
-# a title, a rule, the message indented, a rule.
+# Wraps a block of text to a frame's width and indents every line, so a frame drawn without the
+# renderer still fits the width it was asked for - the renderer's own views wrap the same way
+# (LK-02). A line that already fits is printed exactly as it came, so a frame's own spacing - the
+# two spaces in a header, the alignment of a column - survives; only a longer line is wrapped. A
+# word longer than the line is hard-split rather than allowed past the margin, since these
+# messages carry paths.
+frame_text() { # <width> <indent> <text>
+  local width="$1" indent="$2" text="$3"
+  printf '%s' "$text" | perl -CS -e '
+    my ($width, $indent) = @ARGV;
+    my $w = $width - $indent; $w = 1 if $w < 1;
+    my $pad = " " x $indent;
+    my $text = do { local $/; <STDIN> };
+    for my $line (split /\n/, $text, -1) {
+      next if $line eq "";
+      if (length($line) <= $w) { print $pad, $line, "\n"; next }
+      my @lines; my $cur = "";
+      for my $word (split / /, $line, -1) {
+        next if $word eq "";
+        while (length($word) > $w) {
+          push @lines, $cur if length $cur;
+          $cur = "";
+          push @lines, substr($word, 0, $w);
+          $word = substr($word, $w);
+        }
+        if (!length $cur) { $cur = $word }
+        elsif (length($cur) + 1 + length($word) <= $w) { $cur .= " " . $word }
+        else { push @lines, $cur; $cur = $word }
+      }
+      push @lines, $cur if length $cur;
+      print $pad, $_, "\n" for @lines;
+    }
+  ' "$width" "$indent"
+}
+
+# The frames drawn without the renderer, when there is nothing for it to render: a title, a rule,
+# the message indented, a rule.
 message_frame() { # <width> <title> <message>
-  local width="$1" title="$2" message="$3" line
+  local width="$1" title="$2" message="$3"
   local rule; rule="$(printf '%*s' "$width" '' | tr ' ' '-')"
-  echo "$title"
+  frame_text "$width" 0 "$title"
   echo "$rule"
-  while IFS= read -r line; do
-    [ -n "$line" ] && echo "   $line"
-  done <<EOF
-$message
-EOF
+  frame_text "$width" 3 "$message"
   echo "$rule"
 }
 
@@ -116,18 +148,14 @@ EOF
 # command for tickets that already landed - a frame that reads as project state while being
 # false. Say what failed, print no figures, and exit non-zero.
 error_frame() {
-  local width="$1" ref="$2" message="$3" line
+  local width="$1" ref="$2" message="$3"
   local rule; rule="$(printf '%*s' "$width" '' | tr ' ' '-')"
-  echo "TICKET LOOP  backlog-status.sh failed"
+  frame_text "$width" 0 "TICKET LOOP  backlog-status.sh failed"
   echo "$rule"
-  echo " The ref it was given: $ref"
-  while IFS= read -r line; do
-    [ -n "$line" ] && echo "   $line"
-  done <<EOF
-$message
-EOF
+  frame_text "$width" 1 "The ref it was given: $ref"
+  frame_text "$width" 3 "$message"
   echo "$rule"
-  echo " Fix the ref, or drop --ref to judge done against the default branch."
+  frame_text "$width" 1 "Fix the ref, or drop --ref to judge done against the default branch."
 }
 
 # The renderer: one perl program for every view (LS-01). It reads the mode, the width, and the
@@ -151,6 +179,31 @@ my $cut = sub {
   return $t if length($t) <= $w;
   return substr($t, 0, $w) if $w <= 1;
   return substr($t, 0, $w - 1) . $ELL;
+};
+# Wraps a string to a width, breaking at spaces and hard-splitting a word longer than the width.
+# The show view prints a ticket's own text, which is routinely longer than the frame, and cutting
+# it would hide the tail - a figure, an acceptance criterion, the blocker named in a heading -
+# that the view exists to show (LK-02).
+my $wrap = sub {
+  my ($t, $w) = @_;
+  $t = "" unless defined $t;
+  return ($t) if $w <= 0;
+  my @lines; my $cur = "";
+  for my $word (split / /, $t, -1) {
+    next if $word eq "";
+    while (length($word) > $w) {
+      push @lines, $cur if length $cur;
+      $cur = "";
+      push @lines, substr($word, 0, $w);
+      $word = substr($word, $w);
+    }
+    if (!length $cur) { $cur = $word }
+    elsif (length($cur) + 1 + length($word) <= $w) { $cur .= " " . $word }
+    else { push @lines, $cur; $cur = $word }
+  }
+  push @lines, $cur if length $cur;
+  push @lines, "" unless @lines;
+  return @lines;
 };
 # Pads to a width (never truncates; the caller cuts first).
 my $pad = sub { my ($t, $w) = @_; $t = "" unless defined $t; return $t . (" " x ($w - length($t))) if length($t) < $w; return $t };
@@ -310,14 +363,21 @@ if ($mode eq "show") {
   my @lines = split /\n/, $d->($ENV{TUI_SHOW});
   # scripts/backlog-status.sh --show prints the heading first, with its `### `: that heading is
   # the frame's title here, and the rest - the ticket's text, then its `state:` and `serves:`
-  # lines, or a story's `status:` and `ticket:` lines - is printed as it came, cut to the width.
+  # lines, or a story's `status:` and `ticket:` lines - is printed as it came. Anything longer
+  # than the frame is wrapped rather than cut, heading included: the heading carries the claim and
+  # the blockers, and the text carries the ticket's own acceptance criteria, so a tail that does
+  # not fit goes on the next line instead of being dropped (LK-02).
   my $title = shift @lines;
   $title = "" unless defined $title;
   $title =~ s/^#+\s*//;
-  my @out;
-  push @out, $title;
+  my @out = $wrap->($title, $width);
   push @out, $rule;
-  push @out, @lines;
+  for my $line (@lines) {
+    # A line that already fits is kept exactly as it came, so its layout and its leading
+    # spaces survive; only a longer one is wrapped.
+    if (length($line) <= $width) { push @out, $line }
+    else { push @out, $wrap->($line, $width) }
+  }
   push @out, $rule;
   push @out, " ? help   o open   s stories   r refresh   q quit";
   $emit->(@out);
@@ -633,7 +693,7 @@ Body.
 
 ### AA-04 A ticket ready to start — Blocked by AA-01
 Body. Serves BB-1.
-**Done when:** it lands.
+**Done when:** a line long enough that a 78-column frame has to wrap it rather than cut it, which is what proves the show view prints the item in full.
 
 ## Beta
 
@@ -773,7 +833,7 @@ TICKET LOOP  work   5 in sprint: 1 done 1 ready 1 claimed
 G60
 )"
   golden78="$(cat <<'G78'
-TICKET LOOP  work  main@8671246   5 in sprint: 1 done 1 ready 1 claimed
+TICKET LOOP  work  main@d86f775   5 in sprint: 1 done 1 ready 1 claimed
 ------------------------------------------------------------------------------
  SPRINT
    # id     state    ready blocked          title
@@ -793,7 +853,7 @@ TICKET LOOP  work  main@8671246   5 in sprint: 1 done 1 ready 1 claimed
 G78
 )"
   golden200="$(cat <<'G200'
-TICKET LOOP  work  main@8671246   5 in sprint: 1 done 1 ready 1 claimed
+TICKET LOOP  work  main@d86f775   5 in sprint: 1 done 1 ready 1 claimed
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  SPRINT
    # id     state    ready blocked          title
@@ -904,6 +964,14 @@ G200
     || { echo "self-test: the show view should carry the state and the sprint position:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^serves: BB-1 — A story a ticket serves (open 0/1)$' \
     || { echo "self-test: the show view should carry the story the ticket serves:"; echo "$out"; exit 1; }
+  # A line longer than the frame is wrapped, not cut: the view exists to show the item in full, so
+  # the tail - a figure, an acceptance criterion, the blocker named in a heading - has to survive
+  # onto the next line. AA-04's text carries a line longer than 78 columns for exactly this.
+  echo "$out" | grep -q '…' && { echo "self-test: the show view must wrap a long line, not cut it:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q 'is what proves the show view prints the item in full\.$' \
+    || { echo "self-test: the show view should print a long line's tail, wrapped:"; echo "$out"; exit 1; }
+  printf '%s\n' "$out" | perl -CS -ne 'chomp; exit 1 if length($_) > 78' \
+    || { echo "self-test: every line of the show view should fit 78 columns:"; echo "$out"; exit 1; }
   out="$(cd "$work" && LOOP_ROOT="$work" "$me" show BB-1 --width 78 2>&1)"
   echo "$out" | grep -q '^BB-1 — A story a ticket serves$' \
     || { echo "self-test: the show view should lead with the story's heading:"; echo "$out"; exit 1; }
@@ -928,12 +996,19 @@ G200
       open)        (cd "$work" && LOOP_CONFIG="$work/outside.toml" LOOP_ROOT="$work" "$me" open --width "$2" 2>&1) ;;
       "show AA-04") (cd "$work" && LOOP_ROOT="$work" "$me" show AA-04 --width "$2" 2>&1) ;;
       "show BB-1")  (cd "$work" && LOOP_ROOT="$work" "$me" show BB-1 --width "$2" 2>&1) ;;
+      # The two frames drawn without the renderer, when there is nothing for it to render: a
+      # missing product backlog, and a status call that failed. Their lines are wrapped to the
+      # width as well, so an exceptional frame is no wider than the frame it replaces (LK-02).
+      none)        (cd "$work" && LOOP_CONFIG="$work/nostories.toml" LOOP_ROOT="$work" "$me" stories --width "$2" 2>&1) ;;
+      failed)      (cd "$work" && LOOP_ROOT="$work" "$me" --width "$2" --ref nosuchref 2>&1) ;;
     esac
   }
   local view
   for w in 40 60 78 200; do
-    for view in stories open "show AA-04" "show BB-1"; do
-      out="$(view_frame "$view" "$w")"
+    for view in stories open "show AA-04" "show BB-1" none failed; do
+      # The failed-ref frame exits non-zero on purpose; this loop is about width, and the exit
+      # codes are asserted where each frame is proved.
+      out="$(view_frame "$view" "$w")" || true
       while IFS= read -r line; do
         # `%s\n`, not `%s`: a view prints the ticket's own blank lines, and a blank line with no
         # newline is no input at all to perl, so the width would come back empty.
@@ -975,7 +1050,8 @@ GO
 AA-04 A ticket ready to start — Blocked by AA-01
 ------------------------------------------------------------------------------
 Body. Serves BB-1.
-**Done when:** it lands.
+**Done when:** a line long enough that a 78-column frame has to wrap it rather
+than cut it, which is what proves the show view prints the item in full.
 
 state: todo, ready, sprint position 4
 serves: BB-1 — A story a ticket serves (open 0/1)

@@ -303,3 +303,37 @@ says must keep the context that deadlocks this repository. `README.md`'s table a
 `Check (scripts/check.sh)` and still matches `ci/workflow.yml`, so nothing a project installs
 changes; and `./check.sh` fails when a ruleset file and the workflow it pairs with disagree,
 proved by a self-test that renames the job and one that renames the context.
+
+### LK-16 The check section of AGENTS.md is one paragraph spliced onto another, and it contradicts the check
+Two branches rewrote `AGENTS.md`'s "The check" section at the same time — LK-05 (`a9d52e6`, the
+decision-record check is wired into `./check.sh`) and LK-11 (`92d0085`, the install self-test runs
+the loop's suite once, so the check takes about three minutes) — and the merge that landed both
+kept a piece of each. What ships on the default branch is LK-11's paragraph with LK-05's stale
+sentence left on the end of it, followed by the remains of LK-05's paragraph with its opening
+sentence cut off, so the section starts a new paragraph mid-clause:
+
+```
+... Nothing is resolved from a worktree, since there is nothing to build.
+`scripts/decisions.sh --check` is not wired in yet (LK-05).
+`scripts/decisions.sh --check` (the kit's records answer to the same sections and index a
+project's check demands of them), then `./install.sh --self-test`, which installs into a fresh
+repository and runs the installed scripts' self-tests there. There is no fast variant — the whole
+thing takes seconds. Nothing is resolved from a worktree, since there is nothing to build.
+```
+
+The section says the decision-record check is not wired in, one line above the sentence that says
+it is; gives two figures for the same run, "about three minutes on a laptop, under a minute on CI"
+and "takes seconds"; and states "nothing is resolved from a worktree" twice. `./check.sh` runs
+`scripts/decisions.sh --check`, so the file that defines done disagrees with the script that
+enforces it — the defect LK-05's own commit message names, reintroduced by a merge resolution
+rather than by an edit, and the same shape as LK-14 and LK-15: one fact kept in two places with
+nothing comparing them. `scripts/prompt-check.sh` pins phrases in `prompts/*.md` and nothing reads
+`AGENTS.md`'s prose, so a splice like this is invisible to every check and to a reader who trusts
+the heading — which is what makes it worth a ticket rather than a quiet fix: nothing here would
+have caught it, and nothing will catch the next one.
+**Done when:** `AGENTS.md`'s "The check" section is one paragraph stating the sequence `./check.sh`
+runs, `scripts/decisions.sh --check` among them, with no sentence saying that check is not wired in
+and one figure for the run — the figure `README.md` states and `time ./check.sh` reports here; and
+the section's list of checks cannot drift from the script again, either by `scripts/prompt-check.sh`
+pinning it or by a check comparing the two, proved by a self-test that drops a check from one side
+and sees `./check.sh` fail naming it.

@@ -14,13 +14,27 @@
 #   scripts/backlog-status.sh --open [--section <name>]
 #                                             the tickets not done and not in the sprint, grouped
 #                                             by section, with the story each serves: the pick
-#                                             list for the next sprint (HK-40)
+#                                             list for the next sprint (HK-40) where the sprint
+#                                             is a chosen subset. Where the sprint is every open
+#                                             ticket they are omissions instead, which
+#                                             --sprint-check fails on (LK-15)
+#   scripts/backlog-status.sh --sprint-check  both directions of the sprint pairing at once: a
+#                                             sprint id with no heading, and an open ticket the
+#                                             sprint omits. Exit 1 naming each, for a check to
+#                                             run when the `sprint` list is "every open ticket"
+#                                             (LK-15); a project whose sprint is a chosen subset
+#                                             does not name it
 #   scripts/backlog-status.sh --show <id>     a ticket's text, state, and the story it serves, or
 #                                             a story's text, derived status, and its tickets
 #   scripts/backlog-status.sh --stories       every story in the product backlog (`stories` in
 #                                             .loop.toml) with a status derived from git: done
 #                                             when every ticket that serves it landed, open k/n,
 #                                             or unticketed
+#   scripts/backlog-status.sh --plain         with --stories or --open: tab-separated fields, one
+#                                             row per line, and no column padding, so a renderer
+#                                             gets the fields uncut and decides its own widths
+#                                             (scripts/loop-tui.sh's views, LK-02). The summary
+#                                             line is unchanged.
 #   scripts/backlog-status.sh --ref <ref>     commits reachable from <ref> (default: the
 #                                             default branch as origin has it, after a fetch,
 #                                             so a checkout that has not pulled yet never
@@ -52,6 +66,7 @@ REF_GIVEN=0
 BACKLOG="$ROOT/$("$ROOT/scripts/loop-config.sh" backlog)"
 MODE=table
 LOCAL=0
+PLAIN=0
 WANT=""
 SECTION=""
 STORIES_FILE="$("$ROOT/scripts/loop-config.sh" stories)"
@@ -60,10 +75,12 @@ while [ $# -gt 0 ]; do
     --next) MODE=next ;;
     --sprint) MODE=sprint ;;
     --open) MODE=open ;;
+    --sprint-check) MODE=sprint-check ;;
     --section) SECTION="$2"; shift ;;
     --show) MODE=show; WANT="$2"; shift ;;
     --stories) MODE=stories ;;
     --stories-file) STORIES_FILE="$2"; shift ;;
+    --plain) PLAIN=1 ;;
     --local) LOCAL=1 ;;
     --self-test) MODE=selftest ;;
     --ref) REF="$2"; REF_GIVEN=1; shift ;;
@@ -74,16 +91,25 @@ while [ $# -gt 0 ]; do
 done
 
 # The ref done is judged against, from the current directory's repository: the default branch
-# as origin has it (fetched first) unless --ref named one, --local asked for no origin, or
-# there is no such remote branch.
+# as origin has it, fetched first so a checkout that has not pulled never re-offers a merged
+# ticket, unless --ref named one or --local asked for no origin.
+#
+# The fetch comes before the lookup, not after it. A shallow or single-ref checkout - CI's, from
+# actions/checkout - has no refs/remotes/origin/<branch> until something fetches it, and often no
+# local <branch> either, so asking whether the ref is already there and only then fetching leaves
+# nothing to resolve and `git log main` fails with 128. So: origin's branch once the fetch has
+# run, else the local branch, else HEAD, which is what such a checkout has. An explicit --ref is
+# still used verbatim, so a ref that does not exist still fails loudly rather than silently
+# becoming HEAD (LK-15).
 judged_ref() {
   local ref="$1"
-  if [ "$REF_GIVEN" = 0 ] && [ "$LOCAL" = 0 ] && git rev-parse -q --verify "refs/remotes/origin/$ref" >/dev/null 2>&1; then
+  if [ "$REF_GIVEN" = 0 ] && [ "$LOCAL" = 0 ]; then
     git fetch -q origin "$ref" 2>/dev/null || true
-    echo "origin/$ref"
-  else
-    echo "$ref"
+    if git rev-parse -q --verify "refs/remotes/origin/$ref" >/dev/null 2>&1; then echo "origin/$ref"; return; fi
+    if git rev-parse -q --verify "$ref" >/dev/null 2>&1; then echo "$ref"; return; fi
+    echo "HEAD"; return
   fi
+  echo "$ref"
 }
 
 # Prints the table (mode table) or the next ticket id (mode next) for a backlog file against a
@@ -106,7 +132,7 @@ status() {
   fi
   git log --reverse --date=short --format='%h %ad %s' "$ref" -- 2>/dev/null \
     | perl -e '
-      my ($backlog, $mode, $claimed, $sprint, $stories_file, $changelog, $want, $section_filter) = @ARGV;
+      my ($backlog, $mode, $claimed, $sprint, $stories_file, $changelog, $want, $section_filter, $plain) = @ARGV;
       my %claimed = map { $_ => 1 } grep { length } split /,/, $claimed;
       my @sprint = grep { length } split /,/, $sprint;
       my %sprint; my $pos = 0; $sprint{$_} //= ++$pos for @sprint;
@@ -211,7 +237,8 @@ status() {
         return 1;
       };
       my %by_id = map { $_->{id} => $_ } @tickets;
-      for my $id (@sprint) { print STDERR "sprint: $id is not in the backlog file\n" unless $by_id{$id}; }
+      my $sprint_dangling = 0;
+      for my $id (@sprint) { next if $by_id{$id}; print STDERR "sprint: $id is not in the backlog file\n"; $sprint_dangling = 1; }
       my $blockers_of = sub { my $t = shift; join ",", map { $_ . ($landed->($_) ? "" : "!") } @{ $t->{blockers} }; };
       my $state_of = sub {
         my $t = shift; my $state = $t->{state};
@@ -220,6 +247,21 @@ status() {
         $state = $t->{claim} if $state eq "blocked";
         return $state;
       };
+      if ($mode eq "sprint-check") {
+        # Both directions of the sprint pairing, checked alike (LK-15). A sprint id with no
+        # heading is a list pointing at nothing, reported above; an open ticket with no sprint
+        # id is work the list claims to hold and does not, and it is worked in file order once
+        # the sprint drains - which is not the order the list states. `sprint` here is "every
+        # open ticket", so an omission is a fault; a ticket that has landed may leave freely,
+        # since done-ness is derived from git.
+        my $bad = $sprint_dangling;
+        for my $t (@tickets) {
+          next if $t->{state} eq "done" || $sprint{ $t->{id} };
+          printf STDERR "sprint: %s is open and not in the sprint: %s\n", $t->{id}, $t->{title};
+          $bad = 1;
+        }
+        exit($bad ? 1 : 0);
+      }
       if ($mode eq "next") {
         for my $id (@sprint) { my $t = $by_id{$id} or next; if ($ready->($t)) { print "$t->{id}\n"; exit 0; } }
         print STDERR "sprint: nothing ready in it; falling back to file order\n" if @sprint;
@@ -249,11 +291,24 @@ status() {
       }
       if ($mode eq "stories") {
         if (!@stories) { print STDERR "no product backlog" . ($stories_file ne "" ? " at $stories_file" : " configured (stories in .loop.toml)") . "\n"; exit 1; }
-        printf "%-8s %-11s %-8s %-30s %s\n", "id", "status", "tickets", "epic", "title";
-        for my $s (@stories) {
-          my $epic = $s->{epic}; $epic = substr($epic, 0, 29) . "…" if length $epic > 30;
-          my @ids = map { $_->{id} } @{ $s->{tickets} };
-          printf "%-8s %-11s %-8s %-30s %s\n", $s->{id}, $story_status->($s), (@ids ? scalar(@ids) : "-"), $epic, $s->{title};
+        # --plain: the same fields with nothing cut and no padding, so a renderer can lay them
+        # out at its own width. A tab or a newline inside a field would break the row, so the
+        # fields are flattened; the story titles and epics are prose from a heading, so this
+        # only ever fires on a file that already reads oddly.
+        my $flat = sub { my $v = shift; $v = "" unless defined $v; $v =~ s/\s+/ /g; $v =~ s/^ | $//g; return $v };
+        if ($plain) {
+          for my $s (@stories) {
+            my @ids = map { $_->{id} } @{ $s->{tickets} };
+            print join("\t", $flat->($s->{id}), $story_status->($s), (@ids ? scalar(@ids) : "-"),
+                             $flat->($s->{epic}), $flat->($s->{title})), "\n";
+          }
+        } else {
+          printf "%-8s %-11s %-8s %-30s %s\n", "id", "status", "tickets", "epic", "title";
+          for my $s (@stories) {
+            my $epic = $s->{epic}; $epic = substr($epic, 0, 29) . "…" if length $epic > 30;
+            my @ids = map { $_->{id} } @{ $s->{tickets} };
+            printf "%-8s %-11s %-8s %-30s %s\n", $s->{id}, $story_status->($s), (@ids ? scalar(@ids) : "-"), $epic, $s->{title};
+          }
         }
         my %n; $n{ ($story_status->($_) =~ /^(\w+)/)[0] }++ for @stories;
         printf "stories: %d, %d done, %d open, %d unticketed\n", scalar(@stories), $n{done} // 0, $n{open} // 0, $n{unticketed} // 0;
@@ -264,9 +319,16 @@ status() {
         for my $t (@tickets) {
           next if $t->{state} eq "done" || $sprint{ $t->{id} };
           next if $section_filter ne "" && index(lc $t->{section}, lc $section_filter) < 0;
-          if ($t->{section} ne $last) { print "## $t->{section}\n"; $last = $t->{section}; }
-          my $serves = join ",", @{ $t->{serves} };
-          printf "%-6s %-8s %-6s %-14s %-10s %s\n", $t->{id}, $state_of->($t), ($ready->($t) ? "ready" : ""), $blockers_of->($t), $serves, $t->{title};
+          if ($plain) {
+            # The section is a field on every row rather than a heading, so the caller groups;
+            # `ready` is the word or empty, and the blockers keep their `!` on an unmet one.
+            print join("\t", $t->{section}, $t->{id}, $state_of->($t), ($ready->($t) ? "ready" : ""),
+                             $blockers_of->($t), join(",", @{ $t->{serves} }), $t->{title}), "\n";
+          } else {
+            if ($t->{section} ne $last) { print "## $t->{section}\n"; $last = $t->{section}; }
+            my $serves = join ",", @{ $t->{serves} };
+            printf "%-6s %-8s %-6s %-14s %-10s %s\n", $t->{id}, $state_of->($t), ($ready->($t) ? "ready" : ""), $blockers_of->($t), $serves, $t->{title};
+          }
           $n++;
         }
         print "open: $n ticket(s) not done and not in the sprint", (@sprint ? " (sprint: " . join(", ", @sprint) . ")" : " (no sprint set)"), "\n";
@@ -289,7 +351,7 @@ status() {
           scalar(@rows), $n{done} // 0, $ready_n, ($n{claimed} // 0) + ($n{doing} // 0),
           scalar(@rows) - ($n{done} // 0) - $ready_n - ($n{claimed} // 0) - ($n{doing} // 0);
       }
-    ' "$backlog" "$mode" "$claimed" "$sprint" "$stories" "$changelog" "$WANT" "$SECTION"
+    ' "$backlog" "$mode" "$claimed" "$sprint" "$stories" "$changelog" "$WANT" "$SECTION" "$PLAIN"
 }
 
 self_test() {
@@ -393,6 +455,17 @@ EOF2
     echo "$out" | grep -q '^BT-1 *open 0/2 *2 ' || { echo "self-test: BT-1 should be open 0/2:"; echo "$out"; exit 1; }
     echo "$out" | grep -q '^BT-3 *unticketed *- ' || { echo "self-test: BT-3 should be unticketed:"; echo "$out"; exit 1; }
     echo "$out" | grep -q '^stories: 3, 0 done, 2 open, 1 unticketed$' || { echo "self-test: the stories summary is off:"; echo "$out"; exit 1; }
+    # --plain (LK-02): the same fields tab-separated and unpadded, so a renderer gets the epic
+    # and the title uncut and lays them out at its own width. `cut -f` on the padded table would
+    # return nothing, which is what makes the fields being tabs the proof that --plain is on.
+    out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --stories-file "$PWD/PRODUCT.md" --stories --plain 2>&1)"
+    [ "$(printf '%s\n' "$out" | grep -c '^BT-')" = 3 ] || { echo "self-test: --plain --stories should print one row per story:"; echo "$out"; exit 1; }
+    plain="$(printf '%s\n' "$out" | grep '^BT-1')"
+    [ "$(printf '%s' "$plain" | awk -F'\t' '{print NF}')" = 5 ] || { echo "self-test: a --plain story row should have five tab-separated fields:"; printf '%s\n' "$plain"; exit 1; }
+    [ "$(printf '%s' "$plain" | cut -f2)" = "open 0/2" ] || { echo "self-test: --plain should carry the derived status:"; printf '%s\n' "$plain"; exit 1; }
+    [ "$(printf '%s' "$plain" | cut -f4)" = "Epic A: Alpha things" ] || { echo "self-test: --plain should carry the epic unpadded:"; printf '%s\n' "$plain"; exit 1; }
+    [ "$(printf '%s' "$plain" | cut -f5)" = "Two tickets serve this" ] || { echo "self-test: --plain should carry the title:"; printf '%s\n' "$plain"; exit 1; }
+    echo "$out" | grep -q '^stories: 3, 0 done, 2 open, 1 unticketed$' || { echo "self-test: --plain should keep the summary line:"; echo "$out"; exit 1; }
     out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --stories-file "$PWD/PRODUCT.md" --show AA-02 2>&1)"
     echo "$out" | grep -q '^### AA-02 Second' && echo "$out" | grep -q '^Second body' && echo "$out" | grep -q '^state: todo$' && echo "$out" | grep -q '^serves: BT-1 — Two tickets serve this (open 0/2)$' \
       || { echo "self-test: --show AA-02 should print its text, state, and story:"; echo "$out"; exit 1; }
@@ -406,6 +479,18 @@ EOF2
     echo "$out" | grep -q '^AA-04 ' && { echo "self-test: --open must leave out the sprint's tickets:"; echo "$out"; exit 1; }
     echo "$out" | grep -q '^AA-05  todo .*AA-03!,AA-04! *BT-2 ' || { echo "self-test: --open should show AA-05 with its blockers and story:"; echo "$out"; exit 1; }
     echo "$out" | grep -q '^open: 5 ticket(s) not done and not in the sprint (sprint: AA-04)$' || { echo "self-test: the open summary is off:"; echo "$out"; exit 1; }
+    # --plain --open (LK-02): the section is a field on every row rather than a heading, so the
+    # caller groups, and the blockers keep their `!` on an unmet one.
+    out="$(LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --stories-file "$PWD/PRODUCT.md" --open --plain 2>&1)"
+    # Seven fields: section, id, state, ready, blockers, serves, title. The summary line has one,
+    # so counting fields counts rows.
+    [ "$(printf '%s\n' "$out" | awk -F'\t' 'NF == 7' | wc -l | tr -d ' ')" = 5 ] || { echo "self-test: --plain --open should print one row per ticket outside the sprint:"; echo "$out"; exit 1; }
+    printf '%s\n' "$out" | grep -q '^## ' && { echo "self-test: --plain --open should carry the section per row, not as a heading:"; echo "$out"; exit 1; }
+    plain="$(printf '%s\n' "$out" | grep 'AA-05')"
+    [ "$(printf '%s' "$plain" | cut -f1)" = "Beta" ] || { echo "self-test: a --plain open row should lead with its section:"; printf '%s\n' "$plain"; exit 1; }
+    [ "$(printf '%s' "$plain" | cut -f5)" = "AA-03!,AA-04!" ] || { echo "self-test: a --plain open row should keep the unmet blockers:"; printf '%s\n' "$plain"; exit 1; }
+    [ "$(printf '%s' "$plain" | cut -f6)" = "BT-2" ] || { echo "self-test: a --plain open row should carry the story it serves:"; printf '%s\n' "$plain"; exit 1; }
+    echo "$out" | grep -q '^open: 5 ticket(s)' || { echo "self-test: --plain should keep the open summary line:"; echo "$out"; exit 1; }
     out="$(LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --open --section beta 2>&1)"
     [ "$(echo "$out" | grep -c '^AA-')" = 2 ] || { echo "self-test: --section beta should list two tickets:"; echo "$out"; exit 1; }
     # AA-01 and AA-02 land: BT-1 is done, and --open no longer lists them.
@@ -469,6 +554,53 @@ EOF2
       echo "self-test: --local should judge the local main, where AA-03 has not landed"; exit 1
     fi
     [ "$(git rev-parse main)" != "$(git rev-parse origin/main)" ] || { echo "self-test: the local main must not have moved"; exit 1; }
+    # LK-15: `sprint` is this repository's ordering of every open ticket, so a ticket that has
+    # landed may leave it freely - the invariant is about open tickets, and completion is
+    # derived from git - while an open one it omits is a fault, because --next would work it in
+    # file order once the sprint drains. Locally AA-01, AA-02, AA-04 and AA-06 have landed and
+    # AA-03 and AA-05 are open, so a sprint holding just those two passes and one that drops
+    # AA-05 fails naming it.
+    printf '[loop]\nsprint = ["AA-03", "AA-05"]\n' > sprint.toml
+    LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --sprint-check \
+      || { echo "self-test: a sprint holding every open ticket, landed ones left out, should pass"; exit 1; }
+    printf '[loop]\nsprint = ["AA-03"]\n' > sprint.toml
+    if out="$(LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --sprint-check 2>&1)"; then
+      echo "self-test: --sprint-check must fail when the sprint omits an open ticket"; exit 1
+    fi
+    echo "$out" | grep -q '^sprint: AA-05 is open and not in the sprint: Fifth$' \
+      || { echo "self-test: --sprint-check should name the omitted ticket:"; echo "$out"; exit 1; }
+    # The other direction, in the same call: an id the file has no heading for.
+    printf '[loop]\nsprint = ["AA-03", "AA-05", "ZZ-99"]\n' > sprint.toml
+    if out="$(LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --sprint-check 2>&1)"; then
+      echo "self-test: --sprint-check must fail on a sprint id with no heading"; exit 1
+    fi
+    echo "$out" | grep -q 'sprint: ZZ-99 is not in the backlog file' \
+      || { echo "self-test: --sprint-check should name the dangling sprint id:"; echo "$out"; exit 1; }
+    rm -f sprint.toml
+    # A detached checkout with no local default branch - CI's, from actions/checkout - has to
+    # still resolve the ref it judges against. The lookup used to ask whether the ref was
+    # already there and only then fetch it, so with nothing local to find it fell through to a
+    # branch name that is not there and `git log main` failed with 128; the fetch now comes
+    # first, so origin's branch is found, and with no origin to fetch from either HEAD is what
+    # the checkout has. AA-01 landed locally, so the table still reports it done (LK-15).
+    git checkout -q --detach HEAD
+    git branch -q -D main 2>/dev/null || true
+    git update-ref -d refs/remotes/origin/main 2>/dev/null || true
+    # `|| true` so a failure here reports which case it was rather than aborting the subshell
+    # under `set -e` with the fixture's stderr already redirected away.
+    out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md 2>&1)" || true
+    echo "$out" | grep -q '^AA-01  done' \
+      || { echo "self-test: a detached checkout should still judge against a ref:"; echo "$out"; exit 1; }
+    git remote remove origin
+    git update-ref -d refs/remotes/origin/main 2>/dev/null || true
+    out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md 2>&1)" || true
+    echo "$out" | grep -q '^AA-01  done' \
+      || { echo "self-test: with no origin, a detached checkout should fall back to HEAD:"; echo "$out"; exit 1; }
+    # An explicit --ref is used verbatim, so one that does not exist fails rather than quietly
+    # becoming HEAD.
+    if "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref nosuchref >/dev/null 2>&1; then
+      echo "self-test: an explicit --ref that does not exist must fail"; exit 1
+    fi
     if [ -s "$dir/.stderr" ]; then
       echo "self-test: the fixture wrote to stderr, so its output depends on the checkout it runs in:"
       sed 's/^/  /' "$dir/.stderr"

@@ -28,9 +28,10 @@
 #                                             when there is no origin or with --local)
 #   scripts/backlog-status.sh --backlog <f>   another backlog file (default: the configured one)
 #   scripts/backlog-status.sh --local         do not ask origin for ticket/<id> claim branches
-#   scripts/backlog-status.sh --self-test     a fixture repo: a `doing` ticket with a landed
-#                                             commit reports as done, blockers gate --next, a
-#                                             ticket/<id> branch on origin is a claim
+#   scripts/backlog-status.sh --self-test     a fixture repo judged by its own settings: a
+#                                             `doing` ticket with a landed commit reports as
+#                                             done, blockers gate --next, a ticket/<id> branch
+#                                             on origin is a claim
 #
 # A heading reads `### <ID> <title>`, optionally followed by ` — \`<state>\`` and
 # ` — Blocked by <ID>, <ID>`. The first commit (oldest) whose subject starts with the id gives
@@ -295,8 +296,17 @@ self_test() {
   SELF_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/backlog-status.XXXXXX")"
   trap 'rm -rf "$SELF_TEST_DIR"' EXIT
   local dir="$SELF_TEST_DIR"
+  # The fixture is judged by its own settings, never the checkout's: every call below resolves
+  # its config here, so this test reads and prints the same wherever it runs (LK-10). No sprint
+  # list, so --next falls back to file order and --sprint says the sprint is empty.
+  printf '[loop]\ndefault_branch = "main"\n' > "$dir/.loop.toml"
+  export LOOP_CONFIG="$dir/.loop.toml"
   (
     cd "$dir"
+    # Anything the fixture writes to stderr is a call that reached for settings other than its
+    # own; the guard at the end turns that into a failure rather than the noise a real mismatch
+    # would be lost in.
+    exec 2>"$dir/.stderr"
     git init -q
     git config user.email "self-test@example.com"
     git config user.name "self-test"
@@ -459,8 +469,14 @@ EOF2
       echo "self-test: --local should judge the local main, where AA-03 has not landed"; exit 1
     fi
     [ "$(git rev-parse main)" != "$(git rev-parse origin/main)" ] || { echo "self-test: the local main must not have moved"; exit 1; }
+    if [ -s "$dir/.stderr" ]; then
+      echo "self-test: the fixture wrote to stderr, so its output depends on the checkout it runs in:"
+      sed 's/^/  /' "$dir/.stderr"
+      exit 1
+    fi
+    echo "backlog-status self-test passed"
   )
-  echo "backlog-status self-test passed"
+  unset LOOP_CONFIG
 }
 
 # The backlog's own repository answers, so a fixture backlog is judged by its fixture history.

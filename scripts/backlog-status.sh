@@ -14,7 +14,16 @@
 #   scripts/backlog-status.sh --open [--section <name>]
 #                                             the tickets not done and not in the sprint, grouped
 #                                             by section, with the story each serves: the pick
-#                                             list for the next sprint (HK-40)
+#                                             list for the next sprint (HK-40) where the sprint
+#                                             is a chosen subset. Where the sprint is every open
+#                                             ticket they are omissions instead, which
+#                                             --sprint-check fails on (LK-15)
+#   scripts/backlog-status.sh --sprint-check  both directions of the sprint pairing at once: a
+#                                             sprint id with no heading, and an open ticket the
+#                                             sprint omits. Exit 1 naming each, for a check to
+#                                             run when the `sprint` list is "every open ticket"
+#                                             (LK-15); a project whose sprint is a chosen subset
+#                                             does not name it
 #   scripts/backlog-status.sh --show <id>     a ticket's text, state, and the story it serves, or
 #                                             a story's text, derived status, and its tickets
 #   scripts/backlog-status.sh --stories       every story in the product backlog (`stories` in
@@ -60,6 +69,7 @@ while [ $# -gt 0 ]; do
     --next) MODE=next ;;
     --sprint) MODE=sprint ;;
     --open) MODE=open ;;
+    --sprint-check) MODE=sprint-check ;;
     --section) SECTION="$2"; shift ;;
     --show) MODE=show; WANT="$2"; shift ;;
     --stories) MODE=stories ;;
@@ -211,7 +221,8 @@ status() {
         return 1;
       };
       my %by_id = map { $_->{id} => $_ } @tickets;
-      for my $id (@sprint) { print STDERR "sprint: $id is not in the backlog file\n" unless $by_id{$id}; }
+      my $sprint_dangling = 0;
+      for my $id (@sprint) { next if $by_id{$id}; print STDERR "sprint: $id is not in the backlog file\n"; $sprint_dangling = 1; }
       my $blockers_of = sub { my $t = shift; join ",", map { $_ . ($landed->($_) ? "" : "!") } @{ $t->{blockers} }; };
       my $state_of = sub {
         my $t = shift; my $state = $t->{state};
@@ -220,6 +231,21 @@ status() {
         $state = $t->{claim} if $state eq "blocked";
         return $state;
       };
+      if ($mode eq "sprint-check") {
+        # Both directions of the sprint pairing, checked alike (LK-15). A sprint id with no
+        # heading is a list pointing at nothing, reported above; an open ticket with no sprint
+        # id is work the list claims to hold and does not, and it is worked in file order once
+        # the sprint drains - which is not the order the list states. `sprint` here is "every
+        # open ticket", so an omission is a fault; a ticket that has landed may leave freely,
+        # since done-ness is derived from git.
+        my $bad = $sprint_dangling;
+        for my $t (@tickets) {
+          next if $t->{state} eq "done" || $sprint{ $t->{id} };
+          printf STDERR "sprint: %s is open and not in the sprint: %s\n", $t->{id}, $t->{title};
+          $bad = 1;
+        }
+        exit($bad ? 1 : 0);
+      }
       if ($mode eq "next") {
         for my $id (@sprint) { my $t = $by_id{$id} or next; if ($ready->($t)) { print "$t->{id}\n"; exit 0; } }
         print STDERR "sprint: nothing ready in it; falling back to file order\n" if @sprint;
@@ -469,6 +495,29 @@ EOF2
       echo "self-test: --local should judge the local main, where AA-03 has not landed"; exit 1
     fi
     [ "$(git rev-parse main)" != "$(git rev-parse origin/main)" ] || { echo "self-test: the local main must not have moved"; exit 1; }
+    # LK-15: `sprint` is this repository's ordering of every open ticket, so a ticket that has
+    # landed may leave it freely - the invariant is about open tickets, and completion is
+    # derived from git - while an open one it omits is a fault, because --next would work it in
+    # file order once the sprint drains. Locally AA-01, AA-02, AA-04 and AA-06 have landed and
+    # AA-03 and AA-05 are open, so a sprint holding just those two passes and one that drops
+    # AA-05 fails naming it.
+    printf '[loop]\nsprint = ["AA-03", "AA-05"]\n' > sprint.toml
+    LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --sprint-check \
+      || { echo "self-test: a sprint holding every open ticket, landed ones left out, should pass"; exit 1; }
+    printf '[loop]\nsprint = ["AA-03"]\n' > sprint.toml
+    if out="$(LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --sprint-check 2>&1)"; then
+      echo "self-test: --sprint-check must fail when the sprint omits an open ticket"; exit 1
+    fi
+    echo "$out" | grep -q '^sprint: AA-05 is open and not in the sprint: Fifth$' \
+      || { echo "self-test: --sprint-check should name the omitted ticket:"; echo "$out"; exit 1; }
+    # The other direction, in the same call: an id the file has no heading for.
+    printf '[loop]\nsprint = ["AA-03", "AA-05", "ZZ-99"]\n' > sprint.toml
+    if out="$(LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --sprint-check 2>&1)"; then
+      echo "self-test: --sprint-check must fail on a sprint id with no heading"; exit 1
+    fi
+    echo "$out" | grep -q 'sprint: ZZ-99 is not in the backlog file' \
+      || { echo "self-test: --sprint-check should name the dangling sprint id:"; echo "$out"; exit 1; }
+    rm -f sprint.toml
     if [ -s "$dir/.stderr" ]; then
       echo "self-test: the fixture wrote to stderr, so its output depends on the checkout it runs in:"
       sed 's/^/  /' "$dir/.stderr"

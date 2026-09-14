@@ -337,3 +337,29 @@ and one figure for the run — the figure `README.md` states and `time ./check.s
 the section's list of checks cannot drift from the script again, either by `scripts/prompt-check.sh`
 pinning it or by a check comparing the two, proved by a self-test that drops a check from one side
 and sees `./check.sh` fail naming it.
+
+### LK-17 grill-me offers "or none" for the sprint, which one reading of the sprint does not allow
+LK-15 settled that `sprint` in `.loop.toml` means one of two things and made the check enforce the
+stricter one here: either the tickets chosen for now, leaving the rest as the pick list `--open`
+prints, or every open ticket, so an omission is a fault — this repository means the second and runs
+`scripts/backlog-status.sh --sprint-check` from `./check.sh`. `prompts/grill-me.md` still states only
+the first. Its sprint paragraph opens "`sprint` in `.loop.toml` is the list of tickets chosen for
+now, in order", and closes by telling the agent to "Ask the owner which of the new tickets go into
+the sprint and where (ahead of, behind, or between the ones there), **or none**". Under the reading
+this repository uses there is no "none": a ticket the prompt files and leaves out of the sprint is a
+ticket the next `./check.sh` fails on, so the prompt's own hand-off produces the state its own check
+rejects, and the agent that followed it is left to discover why.
+
+The prompt is shared with projects, and a project that keeps the subset reading does allow "none", so
+the fix is not to drop the choice but to state both and point at the ticket file's own comment as
+the thing that settles which applies — the shape LK-15 gave `AGENTS.md`'s sprint bullet for exactly
+this reason, and the reason `loop.toml.example` now carries the same note.
+
+A prompt is not edited without a recorded run: `scripts/prompt-check.sh`'s header states that the
+phrases it pins are one half of a prompt's proof and a real run in the pull request is the other.
+That is what keeps this out of LK-15 and makes it its own ticket.
+**Done when:** `prompts/grill-me.md`'s sprint paragraph states both readings, names the `.loop.toml`
+comment above the list as the thing that settles which one applies, and does not offer "or none"
+except under the subset reading; `scripts/prompt-check.sh` still finds the phrases it pins for that
+prompt; and the pull request carries a recorded run of the prompt against a repository using the
+stricter reading, showing a filed ticket added to the sprint rather than left out.

@@ -13,4 +13,9 @@ scripts/prompt-check.sh
 # The kit's records answer to the same sections and index a project's check demands of them.
 scripts/decisions.sh --check
 ./install.sh --self-test
+# The `sprint` list here is every open ticket (LK-15), so an open heading it omits is a fault:
+# --next would work that ticket in file order once the sprint drains, which is not the order the
+# list states. It is deliberately one-sided - a project whose sprint is a chosen subset does not
+# name it - so it sits outside the shared block, with the install self-test.
+scripts/backlog-status.sh --sprint-check
 echo "KIT CHECKS PASSED"

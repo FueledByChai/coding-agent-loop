@@ -10,8 +10,10 @@ below it are this project's own and are what the loop prompts mean when they say
 - **Settings.** `.loop.toml` holds everything the loop knows about this project:
   `default_branch`, `backlog` (the ticket file), `check` (the full check), `check_fast` (the
   check to run while iterating), `review_paths` (changes that need a human review),
-  `trailer_required`, `kit` (where the loop kit lives), and `sprint` (the tickets chosen
-  for now, in order). `scripts/loop-config.sh --all` prints the effective values. Prompts and scripts read them from there; they never hard-code
+  `trailer_required`, `kit` (where the loop kit lives), and `sprint` (the tickets to work now,
+  in order: either the ones chosen for this sprint, leaving the rest as the pick list `--open`
+  prints, or every open ticket, so an omission is a fault - the comment above the list says
+  which). `scripts/loop-config.sh --all` prints the effective values. Prompts and scripts read them from there; they never hard-code
   a branch, a path, or a build command.
 - **Tickets.** The backlog is a list of tickets, each a paragraph of intent plus a **Done when**
   line naming the test, fixture, or measurable output that proves it. Git is the record of
@@ -19,8 +21,9 @@ below it are this project's own and are what the loop prompts mean when they say
   branch. `scripts/backlog-status.sh` derives every ticket's state from the commits and
   `--next` names the first `todo` whose `Blocked by` tickets have landed, taking the
   `sprint` list first and file order after it (`--sprint` shows the sprint's states;
-  `--open` the pick list of tickets not done and not in the sprint; `--show <id>` a ticket
-  or story in full; `--stories` every story with a status derived from the tickets that
+  `--open` the tickets not done and not in the sprint; `--sprint-check` fails when that list
+  and the open tickets disagree, for a sprint that means "every open ticket"; `--show <id>` a
+  ticket or story in full; `--stories` every story with a status derived from the tickets that
   serve it; `scripts/sprint.sh add|remove|set` edits the sprint list). The backlog file
   carries only claims: `doing` while someone works a ticket, `blocked <reason>` when it needs
   a decision. Clear the `doing` claim in the ticket's own commit and never write a done line.

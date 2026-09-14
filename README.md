@@ -13,9 +13,9 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | Path | What it is |
 | --- | --- |
 | `scripts/loop-config.sh` | reads `.loop.toml` (`<key>`, `--all`), with defaults |
-| `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views |
+| `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views; `--plain` gives `--stories` and `--open` as tab-separated fields for a renderer |
 | `scripts/sprint.sh` | edits the sprint list in `.loop.toml` (`add`, `remove`, `set`, `clear`) |
-| `scripts/loop-tui.sh` | the loop's state as one screen — the sprint, the next ticket and the command that claims it, what is left, the stories; `--width` fixes the width and `--render` prints one frame and exits |
+| `scripts/loop-tui.sh` | the loop's state as one screen: the dashboard (the sprint, the next ticket and the command that claims it, what is left, the stories), and the `stories`, `open`, and `show <id>` views; `--width` fixes the width and `--render` prints one frame and exits |
 | `scripts/open-ticket-pr.sh` | claims (`--claim`), opens the PR, applies the merge policy |
 | `scripts/release-notes.sh` | what shipped between two refs; `--archive` into `CHANGELOG.md`; `--prefix` narrows either to one ticket prefix |
 | `scripts/loop-kit-sync.sh` | keeps a project's copies of these files in step with the kit |

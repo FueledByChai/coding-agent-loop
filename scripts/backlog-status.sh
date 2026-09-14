@@ -21,6 +21,11 @@
 #                                             .loop.toml) with a status derived from git: done
 #                                             when every ticket that serves it landed, open k/n,
 #                                             or unticketed
+#   scripts/backlog-status.sh --plain         with --stories or --open: tab-separated fields, one
+#                                             row per line, and no column padding, so a renderer
+#                                             gets the fields uncut and decides its own widths
+#                                             (scripts/loop-tui.sh's views, LK-02). The summary
+#                                             line is unchanged.
 #   scripts/backlog-status.sh --ref <ref>     commits reachable from <ref> (default: the
 #                                             default branch as origin has it, after a fetch,
 #                                             so a checkout that has not pulled yet never
@@ -52,6 +57,7 @@ REF_GIVEN=0
 BACKLOG="$ROOT/$("$ROOT/scripts/loop-config.sh" backlog)"
 MODE=table
 LOCAL=0
+PLAIN=0
 WANT=""
 SECTION=""
 STORIES_FILE="$("$ROOT/scripts/loop-config.sh" stories)"
@@ -64,6 +70,7 @@ while [ $# -gt 0 ]; do
     --show) MODE=show; WANT="$2"; shift ;;
     --stories) MODE=stories ;;
     --stories-file) STORIES_FILE="$2"; shift ;;
+    --plain) PLAIN=1 ;;
     --local) LOCAL=1 ;;
     --self-test) MODE=selftest ;;
     --ref) REF="$2"; REF_GIVEN=1; shift ;;
@@ -106,7 +113,7 @@ status() {
   fi
   git log --reverse --date=short --format='%h %ad %s' "$ref" -- 2>/dev/null \
     | perl -e '
-      my ($backlog, $mode, $claimed, $sprint, $stories_file, $changelog, $want, $section_filter) = @ARGV;
+      my ($backlog, $mode, $claimed, $sprint, $stories_file, $changelog, $want, $section_filter, $plain) = @ARGV;
       my %claimed = map { $_ => 1 } grep { length } split /,/, $claimed;
       my @sprint = grep { length } split /,/, $sprint;
       my %sprint; my $pos = 0; $sprint{$_} //= ++$pos for @sprint;
@@ -249,11 +256,24 @@ status() {
       }
       if ($mode eq "stories") {
         if (!@stories) { print STDERR "no product backlog" . ($stories_file ne "" ? " at $stories_file" : " configured (stories in .loop.toml)") . "\n"; exit 1; }
-        printf "%-8s %-11s %-8s %-30s %s\n", "id", "status", "tickets", "epic", "title";
-        for my $s (@stories) {
-          my $epic = $s->{epic}; $epic = substr($epic, 0, 29) . "…" if length $epic > 30;
-          my @ids = map { $_->{id} } @{ $s->{tickets} };
-          printf "%-8s %-11s %-8s %-30s %s\n", $s->{id}, $story_status->($s), (@ids ? scalar(@ids) : "-"), $epic, $s->{title};
+        # --plain: the same fields with nothing cut and no padding, so a renderer can lay them
+        # out at its own width. A tab or a newline inside a field would break the row, so the
+        # fields are flattened; the story titles and epics are prose from a heading, so this
+        # only ever fires on a file that already reads oddly.
+        my $flat = sub { my $v = shift; $v = "" unless defined $v; $v =~ s/\s+/ /g; $v =~ s/^ | $//g; return $v };
+        if ($plain) {
+          for my $s (@stories) {
+            my @ids = map { $_->{id} } @{ $s->{tickets} };
+            print join("\t", $flat->($s->{id}), $story_status->($s), (@ids ? scalar(@ids) : "-"),
+                             $flat->($s->{epic}), $flat->($s->{title})), "\n";
+          }
+        } else {
+          printf "%-8s %-11s %-8s %-30s %s\n", "id", "status", "tickets", "epic", "title";
+          for my $s (@stories) {
+            my $epic = $s->{epic}; $epic = substr($epic, 0, 29) . "…" if length $epic > 30;
+            my @ids = map { $_->{id} } @{ $s->{tickets} };
+            printf "%-8s %-11s %-8s %-30s %s\n", $s->{id}, $story_status->($s), (@ids ? scalar(@ids) : "-"), $epic, $s->{title};
+          }
         }
         my %n; $n{ ($story_status->($_) =~ /^(\w+)/)[0] }++ for @stories;
         printf "stories: %d, %d done, %d open, %d unticketed\n", scalar(@stories), $n{done} // 0, $n{open} // 0, $n{unticketed} // 0;
@@ -264,9 +284,16 @@ status() {
         for my $t (@tickets) {
           next if $t->{state} eq "done" || $sprint{ $t->{id} };
           next if $section_filter ne "" && index(lc $t->{section}, lc $section_filter) < 0;
-          if ($t->{section} ne $last) { print "## $t->{section}\n"; $last = $t->{section}; }
-          my $serves = join ",", @{ $t->{serves} };
-          printf "%-6s %-8s %-6s %-14s %-10s %s\n", $t->{id}, $state_of->($t), ($ready->($t) ? "ready" : ""), $blockers_of->($t), $serves, $t->{title};
+          if ($plain) {
+            # The section is a field on every row rather than a heading, so the caller groups;
+            # `ready` is the word or empty, and the blockers keep their `!` on an unmet one.
+            print join("\t", $t->{section}, $t->{id}, $state_of->($t), ($ready->($t) ? "ready" : ""),
+                             $blockers_of->($t), join(",", @{ $t->{serves} }), $t->{title}), "\n";
+          } else {
+            if ($t->{section} ne $last) { print "## $t->{section}\n"; $last = $t->{section}; }
+            my $serves = join ",", @{ $t->{serves} };
+            printf "%-6s %-8s %-6s %-14s %-10s %s\n", $t->{id}, $state_of->($t), ($ready->($t) ? "ready" : ""), $blockers_of->($t), $serves, $t->{title};
+          }
           $n++;
         }
         print "open: $n ticket(s) not done and not in the sprint", (@sprint ? " (sprint: " . join(", ", @sprint) . ")" : " (no sprint set)"), "\n";
@@ -289,7 +316,7 @@ status() {
           scalar(@rows), $n{done} // 0, $ready_n, ($n{claimed} // 0) + ($n{doing} // 0),
           scalar(@rows) - ($n{done} // 0) - $ready_n - ($n{claimed} // 0) - ($n{doing} // 0);
       }
-    ' "$backlog" "$mode" "$claimed" "$sprint" "$stories" "$changelog" "$WANT" "$SECTION"
+    ' "$backlog" "$mode" "$claimed" "$sprint" "$stories" "$changelog" "$WANT" "$SECTION" "$PLAIN"
 }
 
 self_test() {
@@ -393,6 +420,17 @@ EOF2
     echo "$out" | grep -q '^BT-1 *open 0/2 *2 ' || { echo "self-test: BT-1 should be open 0/2:"; echo "$out"; exit 1; }
     echo "$out" | grep -q '^BT-3 *unticketed *- ' || { echo "self-test: BT-3 should be unticketed:"; echo "$out"; exit 1; }
     echo "$out" | grep -q '^stories: 3, 0 done, 2 open, 1 unticketed$' || { echo "self-test: the stories summary is off:"; echo "$out"; exit 1; }
+    # --plain (LK-02): the same fields tab-separated and unpadded, so a renderer gets the epic
+    # and the title uncut and lays them out at its own width. `cut -f` on the padded table would
+    # return nothing, which is what makes the fields being tabs the proof that --plain is on.
+    out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --stories-file "$PWD/PRODUCT.md" --stories --plain 2>&1)"
+    [ "$(printf '%s\n' "$out" | grep -c '^BT-')" = 3 ] || { echo "self-test: --plain --stories should print one row per story:"; echo "$out"; exit 1; }
+    plain="$(printf '%s\n' "$out" | grep '^BT-1')"
+    [ "$(printf '%s' "$plain" | awk -F'\t' '{print NF}')" = 5 ] || { echo "self-test: a --plain story row should have five tab-separated fields:"; printf '%s\n' "$plain"; exit 1; }
+    [ "$(printf '%s' "$plain" | cut -f2)" = "open 0/2" ] || { echo "self-test: --plain should carry the derived status:"; printf '%s\n' "$plain"; exit 1; }
+    [ "$(printf '%s' "$plain" | cut -f4)" = "Epic A: Alpha things" ] || { echo "self-test: --plain should carry the epic unpadded:"; printf '%s\n' "$plain"; exit 1; }
+    [ "$(printf '%s' "$plain" | cut -f5)" = "Two tickets serve this" ] || { echo "self-test: --plain should carry the title:"; printf '%s\n' "$plain"; exit 1; }
+    echo "$out" | grep -q '^stories: 3, 0 done, 2 open, 1 unticketed$' || { echo "self-test: --plain should keep the summary line:"; echo "$out"; exit 1; }
     out="$("$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --stories-file "$PWD/PRODUCT.md" --show AA-02 2>&1)"
     echo "$out" | grep -q '^### AA-02 Second' && echo "$out" | grep -q '^Second body' && echo "$out" | grep -q '^state: todo$' && echo "$out" | grep -q '^serves: BT-1 — Two tickets serve this (open 0/2)$' \
       || { echo "self-test: --show AA-02 should print its text, state, and story:"; echo "$out"; exit 1; }
@@ -406,6 +444,18 @@ EOF2
     echo "$out" | grep -q '^AA-04 ' && { echo "self-test: --open must leave out the sprint's tickets:"; echo "$out"; exit 1; }
     echo "$out" | grep -q '^AA-05  todo .*AA-03!,AA-04! *BT-2 ' || { echo "self-test: --open should show AA-05 with its blockers and story:"; echo "$out"; exit 1; }
     echo "$out" | grep -q '^open: 5 ticket(s) not done and not in the sprint (sprint: AA-04)$' || { echo "self-test: the open summary is off:"; echo "$out"; exit 1; }
+    # --plain --open (LK-02): the section is a field on every row rather than a heading, so the
+    # caller groups, and the blockers keep their `!` on an unmet one.
+    out="$(LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --stories-file "$PWD/PRODUCT.md" --open --plain 2>&1)"
+    # Seven fields: section, id, state, ready, blockers, serves, title. The summary line has one,
+    # so counting fields counts rows.
+    [ "$(printf '%s\n' "$out" | awk -F'\t' 'NF == 7' | wc -l | tr -d ' ')" = 5 ] || { echo "self-test: --plain --open should print one row per ticket outside the sprint:"; echo "$out"; exit 1; }
+    printf '%s\n' "$out" | grep -q '^## ' && { echo "self-test: --plain --open should carry the section per row, not as a heading:"; echo "$out"; exit 1; }
+    plain="$(printf '%s\n' "$out" | grep 'AA-05')"
+    [ "$(printf '%s' "$plain" | cut -f1)" = "Beta" ] || { echo "self-test: a --plain open row should lead with its section:"; printf '%s\n' "$plain"; exit 1; }
+    [ "$(printf '%s' "$plain" | cut -f5)" = "AA-03!,AA-04!" ] || { echo "self-test: a --plain open row should keep the unmet blockers:"; printf '%s\n' "$plain"; exit 1; }
+    [ "$(printf '%s' "$plain" | cut -f6)" = "BT-2" ] || { echo "self-test: a --plain open row should carry the story it serves:"; printf '%s\n' "$plain"; exit 1; }
+    echo "$out" | grep -q '^open: 5 ticket(s)' || { echo "self-test: --plain should keep the open summary line:"; echo "$out"; exit 1; }
     out="$(LOOP_CONFIG="$PWD/sprint.toml" "$ROOT/scripts/backlog-status.sh" --backlog BACKLOG.md --ref HEAD --open --section beta 2>&1)"
     [ "$(echo "$out" | grep -c '^AA-')" = 2 ] || { echo "self-test: --section beta should list two tickets:"; echo "$out"; exit 1; }
     # AA-01 and AA-02 land: BT-1 is done, and --open no longer lists them.

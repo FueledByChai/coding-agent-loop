@@ -225,8 +225,9 @@ number is 1; each of the six skeletons is still proven to pass on an empty repos
 `scripts/backlog-status.sh --next` takes the first ready one of these before falling back to file
 order. The pairing is checked in one direction only: a sprint id with no heading is reported —
 `sprint: ZZ-99 is not in the backlog file` (`backlog-status.sh:181`, with a self-test at `:310`) —
-while a heading with no sprint entry is reported nowhere. `--next` walks the sprint and, only when
-nothing in it is ready, announces the fallback and walks the file (`:190-192`), so a ticket filed
+while a heading for an open ticket with no sprint entry is reported nowhere. `--next` walks the
+sprint and, only when nothing in it is ready, announces the fallback and walks the file
+(`:190-192`), so a ticket filed
 without a sprint entry sits outside the order the list claims and is worked in file order once the
 sprint drains — and file order is not sprint order: this repository's headings run LK-01, LK-02,
 LK-03, LK-04, LK-08, LK-10, LK-12, LK-05, LK-06, LK-07, LK-09, LK-11 while its sprint runs
@@ -241,7 +242,9 @@ other's entry with nothing noticing. That is how this ticket was found.
 Decide which the sprint is — every open ticket, as `.loop.toml` says, or the current sprint's subset,
 as `--open`'s comment assumes — and make the check say so, both directions of the pairing checked
 alike.
-**Done when:** a heading in the backlog file that `sprint` omits makes `./check.sh` fail naming it —
-or, if the subset reading is chosen, the `sprint` comment and `--next` state it and `--next` or
-`--sprint` report the omission rather than only `--open` counting it — proved by a self-test that
-drops a heading's id from `sprint` and one that adds an id with no heading.
+**Done when:** an open ticket in the backlog file that `sprint` omits makes `./check.sh` fail naming
+it — a heading whose ticket is already done may leave the sprint freely, since the invariant is about
+open tickets and completion is derived from git — or, if the subset reading is chosen, the `sprint`
+comment and `--next` state it and `--next` or `--sprint` report the omission rather than only
+`--open` counting it — proved by a self-test that drops an open heading's id from `sprint` and one
+that adds an id with no heading.

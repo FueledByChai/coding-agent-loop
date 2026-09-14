@@ -137,6 +137,32 @@ repository, a new one, or a sibling — before any other question.
 `prompts/grill-me.md` fails the check; and the pull request records a real run of the prompt in a
 fixture checkout with no `.loop.toml`, showing it stop to ask where the artifacts belong.
 
+### LK-18 The prompts and the skills the kit ships are the same instructions twice, and nothing compares them
+The kit ships every prompt twice: `prompts/<name>.md`, which the loop's commands point at and whose
+phrases `scripts/prompt-check.sh` pins, and `skills/<name>/SKILL.md`, which is the same instructions
+in the shape a harness loads as a skill — frontmatter, then the body the prompt already is. Nothing
+compares the two, so an edit to one leaves the other stating the old rule, and which one an agent
+follows depends on whether its harness loaded the skill or read the prompt. Three of the four have
+already drifted. `skills/next-ticket/SKILL.md` is missing the sentence that has `--next` take the
+`sprint` list first, in its order, then file order, so an agent that loads the skill works tickets
+out of the order the list states — the failure LK-15 exists to catch. `skills/review-prs/SKILL.md` is
+missing the whole `scripts/open-ticket-pr.sh --update-all` paragraph, so a reviewer that loads the
+skill never rebases the open pull requests it is about to review. `skills/grill-me/SKILL.md` is
+missing four passages, among them the sprint paragraph LK-17 is about — so LK-17's fix, applied to
+the prompt alone, would leave the skill with no sprint paragraph at all — and the `sprint` list in
+the line naming what the prompt may edit. `grill-project` happens to still be identical.
+`prompt-check.sh` pins phrases in `prompts/*.md` only, so a skill that has lost a paragraph looks
+exactly like a skill that never had one: the check passes either way.
+
+Make the two copies answer to each other. Either a check compares each `skills/<name>/SKILL.md`
+body to its `prompts/<name>.md` and fails naming the file and the passage, or the kit stops
+shipping the prompt twice and derives one from the other — decide which, and bring the four into
+step either way.
+**Done when:** a passage present in one copy and not the other fails `./check.sh` naming the skill
+and the prompt it disagrees with — proved by a self-test that drops a paragraph from one side and
+one that edits it — and the four skills as committed pass that check, so `next-ticket`,
+`review-prs`, and `grill-me` are in step with their prompts.
+
 ## The kit as a project
 
 ### LK-05 The kit's check runs the decision-record check

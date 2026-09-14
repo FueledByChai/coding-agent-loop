@@ -128,10 +128,11 @@ overwrites it afterwards, which is right — that file is the project's own. But
 copies only `scripts/*.sh`, `prompts/*.md`, `templates/*.md`, `templates/check/*.sh` and
 `templates/ci/*.yml`, so a change to the example after a project installed never reaches it, and
 nothing reports the drift while every script around it is compared and reported. LK-15 is the case
-in hand: it added a paragraph on the two readings of `sprint` to the example and to this
-repository's `.loop.toml`, and pointed at the example as the thing that settles which one applies —
-but a project that installed before LK-15 has neither the paragraph nor the file, so the pointer
-resolves to nothing. Tessera is such a project: its sprint is a chosen subset, its `.loop.toml`
+in hand — PR #36, unmerged when this was filed, so on `main` today neither file carries it yet: it
+adds a paragraph on the two readings of `sprint` to the example and to this repository's
+`.loop.toml`, and points at the example as the thing that settles which one applies — but a project
+that installed before LK-15 lands has neither the paragraph nor the file, so the pointer resolves to
+nothing. Tessera is such a project: its sprint is a chosen subset, its `.loop.toml`
 still carries only HK-39's one-line comment, and it has no `loop.toml.example` at all.
 **Done when:** either `scripts/loop-kit-sync.sh` carries `loop.toml.example` and `--check` fails in
 a project whose copy differs from the kit's, with `install.sh` still keeping a project's own

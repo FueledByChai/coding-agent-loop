@@ -333,3 +333,63 @@ says must keep the context that deadlocks this repository. `README.md`'s table a
 `Check (scripts/check.sh)` and still matches `ci/workflow.yml`, so nothing a project installs
 changes; and `./check.sh` fails when a ruleset file and the workflow it pairs with disagree,
 proved by a self-test that renames the job and one that renames the context.
+
+### LK-16 The check section of AGENTS.md is one paragraph spliced onto another, and it contradicts the check
+Two branches rewrote `AGENTS.md`'s "The check" section at the same time — LK-05 (`a9d52e6`, the
+decision-record check is wired into `./check.sh`) and LK-11 (`92d0085`, the install self-test runs
+the loop's suite once, so the check takes about three minutes) — and the merge that landed both
+kept a piece of each. What ships on the default branch is LK-11's paragraph with LK-05's stale
+sentence left on the end of it, followed by the remains of LK-05's paragraph with its opening
+sentence cut off, so the section starts a new paragraph mid-clause:
+
+```
+... Nothing is resolved from a worktree, since there is nothing to build.
+`scripts/decisions.sh --check` is not wired in yet (LK-05).
+`scripts/decisions.sh --check` (the kit's records answer to the same sections and index a
+project's check demands of them), then `./install.sh --self-test`, which installs into a fresh
+repository and runs the installed scripts' self-tests there. There is no fast variant — the whole
+thing takes seconds. Nothing is resolved from a worktree, since there is nothing to build.
+```
+
+The section says the decision-record check is not wired in, one line above the sentence that says
+it is; gives two figures for the same run, "about three minutes on a laptop, under a minute on CI"
+and "takes seconds"; and states "nothing is resolved from a worktree" twice. `./check.sh` runs
+`scripts/decisions.sh --check`, so the file that defines done disagrees with the script that
+enforces it — the defect LK-05's own commit message names, reintroduced by a merge resolution
+rather than by an edit, and the same shape as LK-14 and LK-15: one fact kept in two places with
+nothing comparing them. `scripts/prompt-check.sh` pins phrases in `prompts/*.md` and nothing reads
+`AGENTS.md`'s prose, so a splice like this is invisible to every check and to a reader who trusts
+the heading — which is what makes it worth a ticket rather than a quiet fix: nothing here would
+have caught it, and nothing will catch the next one.
+**Done when:** `AGENTS.md`'s "The check" section is one paragraph stating the sequence `./check.sh`
+runs, `scripts/decisions.sh --check` among them, with no sentence saying that check is not wired in
+and one figure for the run — the figure `README.md` states and `time ./check.sh` reports here; and
+the section's list of checks cannot drift from the script again, either by `scripts/prompt-check.sh`
+pinning it or by a check comparing the two, proved by a self-test that drops a check from one side
+and sees `./check.sh` fail naming it.
+
+### LK-17 grill-me offers "or none" for the sprint, which one reading of the sprint does not allow
+LK-15 settled that `sprint` in `.loop.toml` means one of two things and made the check enforce the
+stricter one here: either the tickets chosen for now, leaving the rest as the pick list `--open`
+prints, or every open ticket, so an omission is a fault — this repository means the second and runs
+`scripts/backlog-status.sh --sprint-check` from `./check.sh`. `prompts/grill-me.md` still states only
+the first. Its sprint paragraph opens "`sprint` in `.loop.toml` is the list of tickets chosen for
+now, in order", and closes by telling the agent to "Ask the owner which of the new tickets go into
+the sprint and where (ahead of, behind, or between the ones there), **or none**". Under the reading
+this repository uses there is no "none": a ticket the prompt files and leaves out of the sprint is a
+ticket the next `./check.sh` fails on, so the prompt's own hand-off produces the state its own check
+rejects, and the agent that followed it is left to discover why.
+
+The prompt is shared with projects, and a project that keeps the subset reading does allow "none", so
+the fix is not to drop the choice but to state both and point at the ticket file's own comment as
+the thing that settles which applies — the shape LK-15 gave `AGENTS.md`'s sprint bullet for exactly
+this reason, and the reason `loop.toml.example` now carries the same note.
+
+A prompt is not edited without a recorded run: `scripts/prompt-check.sh`'s header states that the
+phrases it pins are one half of a prompt's proof and a real run in the pull request is the other.
+That is what keeps this out of LK-15 and makes it its own ticket.
+**Done when:** `prompts/grill-me.md`'s sprint paragraph states both readings, names the `.loop.toml`
+comment above the list as the thing that settles which one applies, and does not offer "or none"
+except under the subset reading; `scripts/prompt-check.sh` still finds the phrases it pins for that
+prompt; and the pull request carries a recorded run of the prompt against a repository using the
+stricter reading, showing a filed ticket added to the sprint rather than left out.

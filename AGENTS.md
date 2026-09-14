@@ -10,8 +10,10 @@ below it are this project's own and are what the loop prompts mean when they say
 - **Settings.** `.loop.toml` holds everything the loop knows about this project:
   `default_branch`, `backlog` (the ticket file), `check` (the full check), `check_fast` (the
   check to run while iterating), `review_paths` (changes that need a human review),
-  `trailer_required`, `kit` (where the loop kit lives), and `sprint` (the tickets chosen
-  for now, in order). `scripts/loop-config.sh --all` prints the effective values. Prompts and scripts read them from there; they never hard-code
+  `trailer_required`, `kit` (where the loop kit lives), and `sprint` (the tickets to work now,
+  in order: either the ones chosen for this sprint, leaving the rest as the pick list `--open`
+  prints, or every open ticket, so an omission is a fault - the comment above the list says
+  which). `scripts/loop-config.sh --all` prints the effective values. Prompts and scripts read them from there; they never hard-code
   a branch, a path, or a build command.
 - **Tickets.** The backlog is a list of tickets, each a paragraph of intent plus a **Done when**
   line naming the test, fixture, or measurable output that proves it. Git is the record of
@@ -19,8 +21,9 @@ below it are this project's own and are what the loop prompts mean when they say
   branch. `scripts/backlog-status.sh` derives every ticket's state from the commits and
   `--next` names the first `todo` whose `Blocked by` tickets have landed, taking the
   `sprint` list first and file order after it (`--sprint` shows the sprint's states;
-  `--open` the pick list of tickets not done and not in the sprint; `--show <id>` a ticket
-  or story in full; `--stories` every story with a status derived from the tickets that
+  `--open` the tickets not done and not in the sprint; `--sprint-check` fails when that list
+  and the open tickets disagree, for a sprint that means "every open ticket"; `--show <id>` a
+  ticket or story in full; `--stories` every story with a status derived from the tickets that
   serve it; `scripts/sprint.sh add|remove|set` edits the sprint list). The backlog file
   carries only claims: `doing` while someone works a ticket, `blocked <reason>` when it needs
   a decision. Clear the `doing` claim in the ticket's own commit and never write a done line.
@@ -89,7 +92,13 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
 - `check.sh` sits at the repository root on purpose, so `install.sh` never copies it over a
   project's own `scripts/check.sh`. `install.sh` copies everything else and never overwrites a
   project's `AGENTS.md`, `CLAUDE.md`, `.loop.toml`, or workflow.
-- `ci/` holds the workflow skeleton and `ruleset.json`, the branch ruleset a project applies.
+- `ci/` holds what a project applies: the workflow skeleton and the `ruleset.json` that pairs
+  with it, whose required context is the job that skeleton reports (`Check (scripts/check.sh)`).
+  `.github/` holds this repository's own pair — `.github/workflows/ci.yml` and
+  `.github/ruleset.json` — whose context is the job this repository reports
+  (`Check (check.sh)`). The two pairs differ by that one context and are not interchangeable: a
+  project's check sits under `scripts/`, the kit's at the root. `scripts/ruleset-check.sh` fails
+  when either pair disagrees, so neither can drift.
 - `BACKLOG.md` is this project's executable queue, `docs/PRODUCT_BACKLOG.md` its stories, and
   `docs/decisions/` its records (index in its `README.md`; cite a record by number and never
   restate one in a doc or a ticket).
@@ -117,10 +126,11 @@ seconds. Nothing is resolved from a worktree, since there is nothing to build.
 
 ### Conventions
 
-- **A new script is not done until it is wired in.** Add it to the list in `check.sh`, to
-  `install.sh`'s self-test, and to `templates/check/common.sh`, or its `--self-test` never runs
-  in the kit or in any project. `install.sh` copies `scripts/*.sh` by glob, so nothing else there
-  needs changing.
+- **A new script is not done until it is wired in.** Add it to the marked block in `check.sh` and
+  to the one in `templates/check/common.sh` — `scripts/check-list.sh` compares the two blocks and
+  fails naming a check only one of them runs (LK-14) — and to `install.sh`'s self-test, or its
+  `--self-test` never runs in the kit or in any project. `install.sh` copies `scripts/*.sh` by
+  glob, so nothing else there needs changing.
 - **`scripts/*.sh` is the only thing that ships.** `scripts/loop-kit-sync.sh` and `install.sh`
   both glob that extension, so a helper in another language, or a fixture directory beside the
   scripts, silently never reaches a project (decision 0002). A fixture a self-test needs is

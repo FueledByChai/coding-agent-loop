@@ -72,7 +72,8 @@ Still to supply:
      Project rules, the decision records, and the first epics. On an existing project write
      it by hand and run the loop self-tests from it (scripts/loop-config.sh --self-test,
      scripts/backlog-status.sh --self-test, scripts/open-ticket-pr.sh --self-test,
-     scripts/release-notes.sh --self-test, scripts/loop-kit-sync.sh --check,
+     scripts/release-notes.sh --self-test, scripts/loop-tui.sh --self-test,
+     scripts/loop-kit-sync.sh --check,
      scripts/decisions.sh --check, scripts/prompt-check.sh).
      $( [ -x "$target/scripts/check.sh" ] && echo "(present)" || echo "(missing)" )
   2. Optionally a deploy script, if a merged PR should reach a running service on its own.
@@ -94,7 +95,7 @@ self_test() {
   echo "$out" | grep -q '^installed: .github/workflows/loop.yml' || { echo "self-test: the workflow should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .agent/commands/' || { echo "self-test: the wrappers should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '(present)' || { echo "self-test: the stub check should be reported present:"; echo "$out"; exit 1; }
-  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint; do
+  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint loop-tui; do
     [ -x "$dir/scripts/$f.sh" ] || { echo "self-test: scripts/$f.sh missing or not executable"; exit 1; }
   done
   [ -f "$dir/loop/templates/decision.md" ] || { echo "self-test: the decision template should be installed"; exit 1; }
@@ -155,6 +156,7 @@ self_test() {
   (cd "$dir" && scripts/backlog-status.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed backlog-status self-test failed"; exit 1; }
   (cd "$dir" && scripts/release-notes.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed release-notes self-test failed"; exit 1; }
   (cd "$dir" && scripts/open-ticket-pr.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed open-ticket-pr self-test failed"; exit 1; }
+  (cd "$dir" && scripts/loop-tui.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed loop-tui self-test failed"; exit 1; }
   # Installing again keeps what exists.
   out="$("$KIT/install.sh" "$dir")"
   echo "$out" | grep -q '^kept: AGENTS.md' || { echo "self-test: a second install must keep AGENTS.md:"; echo "$out"; exit 1; }

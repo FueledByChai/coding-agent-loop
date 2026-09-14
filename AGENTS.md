@@ -110,6 +110,10 @@ on a laptop, under a minute on CI. Most of it is that self-test suite, which the
 and then proves the six stack skeletons' own stack steps separately, rather than paying for the
 suite once per skeleton (LK-11). Nothing is resolved from a worktree, since there is nothing to
 build. `scripts/decisions.sh --check` is not wired in yet (LK-05).
+`scripts/decisions.sh --check` (the kit's records answer to the same sections and index a project's
+check demands of them), then `./install.sh --self-test`, which installs into a fresh repository and
+runs the installed scripts' self-tests there. There is no fast variant — the whole thing takes
+seconds. Nothing is resolved from a worktree, since there is nothing to build.
 
 ### Conventions
 

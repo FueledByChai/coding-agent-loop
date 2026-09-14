@@ -150,7 +150,7 @@ and when the index omits a record, and passes on the kit's own records; `install
 self-test still passes, since a freshly installed project has no records for it to check.
 
 ### LK-06 The kit's ruleset requires the agent review — Blocked by LK-09
-`ci/ruleset.json` names one required status, `Check (scripts/check.sh)`, and Tessera's ruleset
+`.github/ruleset.json` (LK-13) names one required status, `Check (check.sh)`, and Tessera's ruleset
 also waits for the agent review. `prompts/review-prs.md` reviews every open pull request whose
 head carries no review status, but it runs from a schedule on a machine with the owner's
 subscription and nothing runs it for this repository yet — so requiring its status before
@@ -183,9 +183,9 @@ there still finds the forty-three landed commits, so the archive lost nothing; `
 carries their bodies under the archive tag; and `scripts/backlog-status.sh --sprint` there lists
 no HK-41.
 
-### LK-09 The repository's branch ruleset is applied, and auto-merge is on
-`ci/ruleset.json` and the README's setup commands exist, but this repository has none of them
-applied: `gh api repos/FueledByChai/coding-agent-loop/rulesets` is empty, `allow_auto_merge` is
+### LK-09 The repository's branch ruleset is applied, and auto-merge is on — Blocked by LK-13
+`.github/ruleset.json` (LK-13) and the README's setup commands exist, but this repository has none
+of them applied: `gh api repos/FueledByChai/coding-agent-loop/rulesets` is empty, `allow_auto_merge` is
 false, `allow_merge_commit` and `allow_squash_merge` are still true, and
 `delete_branch_on_merge` is false — so nothing gates a merge, and `--auto` is worse than useless:
 with auto-merge disabled it does not arm anything, it merges on the spot. Both pull requests this
@@ -198,24 +198,80 @@ documents:
 `gh api -X PATCH repos/FueledByChai/coding-agent-loop -F allow_auto_merge=true -F
 delete_branch_on_merge=true -F allow_merge_commit=false -F allow_squash_merge=false -F
 allow_rebase_merge=true`, then `gh api -X POST repos/FueledByChai/coding-agent-loop/rulesets
---input ci/ruleset.json`. This is the prerequisite for LK-06, which extends the ruleset, and for
-the loop's own hand-off, whose merge policy arms auto-merge and has nothing to arm without it.
+--input .github/ruleset.json`, the file LK-13 gives this repository. It is not `ci/ruleset.json`,
+which has to keep the context a project's workflow reports. This is the prerequisite for LK-06,
+which extends the ruleset, and for the loop's own hand-off, whose merge policy arms auto-merge and
+has nothing to arm without it.
 **Done when:** `gh api repos/FueledByChai/coding-agent-loop` reports `allow_auto_merge: true`,
 `delete_branch_on_merge: true`, `allow_merge_commit: false`, `allow_squash_merge: false`, and
 `allow_rebase_merge: true`; `gh api repos/FueledByChai/coding-agent-loop/rulesets` lists the
-ruleset with `enforcement: active` and `Check (scripts/check.sh)` among its required status
-checks; and a test pull request shows the check required, with `gh pr merge <n> --auto --rebase`
-arming auto-merge and the merge happening only once the check is green.
+ruleset with `enforcement: active` and `Check (check.sh)` — the context this repository's workflow
+reports, per LK-13 — among its required status checks; and a test pull request shows the check
+required, with `gh pr merge <n> --auto --rebase` arming auto-merge and the merge happening only
+once the check is green.
 
 ### LK-11 The check's cost is measured, and the install self-test stops repeating the suite
-`./check.sh` takes about eight minutes, not the seconds `README.md` claims, because
+`./check.sh` takes about eight minutes here, not the seconds `AGENTS.md` claims, because
 `install.sh --self-test` runs the whole self-test suite once per stack skeleton — rust, python,
 node, java, go, other — six full passes, each redirected to its own log so nothing appears on
 the terminal while it happens. Only the stack step differs between the six; the loop checks each
 one runs are identical, and repeating them is what makes the check slow enough that a
 contributor assumes it has hung. Run the loop checks once and prove the six skeletons' stack
-steps separately.
+steps separately. The eight minutes is the machine's figure, not the kit's: the same script on
+CI's ubuntu-latest runner ran every self-test and the install in 54s (run 34781943672,
+20:49:23Z to 20:50:17Z), and the eleven self-tests that are not the install take 1m 02s here
+against 6.6s there. The six passes are the cost in both places — 87% of the total there, 88%
+here — so the diagnosis holds and only the number needs a machine beside it.
 **Done when:** `install.sh --self-test` prints how many times it ran the loop checks and that
 number is 1; each of the six skeletons is still proven to pass on an empty repository; and
 `time ./check.sh` is reported in the pull request and matches the figure `README.md` and
 `AGENTS.md` state.
+
+### LK-14 The kit's check and a project's check keep the loop's check list in two places — Blocked by LK-05
+`check.sh` and `templates/check/common.sh`'s `loop_checks` both enumerate the loop's checks by
+hand: the same eleven `--self-test` calls, then `prompt-check.sh` and `decisions.sh --check`.
+`AGENTS.md` asks the author of a new script to add it in three places — `check.sh`, `install.sh`'s
+self-test, and `templates/check/common.sh` — and nothing compares them, so the only thing keeping
+the two lists equal is that someone remembered. They have already drifted once: the kit's check ran
+no `decisions.sh --check` while every project's did, which is LK-05 — and which is why this is
+blocked by it: a test comparing the two lists fails on that drift until LK-05 lands, so working this
+first would either fail on it or quietly absorb LK-05's work. The next script, or the next
+check added to one side, repeats it silently, because a check line that is missing looks exactly
+like a check line that passed.
+**Done when:** adding a check to the kit's `check.sh` or to `templates/check/common.sh` without
+the other cannot leave them apart — one list derived from the other, or a test comparing them —
+proved by a self-test that drops a check from one side and sees `./check.sh` fail naming it.
+### LK-13 The ruleset this repository would apply requires a status its CI never reports
+`ci/ruleset.json` names one required status check, `"Check (scripts/check.sh)"`, and LK-09
+applies that file to this repository with `gh api -X POST .../rulesets --input ci/ruleset.json`.
+But the only workflow here, `.github/workflows/ci.yml`, names its job `Check (check.sh)` and runs
+`./check.sh`: the kit's check sits at the repository root, not under `scripts/`, which is what
+`.loop.toml`'s `check = "./check.sh"` and `AGENTS.md` both say. `gh pr checks 22` and
+`gh pr checks 23` each report exactly one check, `CI/Check (check.sh)`. A required context is
+satisfied by a check run of that name and no other, so `Check (scripts/check.sh)` is a context
+nothing here will ever report — and the moment LK-09 lands, every pull request waits for a status
+that never arrives and nothing merges. LK-09's own done-when would pass while that happened: it
+asks that the ruleset list `Check (scripts/check.sh)`, which is the very string that is wrong.
+
+`ci/ruleset.json` is right for what it is. It is the file `install.sh` gives a project, paired
+with `ci/workflow.yml`, whose job is `Check (scripts/check.sh)` and which runs
+`scripts/check.sh` — a project's check does live under `scripts/`. The kit's own workflow is a
+hand-written sibling of that template rather than a copy of it, and nothing compares the two:
+`install.sh` only tells the operator to "compare with the kit's `ci/workflow.yml`" by eye. So one
+file is being asked to serve two repositories whose check scripts sit in different places, and
+neither the kit's check nor its CI notices when the pair drifts.
+
+Give this repository its own ruleset at `.github/ruleset.json` — beside `.github/workflows/ci.yml`,
+the workflow it has to match, while `ci/ruleset.json` stays the template a project applies beside
+`ci/workflow.yml` — whose context is the job this repository actually reports, and make the pairing
+something the check tests rather than something a person is asked to look at. Naming the file is
+part of this ticket rather than a detail left open: LK-09's command and LK-06's paragraph each name
+a ruleset file and both land after this one, so the name has to be fixed before either can be
+written down correctly — LK-09's command still posts `ci/ruleset.json`, the very file this ticket
+says must keep the context that deadlocks this repository. `README.md`'s table and `AGENTS.md`'s
+`ci/` line then want a word about which file belongs to whom.
+**Done when:** `.github/ruleset.json` names `Check (check.sh)` and not
+`Check (scripts/check.sh)`, and is the file LK-09 applies; `ci/ruleset.json` still names
+`Check (scripts/check.sh)` and still matches `ci/workflow.yml`, so nothing a project installs
+changes; and `./check.sh` fails when a ruleset file and the workflow it pairs with disagree,
+proved by a self-test that renames the job and one that renames the context.

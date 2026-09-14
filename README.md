@@ -24,6 +24,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `scripts/review-status.sh` | lists pull requests awaiting the agent review (`--pending`) and posts its verdict as a commit status |
 | `scripts/decisions.sh` | decision records: `new "<title>" [--supersedes NNNN]`, `index`, `--check` |
 | `scripts/prompt-check.sh` | fails when a prompt no longer carries a phrase that states one of its rules |
+| `scripts/ruleset-check.sh` | fails when a ruleset requires a status check the workflow it pairs with never reports |
 | `templates/decision.md` | the decision record: Context, Decision, Alternatives, Consequences, what would show it was wrong |
 | `prompts/review-prs.md` | the prompt that reviews pending pull requests against their ticket and the Project rules |
 | `prompts/next-ticket.md` | the prompt that takes the next ticket to done |
@@ -33,8 +34,9 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `templates/ci/*.yml` | the CI toolchain steps per stack that grill-project splices into the workflow |
 | `AGENTS.md` | the standing instructions: the loop section, then an empty Project rules |
 | `loop.toml.example` | a `.loop.toml` to copy and fill in |
-| `ci/workflow.yml` | a workflow skeleton: one job per check command |
-| `ci/ruleset.json` | the branch ruleset that makes merges wait for green, up-to-date CI |
+| `ci/workflow.yml` | the workflow a project installs: one job per check command |
+| `ci/ruleset.json` | the branch ruleset that pairs with it, requiring the job that workflow reports |
+| `.github/workflows/ci.yml`, `.github/ruleset.json` | this repository's own pair, requiring `Check (check.sh)` |
 | `commands/*.md` | two-line wrappers for a harness with slash commands |
 | `install.sh` | copies all of the above into a checkout and says what is still missing |
 | `check.sh` | the kit's own check: every self-test, then an install into a fresh repository |
@@ -175,6 +177,11 @@ gh api -X PATCH repos/<owner>/<repo> -F allow_auto_merge=true -F delete_branch_o
   -F allow_merge_commit=false -F allow_squash_merge=false -F allow_rebase_merge=true
 gh api -X POST repos/<owner>/<repo>/rulesets --input ci/ruleset.json
 ```
+
+A required status check is satisfied by a check run of that name and no other, so a context the
+workflow never reports holds every pull request forever while every other check is green. Name
+the pair in the project's check — `scripts/ruleset-check.sh <ruleset.json> <workflow.yml>` — and
+a ruleset asking for a job nobody runs fails the build instead of the merge queue.
 
 GitHub's merge queue is not available on user-owned repositories; the ruleset's "up to date
 with the default branch" requirement plus auto-merge gives the same one-at-a-time guarantee.

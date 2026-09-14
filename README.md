@@ -13,9 +13,9 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | Path | What it is |
 | --- | --- |
 | `scripts/loop-config.sh` | reads `.loop.toml` (`<key>`, `--all`), with defaults |
-| `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views; `--sprint-check` fails when the sprint and the open tickets disagree |
+| `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views; `--plain` gives `--stories` and `--open` as tab-separated fields for a renderer; `--sprint-check` fails when the sprint and the open tickets disagree |
 | `scripts/sprint.sh` | edits the sprint list in `.loop.toml` (`add`, `remove`, `set`, `clear`) |
-| `scripts/loop-tui.sh` | the loop's state as one screen — the sprint, the next ticket and the command that claims it, what is left, the stories; `--width` fixes the width and `--render` prints one frame and exits |
+| `scripts/loop-tui.sh` | the loop's state as one screen: the dashboard (the sprint, the next ticket and the command that claims it, what is left, the stories), and the `stories`, `open`, and `show <id>` views; `--width` fixes the width and `--render` prints one frame and exits |
 | `scripts/open-ticket-pr.sh` | claims (`--claim`), opens the PR, applies the merge policy |
 | `scripts/release-notes.sh` | what shipped between two refs; `--archive` into `CHANGELOG.md`; `--prefix` narrows either to one ticket prefix |
 | `scripts/loop-kit-sync.sh` | keeps a project's copies of these files in step with the kit |
@@ -24,6 +24,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `scripts/review-status.sh` | lists pull requests awaiting the agent review (`--pending`) and posts its verdict as a commit status |
 | `scripts/decisions.sh` | decision records: `new "<title>" [--supersedes NNNN]`, `index`, `--check` |
 | `scripts/prompt-check.sh` | fails when a prompt no longer carries a phrase that states one of its rules |
+| `scripts/ruleset-check.sh` | fails when a ruleset requires a status check the workflow it pairs with never reports |
 | `templates/decision.md` | the decision record: Context, Decision, Alternatives, Consequences, what would show it was wrong |
 | `prompts/review-prs.md` | the prompt that reviews pending pull requests against their ticket and the Project rules |
 | `prompts/next-ticket.md` | the prompt that takes the next ticket to done |
@@ -33,8 +34,9 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `templates/ci/*.yml` | the CI toolchain steps per stack that grill-project splices into the workflow |
 | `AGENTS.md` | the standing instructions: the loop section, then an empty Project rules |
 | `loop.toml.example` | a `.loop.toml` to copy and fill in |
-| `ci/workflow.yml` | a workflow skeleton: one job per check command |
-| `ci/ruleset.json` | the branch ruleset that makes merges wait for green, up-to-date CI |
+| `ci/workflow.yml` | the workflow a project installs: one job per check command |
+| `ci/ruleset.json` | the branch ruleset that pairs with it, requiring the job that workflow reports |
+| `.github/workflows/ci.yml`, `.github/ruleset.json` | this repository's own pair, requiring `Check (check.sh)` |
 | `commands/*.md` | two-line wrappers for a harness with slash commands |
 | `install.sh` | copies all of the above into a checkout and says what is still missing |
 | `check.sh` | the kit's own check: every self-test, then an install into a fresh repository |
@@ -159,7 +161,8 @@ git clone https://github.com/FueledByChai/coding-agent-loop /tmp/loop-kit
 
 `install.sh` copies the scripts into `scripts/`, the prompts into `loop/prompts/`, writes
 `AGENTS.md` and `.loop.toml` when they do not exist (it never overwrites either), puts the
-workflow skeleton at `.github/workflows/loop.yml` when there is no workflow yet, and, with
+workflow skeleton at `.github/workflows/loop.yml` and the ruleset that pairs with it at
+`ci/ruleset.json` when neither is there, and, with
 `--commands <dir>`, writes the four wrappers into the harness's command directory. `CLAUDE.md` is written as the one line `@AGENTS.md` when absent: Codex reads
 `AGENTS.md` on its own, Claude Code reads `CLAUDE.md`, and both then follow the same file. Then it
 prints what the project still has to supply:
@@ -167,8 +170,8 @@ prints what the project still has to supply:
 1. `scripts/check.sh`: the definition of done, exit non-zero on anything not shippable. The
    kit does not know how to build or test your code. Have it run the loop self-tests too.
 2. Optionally a deploy script, if a merged PR should reach a running service on its own.
-3. The branch ruleset, applied once with `gh api` (see `ci/ruleset.json` and the commands
-   below); repository settings that allow auto-merge and delete merged branches.
+3. The branch ruleset, applied once with `gh api` (the installed `ci/ruleset.json` and the
+   commands below); repository settings that allow auto-merge and delete merged branches.
 4. The **Project rules** section of `AGENTS.md`: what never to touch, build and run commands,
    conventions the prompts should follow.
 
@@ -180,6 +183,11 @@ gh api -X PATCH repos/<owner>/<repo> -F allow_auto_merge=true -F delete_branch_o
   -F allow_merge_commit=false -F allow_squash_merge=false -F allow_rebase_merge=true
 gh api -X POST repos/<owner>/<repo>/rulesets --input ci/ruleset.json
 ```
+
+A required status check is satisfied by a check run of that name and no other, so a context the
+workflow never reports holds every pull request forever while every other check is green. Name
+the pair in the project's check — `scripts/ruleset-check.sh <ruleset.json> <workflow.yml>` — and
+a ruleset asking for a job nobody runs fails the build instead of the merge queue.
 
 GitHub's merge queue is not available on user-owned repositories; the ruleset's "up to date
 with the default branch" requirement plus auto-merge gives the same one-at-a-time guarantee.

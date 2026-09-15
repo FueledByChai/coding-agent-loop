@@ -24,7 +24,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `scripts/review-status.sh` | lists pull requests awaiting the agent review (`--pending`) and posts its verdict as a commit status |
 | `scripts/decisions.sh` | decision records: `new "<title>" [--supersedes NNNN]`, `index`, `--check` |
 | `scripts/prompt-check.sh` | fails when a prompt no longer carries a phrase that states one of its rules |
-| `scripts/check-list.sh` | fails when the kit's `check.sh` and a project's `templates/check/common.sh` do not run the same checks, naming the one that only one of them runs |
+| `scripts/check-list.sh` | fails when two places that run or describe the same checks disagree — the kit's `check.sh` and a project's `templates/check/common.sh`, or a prose section and the script it describes (`--section`) — naming the check only one of them has |
 | `scripts/ruleset-check.sh` | fails when a ruleset requires a status check the workflow it pairs with never reports |
 | `templates/decision.md` | the decision record: Context, Decision, Alternatives, Consequences, what would show it was wrong |
 | `prompts/review-prs.md` | the prompt that reviews pending pull requests against their ticket and the Project rules |
@@ -43,8 +43,8 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `check.sh` | the kit's own check: every self-test, then an install into a fresh repository |
 
 Every script has a `--self-test`; a project's check runs them, and `./check.sh` here runs
-them all plus the install (CI runs the same script). It takes about three minutes on a laptop,
-down from about nine: the install self-test runs the loop's suite once and proves the six stack
+them all plus the install (CI runs the same script). It takes about eight minutes on a laptop.
+Most of that is the loop's suite, which the install self-test runs once and proves the six stack
 skeletons' own stack steps separately, instead of running the whole suite once per skeleton
 (LK-11).
 

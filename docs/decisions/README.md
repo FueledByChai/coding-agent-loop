@@ -10,3 +10,4 @@ the old one. Cite a decision by its number. `scripts/decisions.sh new "<title>"`
 - [0005](0005-this-repository-s-own-merge-gating-is-applied-by-hand-and-re.md) This repository's own merge gating is applied by hand and recorded, not checked — accepted
 - [0006](0006-the-check-lets-the-loop-s-own-review-status-through-and-noth.md) The check lets the loop's own review status through, and nothing else — accepted
 - [0007](0007-the-agent-review-is-required-here-and-a-scheduled-run-on-the.md) The agent review is required here, and a scheduled run on the owner's machine produces it — accepted
+- [0008](0008-the-section-that-describes-the-check-is-compared-with-the-sc.md) The section that describes the check is compared with the script by name — accepted

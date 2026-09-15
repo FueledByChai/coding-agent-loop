@@ -394,7 +394,7 @@ says must keep the context that deadlocks this repository. `README.md`'s table a
 changes; and `./check.sh` fails when a ruleset file and the workflow it pairs with disagree,
 proved by a self-test that renames the job and one that renames the context.
 
-### LK-16 The check section of AGENTS.md is one paragraph spliced onto another, and it contradicts the check
+### LK-16 The check section of AGENTS.md is one paragraph spliced onto another, and it contradicts the check — `doing`
 Two branches rewrote `AGENTS.md`'s "The check" section at the same time — LK-05 (`a9d52e6`, the
 decision-record check is wired into `./check.sh`) and LK-11 (`92d0085`, the install self-test runs
 the loop's suite once, so the check takes about three minutes) — and the merge that landed both

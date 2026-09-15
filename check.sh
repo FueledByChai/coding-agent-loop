@@ -20,6 +20,11 @@ scripts/decisions.sh --check
 # <<< loop checks
 # The block above and a project's are one list; this fails when they have drifted apart (LK-14).
 scripts/check-list.sh check.sh templates/check/common.sh
+# The section that describes this script is prose, so it is compared by name: every check this
+# script runs as work of its own has to be named there, and nothing else may be - the shape a merge
+# of two rewrites of that section broke (LK-16). It sits outside the shared block because a
+# project's AGENTS.md is its own file (decision 0008).
+scripts/check-list.sh --section AGENTS.md "The check" check.sh
 # A ruleset that requires a status its paired workflow never reports holds every pull request
 # forever, and the pairs here differ by two contexts: this repository's workflow reports
 # `Check (check.sh)` and its ruleset also requires `Agent review`, which no workflow reports - the

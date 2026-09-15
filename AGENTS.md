@@ -114,25 +114,27 @@ until then `scripts/loop-kit-sync.sh --check` fails there, which is the intended
 
 ### The check
 
-`./check.sh` is the definition of done, and CI runs the same script: every script's `--self-test`
-in a fixed order, then `scripts/prompt-check.sh` (a prompt may not lose a rule), then
-`./install.sh --self-test`, which installs into a fresh repository and runs the installed
-scripts' self-tests there. There is no fast variant — the whole thing takes about three minutes
-on a laptop, under a minute on CI. Most of it is that self-test suite, which the install runs once
-and then proves the six stack skeletons' own stack steps separately, rather than paying for the
-suite once per skeleton (LK-11). Nothing is resolved from a worktree, since there is nothing to
-build. `scripts/decisions.sh --check` is not wired in yet (LK-05).
+`./check.sh` is the definition of done, and CI runs the same script. In order it runs every
+script's `--self-test`, then `scripts/prompt-check.sh` (a prompt may not lose a rule), then
 `scripts/decisions.sh --check` (the kit's records answer to the same sections and index a project's
-check demands of them), then `./install.sh --self-test`, which installs into a fresh repository and
-runs the installed scripts' self-tests there. There is no fast variant — the whole thing takes
-seconds. Nothing is resolved from a worktree, since there is nothing to build.
+check demands of them), then the two checks that compare what is written down more than once,
+`scripts/check-list.sh` and `scripts/ruleset-check.sh`, then `./install.sh --self-test`, which
+installs into a fresh repository and runs the installed scripts' self-tests there, then
+`scripts/backlog-status.sh --sprint-check`. There is no fast variant: the whole thing takes about
+eight minutes, most of it the self-test suite, which the install runs once and then proves the six
+stack skeletons' own stack steps separately, rather than paying for the suite once per skeleton
+(LK-11). Nothing is resolved from a worktree, since there is nothing to build. The section's list of
+checks is compared with the script's by `scripts/check-list.sh --section`, so the two cannot drift
+apart again (LK-16).
 
 ### Conventions
 
 - **A new script is not done until it is wired in.** Add it to the marked block in `check.sh` and
   to the one in `templates/check/common.sh` — `scripts/check-list.sh` compares the two blocks and
   fails naming a check only one of them runs (LK-14) — and to `install.sh`'s self-test, or its
-  `--self-test` never runs in the kit or in any project. `install.sh` copies `scripts/*.sh` by
+  `--self-test` never runs in the kit or in any project. A check that does work of its own also
+  belongs in "The check" above, which `scripts/check-list.sh --section` compares with `check.sh`
+  and fails naming the side that lacks it (LK-16). `install.sh` copies `scripts/*.sh` by
   glob, so nothing else there needs changing.
 - **`scripts/*.sh` is the only thing that ships.** `scripts/loop-kit-sync.sh` and `install.sh`
   both glob that extension, so a helper in another language, or a fixture directory beside the

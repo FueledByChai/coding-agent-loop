@@ -394,7 +394,7 @@ says must keep the context that deadlocks this repository. `README.md`'s table a
 changes; and `./check.sh` fails when a ruleset file and the workflow it pairs with disagree,
 proved by a self-test that renames the job and one that renames the context.
 
-### LK-16 The check section of AGENTS.md is one paragraph spliced onto another, and it contradicts the check — `doing`
+### LK-16 The check section of AGENTS.md is one paragraph spliced onto another, and it contradicts the check
 Two branches rewrote `AGENTS.md`'s "The check" section at the same time — LK-05 (`a9d52e6`, the
 decision-record check is wired into `./check.sh`) and LK-11 (`92d0085`, the install self-test runs
 the loop's suite once, so the check takes about three minutes) — and the merge that landed both
@@ -474,3 +474,17 @@ comment LK-21 exists to correct.
 **Done when:** the comment names `.github/ruleset.json` as the ruleset that requires the review here
 (not the template a project applies, and not "yet"), and `./check.sh` passes with nothing else in
 `.loop.toml` changed.
+
+### LK-23 The check takes about eight minutes here and about one on CI, and nothing explains the gap
+Measured while working LK-16, with LK-11 long landed: the fourteen self-tests take 150s (50s of
+that `scripts/loop-tui.sh` alone), `./install.sh --self-test` takes 282s, and `time ./check.sh`
+reports 8m18s in total - against the 57-64s the `Check (check.sh)` job takes on CI for the same
+script. The loop's suite also runs twice in every full check: `./check.sh` runs it, and then the
+install self-test runs it again inside the fresh repository, which is most of the second figure.
+LK-11 measured 6m59s before its change and claimed about three minutes after it, and nothing
+measured it again until now - which is how the figure the docs stated drifted from the figure
+`time` reports, the defect LK-16 corrected the wording of without asking why.
+**Done when:** either the check is measurably faster, with the figure in `AGENTS.md` and
+`README.md` corrected to what `time ./check.sh` then reports, or the difference between this
+machine and CI is written down where a contributor reads it, naming what costs the time and why
+it cannot be removed.

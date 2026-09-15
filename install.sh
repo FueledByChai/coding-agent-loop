@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Installs the loop kit into a checkout (HK-16): the scripts into scripts/, the prompts into
-# loop/prompts/, AGENTS.md and .loop.toml when absent, the workflow skeleton when there is no
-# workflow, and the four wrappers and four skill pointers when their directories are given. Then
-# it says what the project still has to supply.
+# loop/prompts/, loop.toml.example at the root as the current settings documentation, AGENTS.md
+# and .loop.toml when absent, the workflow skeleton when there is no workflow, and the four
+# wrappers and four skill pointers when their directories are given. Then it says what the
+# project still has to supply.
+#
+# .loop.toml is written from the example once and is the project's own file afterwards; the example
+# beside it is the kit's and is refreshed by every install and by scripts/loop-kit-sync.sh, so the
+# file a project reads to learn what a setting means does not go stale (LK-19).
 #
 #   install.sh <checkout> [--commands <dir>] [--skills <dir>]
 #                                               install into <checkout>
@@ -63,7 +68,10 @@ install_into() {
   for f in "$KIT"/templates/*.md; do cp "$f" "$target/loop/templates/"; done
   for f in "$KIT"/templates/check/*.sh; do cp "$f" "$target/loop/templates/check/"; done
   for f in "$KIT"/templates/ci/*.yml; do cp "$f" "$target/loop/templates/ci/"; done
-  echo "installed: scripts/{$(cd "$KIT/scripts" && ls *.sh | sed 's/\.sh$//' | tr '\n' ',' | sed 's/,$//')}.sh, loop/prompts/*.md, loop/templates/*.md, loop/templates/check/*.sh, and loop/templates/ci/*.yml"
+  # The example is the kit's file and is refreshed every install, unlike the .loop.toml written
+  # from it, which is the project's own and is written once (LK-19).
+  cp "$KIT/loop.toml.example" "$target/loop.toml.example"
+  echo "installed: scripts/{$(cd "$KIT/scripts" && ls *.sh | sed 's/\.sh$//' | tr '\n' ',' | sed 's/,$//')}.sh, loop/prompts/*.md, loop/templates/*.md, loop/templates/check/*.sh, loop/templates/ci/*.yml, and loop.toml.example"
   if [ -e "$target/AGENTS.md" ]; then
     echo "kept: AGENTS.md (already present; compare its loop section with the kit's when you update)"
   else
@@ -159,6 +167,7 @@ self_test() {
   echo "$out" | grep -q '^installed: .github/workflows/loop.yml' || { echo "self-test: the workflow should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: ci/ruleset.json' || { echo "self-test: the ruleset should be installed:"; echo "$out"; exit 1; }
   [ -f "$dir/ci/ruleset.json" ] || { echo "self-test: ci/ruleset.json should be installed"; exit 1; }
+  [ -f "$dir/loop.toml.example" ] || { echo "self-test: loop.toml.example should be installed at the root"; exit 1; }
   echo "$out" | grep -q '^installed: .agent/commands/' || { echo "self-test: the wrappers should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .agent/skills/' || { echo "self-test: the skill pointers should be installed:"; echo "$out"; exit 1; }
   # One skill per prompt, and each one a pointer at its prompt rather than a copy of it. This is
@@ -270,13 +279,19 @@ self_test() {
   (cd "$dir" && scripts/loop-tui.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed loop-tui self-test failed"; exit 1; }
   (cd "$dir" && scripts/check-list.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed check-list self-test failed"; exit 1; }
   (cd "$dir" && scripts/ruleset-check.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed ruleset-check self-test failed"; exit 1; }
-  # Installing again keeps what exists.
+  # Installing again keeps what exists, and refreshes what is the kit's. The pair to prove is
+  # .loop.toml against loop.toml.example: both are edited here, and only the example comes back
+  # (LK-19).
+  printf 'drifted\n' >> "$dir/loop.toml.example"
+  printf '# mine\n' >> "$dir/.loop.toml"
   out="$("$KIT/install.sh" "$dir")"
   echo "$out" | grep -q '^kept: AGENTS.md' || { echo "self-test: a second install must keep AGENTS.md:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^kept: CLAUDE.md' || { echo "self-test: a second install must keep CLAUDE.md:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^kept: .loop.toml' || { echo "self-test: a second install must keep .loop.toml:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^kept: .github/workflows' || { echo "self-test: a second install must keep the workflow:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^kept: ci/ruleset.json' || { echo "self-test: a second install must keep the ruleset:"; echo "$out"; exit 1; }
+  cmp -s "$KIT/loop.toml.example" "$dir/loop.toml.example" || { echo "self-test: a second install must refresh loop.toml.example from the kit"; exit 1; }
+  grep -q '^# mine$' "$dir/.loop.toml" || { echo "self-test: a second install must keep the project's own .loop.toml"; exit 1; }
   echo "install self-test passed"
 }
 

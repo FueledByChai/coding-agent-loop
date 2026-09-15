@@ -34,7 +34,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `templates/check/*.sh` | check skeletons per stack (Rust, Python, Node, Java, Go, other) that pass on an empty repository |
 | `templates/ci/*.yml` | the CI toolchain steps per stack that grill-project splices into the workflow |
 | `AGENTS.md` | the standing instructions: the loop section, then an empty Project rules |
-| `loop.toml.example` | a `.loop.toml` to copy and fill in |
+| `loop.toml.example` | the settings documentation: `install.sh` writes `.loop.toml` from it once, and `loop-kit-sync.sh` keeps the example itself current in the project (LK-19) |
 | `ci/workflow.yml` | the workflow a project installs: one job per check command |
 | `ci/ruleset.json` | the branch ruleset that pairs with it, requiring the job that workflow reports |
 | `.github/workflows/ci.yml`, `.github/ruleset.json` | this repository's own pair, requiring `Check (check.sh)` and `Agent review` |
@@ -161,15 +161,19 @@ git clone https://github.com/FueledByChai/coding-agent-loop /tmp/loop-kit
 /tmp/loop-kit/install.sh /path/to/your/checkout [--commands <dir>] [--skills <dir>]
 ```
 
-`install.sh` copies the scripts into `scripts/`, the prompts into `loop/prompts/`, writes
-`AGENTS.md` and `.loop.toml` when they do not exist (it never overwrites either), puts the
-workflow skeleton at `.github/workflows/loop.yml` and the ruleset that pairs with it at
-`ci/ruleset.json` when neither is there, and, with `--commands <dir>`, writes the four wrappers
-into the harness's command directory. With `--skills <dir>` it writes one `SKILL.md` per prompt
+`install.sh` copies the scripts into `scripts/`, the prompts into `loop/prompts/`, and
+`loop.toml.example` to the root, writes `AGENTS.md` and `.loop.toml` when they do not exist (it
+never overwrites either), puts the workflow skeleton at `.github/workflows/loop.yml` and the
+ruleset that pairs with it at `ci/ruleset.json` when neither is there, and, with
+`--commands <dir>`, writes the four wrappers into the harness's command directory. With
+`--skills <dir>` it writes one `SKILL.md` per prompt
 into the harness's skill directory, each in its own folder. A skill is the same pointer a wrapper
 is — frontmatter, then the sentence naming `loop/prompts/<name>.md` — so a prompt edit leaves no
 skill behind to go stale, and the install refuses a skill whose body restates its prompt rather
-than copying it (LK-18). `CLAUDE.md` is written as the one line `@AGENTS.md` when absent: Codex
+than copying it (LK-18). The example is the one file that sits beside a copy of itself: `.loop.toml`
+is written from it once and is the project's own, while the example is the kit's and is refreshed by
+every install and by `loop-kit-sync.sh`, so what a project reads to learn what a setting means does
+not go stale (LK-19). `CLAUDE.md` is written as the one line `@AGENTS.md` when absent: Codex
 reads `AGENTS.md` on its own, Claude Code reads `CLAUDE.md`, and both then follow the same file.
 Then it prints what the project still has to supply:
 
@@ -203,8 +207,10 @@ with the default branch" requirement plus auto-merge gives the same one-at-a-tim
 Set `kit` in the project's `.loop.toml` to this repository's URL and `kit_ref` to a tag.
 `scripts/loop-kit-sync.sh --check` fails when any copied file differs from that tag, and
 `scripts/loop-kit-sync.sh` copies the tag's files in. Run the check from the project's check
-script so drift shows up as a failing build. A project that carries the kit's source inside
-its own tree names that directory instead of a URL.
+script so drift shows up as a failing build. `loop.toml.example` is one of the files it keeps in
+step — not `.loop.toml`, which is the project's own, but the example beside it, so the settings
+documentation a project reads is the current one (LK-19). A project that carries the kit's source
+inside its own tree names that directory instead of a URL.
 
 ## Running an agent
 

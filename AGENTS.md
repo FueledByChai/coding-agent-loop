@@ -96,7 +96,10 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
   rule and drift from its prompt (LK-18).
 - `check.sh` sits at the repository root on purpose, so `install.sh` never copies it over a
   project's own `scripts/check.sh`. `install.sh` copies everything else and never overwrites a
-  project's `AGENTS.md`, `CLAUDE.md`, `.loop.toml`, or workflow.
+  project's `AGENTS.md`, `CLAUDE.md`, `.loop.toml`, or workflow. `loop.toml.example` is the one
+  file that sits beside a copy of itself: it is copied to the root and refreshed, while the
+  `.loop.toml` written from it is kept, so the settings documentation a project reads stays
+  current; `scripts/loop-kit-sync.sh` carries it for the same reason (LK-19).
 - `ci/` holds what a project applies: the workflow skeleton and the `ruleset.json` that pairs
   with it, whose required context is the job that skeleton reports (`Check (scripts/check.sh)`).
   `.github/` holds this repository's own pair — `.github/workflows/ci.yml` and

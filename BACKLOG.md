@@ -122,7 +122,7 @@ same stdout, both in this checkout and in a copy with `.loop.toml` removed, and 
 `scripts/sprint.sh --self-test` is unchanged and still writes nothing to stderr; and `./check.sh`'s
 output is byte-identical between the two checkouts.
 
-### LK-19 `loop.toml.example` reaches a project once and is never synced again — `doing`
+### LK-19 `loop.toml.example` reaches a project once and is never synced again
 `install.sh` copies `loop.toml.example` into a project's `.loop.toml` at install time and never
 overwrites it afterwards, which is right — that file is the project's own. But `loop-kit-sync.sh`
 copies only `scripts/*.sh`, `prompts/*.md`, `templates/*.md`, `templates/check/*.sh` and
@@ -180,6 +180,26 @@ to no app and no workflow can report it.
 `review_context` (from `.loop.toml`) beside the job contexts, and still fails a context that is
 neither a job name nor that context, proved by a self-test for each direction; and `./check.sh`
 stays green with `.github/ruleset.json` unchanged.
+
+### LK-29 `loop-kit-sync.sh`'s header lists fewer files than it copies, and nothing compares them
+`scripts/loop-kit-sync.sh` opens with what a sync touches: "copy the kit's `scripts/*.sh` into
+`scripts/`, its `prompts/*.md` into `loop/prompts/`, its `templates/*.md` into `loop/templates/`,
+and its `loop.toml.example` to the root, and say what changed". `pairs()` copies five groups: those
+three, plus `templates/check/*.sh` into `loop/templates/check/` and `templates/ci/*.yml` into
+`loop/templates/ci/`. The header has been short by two groups since it was written and nothing
+compares it with the function, while `install.sh`'s header and its `installed:` line name all five —
+so the two files that describe the same copy disagree, and the one a reader opens first is the
+wrong one. `loop-kit-sync.sh` is the file a project reads to learn what a sync will change, and it
+under-reports. LK-19 edited this header and left the omission in place rather than widening its own
+diff, which is how it was found.
+
+It is the LK-14/LK-16/LK-28 shape again — one fact written down twice with nothing keeping the two
+in step — but the pair here is a comment and the function under it, so a comparison of two lists in
+two files is not the fix: either the header states the rule without enumerating, or the list is
+printed from `pairs()` rather than written by hand.
+**Done when:** the header and `pairs()` cannot disagree — either the header names no group and says
+where the list lives, or a check fails naming a group `pairs()` copies that the header omits — and
+the route taken is proved by a self-test that drops a group from the header and sees the check fail.
 
 ## The prompts
 

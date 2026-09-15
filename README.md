@@ -39,6 +39,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `ci/ruleset.json` | the branch ruleset that pairs with it, requiring the job that workflow reports |
 | `.github/workflows/ci.yml`, `.github/ruleset.json` | this repository's own pair, requiring `Check (check.sh)` and `Agent review` |
 | `commands/*.md` | two-line wrappers for a harness with slash commands |
+| `skills/*/SKILL.md` | the same pointer with the frontmatter a harness needs to load it, one per prompt; `--skills <dir>` installs them and refuses one that restates its prompt |
 | `install.sh` | copies all of the above into a checkout and says what is still missing |
 | `check.sh` | the kit's own check: every self-test, then an install into a fresh repository |
 
@@ -157,16 +158,20 @@ CI for want of a toolchain. After that, `/next-ticket` works.
 
 ```bash
 git clone https://github.com/FueledByChai/coding-agent-loop /tmp/loop-kit
-/tmp/loop-kit/install.sh /path/to/your/checkout [--commands <dir>]
+/tmp/loop-kit/install.sh /path/to/your/checkout [--commands <dir>] [--skills <dir>]
 ```
 
 `install.sh` copies the scripts into `scripts/`, the prompts into `loop/prompts/`, writes
 `AGENTS.md` and `.loop.toml` when they do not exist (it never overwrites either), puts the
 workflow skeleton at `.github/workflows/loop.yml` and the ruleset that pairs with it at
-`ci/ruleset.json` when neither is there, and, with
-`--commands <dir>`, writes the four wrappers into the harness's command directory. `CLAUDE.md` is written as the one line `@AGENTS.md` when absent: Codex reads
-`AGENTS.md` on its own, Claude Code reads `CLAUDE.md`, and both then follow the same file. Then it
-prints what the project still has to supply:
+`ci/ruleset.json` when neither is there, and, with `--commands <dir>`, writes the four wrappers
+into the harness's command directory. With `--skills <dir>` it writes one `SKILL.md` per prompt
+into the harness's skill directory, each in its own folder. A skill is the same pointer a wrapper
+is — frontmatter, then the sentence naming `loop/prompts/<name>.md` — so a prompt edit leaves no
+skill behind to go stale, and the install refuses a skill whose body restates its prompt rather
+than copying it (LK-18). `CLAUDE.md` is written as the one line `@AGENTS.md` when absent: Codex
+reads `AGENTS.md` on its own, Claude Code reads `CLAUDE.md`, and both then follow the same file.
+Then it prints what the project still has to supply:
 
 1. `scripts/check.sh`: the definition of done, exit non-zero on anything not shippable. The
    kit does not know how to build or test your code. Have it run the loop self-tests too.
@@ -204,8 +209,9 @@ its own tree names that directory instead of a URL.
 ## Running an agent
 
 Point the agent at `AGENTS.md` and at `loop/prompts/next-ticket.md`; a harness with slash
-commands gets the wrappers from `commands/`. The prompt claims a ticket, works it in a
-worktree, runs the fast and full checks, commits with the ticket id and (when
+commands gets the wrappers from `commands/`, and one that loads skills gets a `SKILL.md` pointer
+per prompt from `skills/` (`install.sh --skills <dir>`). The prompt claims a ticket, works it in
+a worktree, runs the fast and full checks, commits with the ticket id and (when
 `trailer_required` is on) a `Co-Authored-By` trailer naming the agent and model, and opens the
 PR. `loop/prompts/grill-me.md` is the other prompt: it interrogates a loose idea and drafts
 stories, acceptance criteria, and tickets for the owner to confirm.

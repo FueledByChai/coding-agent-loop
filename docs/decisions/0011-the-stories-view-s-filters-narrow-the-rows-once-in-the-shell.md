@@ -48,6 +48,11 @@ states (`e epic: any`, `d unticketed: shown`). A narrowed table is never a silen
 - **Make `e` a prompt for an epic's name.** It reuses the `a` machinery, but it asks a reader to
   type a string the frame has just shown them, and it cannot be driven by a single key in
   `--keys`, which is how the whole program is proved.
+- **Clear both settings when the view is left.** One line in `switch_view`, and it makes "back to
+  the unfiltered table" true. LK-20's review raised it and the verdict answered it: the settings are
+  the view's, not the frame's. The marker is reset because it indexes rows a refetch can change and
+  the settings are not, and the keybar names both, so a reader who returns is told what they are set
+  to rather than losing their place in the table. Rejected, and the record is what changed instead.
 - **Recompute the summary from the drawn rows.** The summary is derived by
   `scripts/backlog-status.sh` from the product backlog; recomputing it in the TUI would be a second
   derivation of the same figures, and a third place they could disagree.
@@ -58,13 +63,26 @@ states (`e epic: any`, `d unticketed: shown`). A narrowed table is never a silen
 keypress in that view calls `--stories` twice — once for the marker and once for the frame. It did
 before this change too; the count is unchanged.
 
-The stories view is now the only one with state that is not about a keypress: `EPIC` and
-`HIDE_UNTICKETED` live beside `SEL` and `MSG` and are cleared by nothing but the keys. A view
-switched away from and back returns to the unfiltered table, which is deliberate — the settings
-belong to the view, and `switch_view` already resets the marker.
+The two filter values reach `awk` through the environment and are read with `ENVIRON[...]`, not
+through `-v`: a `-v` assignment escape-processes its value, so an epic whose heading holds a
+backslash would arrive at the predicate as a name plus a tab, match no row, and empty the table
+while the keybar still claimed a filter was on. `-v` is the tidier-looking form, which is why the
+fixture holds such an epic and the self-test asserts its rows.
 
-The keybar is now wider than the frame at 40 columns and is cut there, as every other keybar
-already was. The epic segment gives way first, so `r` and `q` stay on the bar at every width.
+The stories view is now the only one with state that is not about a keypress: `EPIC` and
+`HIDE_UNTICKETED` live beside `SEL` and `MSG` and are cleared by nothing but the keys. `switch_view`
+resets the marker and leaves both, so a view switched away from and back is narrowed as it was
+left. That is deliberate — the settings belong to the view, the marker indexes rows a refetch can
+change while the settings cannot, and the keybar names both, so the reader who comes back is told
+rather than surprised. (LK-20's review caught this paragraph saying the opposite one sentence after
+saying the settings are cleared by nothing but the keys.)
+
+The keybar carries more than a 40-column frame — the floor `frame_width()` enforces — can hold, so
+it gives way in a fixed order rather than being cut. The labels shorten first (`e epic: any` to
+`e: any`, `d unticketed: shown` to `d: shown`), then the key words go (`r refresh   q quit` to
+`r   q`), and the epic's name is cut last, because it is the only part of the bar that is still
+read as a name when it is shortened, and the epics a view holds can share a prefix. `r` and `q`
+are on the bar at every width, and no setting is ever stated as a label with no value.
 
 ## What would show this was wrong
 

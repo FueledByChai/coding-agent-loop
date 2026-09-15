@@ -342,17 +342,32 @@ if ($mode eq "stories") {
   push @out, $tail->();
   push @out, $rule;
   # The keybar names what each of the two view settings is set to, so a narrowed table is never a
-  # silent one (LK-20). The epic gives way first: it is cut to whatever room the line has left
-  # once the other keys are placed, so `r` and `q` stay on the bar at every width.
-  my $hide_seg = $hide_unticketed ? "d unticketed: hidden" : "d unticketed: shown";
-  my $tail_seg = "   $hide_seg   r refresh   q quit";
-  my $epic_seg = "e epic: any";
-  if ($epic ne "") {
-    my $room = $width - length(" $tail_seg") - length("e epic: ");
-    $room = 0 if $room < 0;
-    $epic_seg = "e epic: " . $cut->($epic, $room);
+  # silent one (LK-20) - at every width the frame allows, 40 columns being the floor `frame_width`
+  # enforces. The bar is wider than that floor, so it gives way in a fixed order rather than being
+  # cut. The labels shorten first (`e epic: any` to `e: any`, `d unticketed: shown` to `d: shown`),
+  # then the key words go (`r refresh   q quit` to `r   q`), and the epic name is cut last: it is
+  # the only part of the bar still read as a name when shortened, and the label beside it has
+  # already given up its room. No setting is ever stated as a label with no value, and `r` and `q`
+  # are on the bar at every width - the LK-20 review measured the first version cutting `q quit`
+  # off and leaving `e epic:` with nothing after it.
+  my $hide_long = $hide_unticketed ? "d unticketed: hidden" : "d unticketed: shown";
+  my $hide_short = $hide_unticketed ? "d: hidden" : "d: shown";
+  my $value = $epic eq "" ? "any" : $epic;
+  # A value needs room to be a name at all. Below this the key words give up their room instead,
+  # which is why the floor states the epic rather than a stub of it.
+  my $name_room = 8;
+  my $bar;
+  for my $tier ([" e epic: ", "   $hide_long",  "   r refresh   q quit"],
+                [" e: ",      "   $hide_short", "   r refresh   q quit"],
+                [" e: ",      "   $hide_short", "   r   q"]) {
+    my $bar_room = $width - length($tier->[0]) - length($tier->[1]) - length($tier->[2]);
+    next if $bar_room < $name_room && $bar_room < length($value);
+    $bar = $tier->[0] . $cut->($value, $bar_room) . $tier->[1] . $tier->[2];
+    last;
   }
-  push @out, " $epic_seg$tail_seg";
+  # A width below the floor is only reachable by asking for one, and is cut by $emit anyway.
+  $bar = " e: " . $cut->($value, 1) . "   $hide_short   r   q" if !defined $bar;
+  push @out, $bar;
   $emit->(@out);
   exit 0;
 }
@@ -821,7 +836,10 @@ EOF
     # The epic is long on purpose: it is what a 78-column stories frame has to shorten and a
     # 200-column one has to print whole. The second epic is what makes the stories view's epic
     # filter (LK-20) narrow something: with one epic the filter would be indistinguishable from
-    # no filter, and BB-2 is the unticketed story the `d` toggle hides.
+    # no filter, and BB-2 is the unticketed story the `d` toggle hides. The third holds a
+    # backslash, which is the value a filter handed to awk through `-v` cannot carry: `-v`
+    # escape-processes its value, so this epic arrives at the predicate as a name plus a tab,
+    # matches no row, and empties the table (LK-20's review). The filter has to match it.
     cat > PRODUCT.md <<'EOF'
 # Fixture product backlog
 
@@ -842,6 +860,12 @@ EOF
 ## Epic G: Export and restore
 
 ### BB-4 — A story in the second epic
+
+**Status:** Proposed
+
+## Epic H: Import from a Windows share (C:\temp)
+
+### BB-5 — A story under an epic whose name holds a backslash
 
 **Status:** Proposed
 EOF
@@ -903,8 +927,8 @@ EOF
     || { echo "self-test: the claim command is off:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^ LEFT  1 ready  1 claimed  2 blocked   outside the sprint: 0 open tickets$' \
     || { echo "self-test: the LEFT counts are off:"; echo "$out"; exit 1; }
-  # Every story, not the ticketed ones: four stories, two of which nothing serves.
-  echo "$out" | grep -q '^ STORIES  4 - 1 done - 1 open - 2 unticketed$' \
+  # Every story, not the ticketed ones: five stories, three of which nothing serves.
+  echo "$out" | grep -q '^ STORIES  5 - 1 done - 1 open - 3 unticketed$' \
     || { echo "self-test: the stories line should count every story:"; echo "$out"; exit 1; }
 
   # 2. Every line fits the width; a narrower frame drops the blocked column. The width is
@@ -952,13 +976,13 @@ TICKET LOOP  work   5 in sprint: 1 done 1 ready 1 claimed
        -> scripts/open-ticket-pr.sh AA-04 --claim
 ------------------------------------------------------------
  LEFT  1 ready  1 claimed  2 blocked   outside: 0 open
- STORIES  4 - 1 done - 1 open - 2 unticketed
+ STORIES  5 - 1 done - 1 open - 3 unticketed
 ------------------------------------------------------------
  ? help   <sp> show   a add   x remove   r refresh   q quit
 G60
 )"
   golden78="$(cat <<'G78'
-TICKET LOOP  work  main@0d4bdb8   5 in sprint: 1 done 1 ready 1 claimed
+TICKET LOOP  work  main@e048b11   5 in sprint: 1 done 1 ready 1 claimed
 ------------------------------------------------------------------------------
  SPRINT
    # id     state    ready blocked          title
@@ -972,13 +996,13 @@ TICKET LOOP  work  main@0d4bdb8   5 in sprint: 1 done 1 ready 1 claimed
        -> scripts/open-ticket-pr.sh AA-04 --claim
 ------------------------------------------------------------------------------
  LEFT  1 ready  1 claimed  2 blocked   outside the sprint: 0 open tickets
- STORIES  4 - 1 done - 1 open - 2 unticketed
+ STORIES  5 - 1 done - 1 open - 3 unticketed
 ------------------------------------------------------------------------------
  ? help   <sp> show   a add   x remove   r refresh   q quit
 G78
 )"
   golden200="$(cat <<'G200'
-TICKET LOOP  work  main@0d4bdb8   5 in sprint: 1 done 1 ready 1 claimed
+TICKET LOOP  work  main@e048b11   5 in sprint: 1 done 1 ready 1 claimed
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  SPRINT
    # id     state    ready blocked          title
@@ -992,7 +1016,7 @@ TICKET LOOP  work  main@0d4bdb8   5 in sprint: 1 done 1 ready 1 claimed
        -> scripts/open-ticket-pr.sh AA-04 --claim
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  LEFT  1 ready  1 claimed  2 blocked   outside the sprint: 0 open tickets
- STORIES  4 - 1 done - 1 open - 2 unticketed
+ STORIES  5 - 1 done - 1 open - 3 unticketed
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  ? help   <sp> show   a add   x remove   r refresh   q quit
 G200
@@ -1036,9 +1060,9 @@ G200
 
   # 7. The stories view: every story, its derived status, its ticket count, and the epic it sits
   #    under - shown whole when the frame can hold it and shortened when it cannot. The fixture's
-  #    stories sit under two epics, so the epic column is a filter with something to narrow.
+  #    stories sit under three epics, so the epic column is a filter with something to narrow.
   out="$(cd "$work" && LOOP_ROOT="$work" "$me" stories --width 78 2>&1)"
-  echo "$out" | grep -q '^STORIES  4 - 1 done - 1 open - 2 unticketed$' \
+  echo "$out" | grep -q '^STORIES  5 - 1 done - 1 open - 3 unticketed$' \
     || { echo "self-test: the stories view should lead with every story counted:"; echo "$out"; exit 1; }
   echo "$out" | grep -qE '^ BB-1 +open 0/1 +1 +' || { echo "self-test: an open k/n story should show its status and its ticket count:"; echo "$out"; exit 1; }
   echo "$out" | grep -qE '^ BB-3 +done +1 +' || { echo "self-test: a story whose tickets landed should read done:"; echo "$out"; exit 1; }
@@ -1150,13 +1174,14 @@ EOF
 
   local golden_stories golden_open golden_show golden_show_story
   golden_stories="$(cat <<'GS'
-STORIES  4 - 1 done - 1 open - 2 unticketed
+STORIES  5 - 1 done - 1 open - 3 unticketed
 ------------------------------------------------------------------------------
  id       status      t  epic                             title
  BB-1     open 0/1    1  Epic F: Data inventory, coverag… A story a ticket se…
  BB-2     unticketed  -  Epic F: Data inventory, coverag… A story nothing ser…
  BB-3     done        1  Epic F: Data inventory, coverag… A story whose ticke…
  BB-4     unticketed  -  Epic G: Export and restore       A story in the seco…
+ BB-5     unticketed  -  Epic H: Import from a Windows s… A story under an ep…
 ------------------------------------------------------------------------------
  e epic: any   d unticketed: shown   r refresh   q quit
 GS
@@ -1232,7 +1257,9 @@ GY
   git -C "$write" add -A
   GIT_AUTHOR_DATE="2026-01-02T03:04:05+00:00" GIT_COMMITTER_DATE="2026-01-02T03:04:05+00:00" \
     git -C "$write" commit -q -m "Sprint without AA-01 and AA-04"
-  key_frame() { (cd "$write" && LOOP_ROOT="$write" "$me" --keys "$1" --width 78 2>&1) }
+  # The width is the second argument, defaulting to the 78 the golden frames use, so a frame can
+  # also be driven at the 40-column floor the width self-test only proves fits.
+  key_frame() { (cd "$write" && LOOP_ROOT="$write" "$me" --keys "$1" --width "${2:-78}" 2>&1) }
   local kout write_head
   write_head="$(git -C "$write" rev-parse HEAD)"
 
@@ -1314,23 +1341,37 @@ GY
   echo "$kout" | grep -q 'e epic: Epic F: Data inventory, c…' \
     || { echo "self-test: the keybar should name the epic the table is narrowed to:"; echo "$kout"; exit 1; }
 
-  # The next press is the other epic, and the one after comes back to every story.
+  # The next press is the second epic, the one after is the epic whose name holds a backslash, and
+  # the one after that comes back to every story. The backslash is the case the review found: a
+  # value handed to awk through -v is escape-processed, so this epic arrives at the predicate as a
+  # name plus a tab, matches no row, and empties the table while the keybar claims a filter is on.
+  # These rows are what proves the value goes through the environment instead.
   kout="$(key_frame 'see')"
   echo "$kout" | grep -q '^>BB-4' \
     || { echo "self-test: e again should walk to the second epic:"; echo "$kout"; exit 1; }
   echo "$kout" | grep -q 'e epic: Epic G: Export and restore' \
     || { echo "self-test: the keybar should name the second epic:"; echo "$kout"; exit 1; }
   kout="$(key_frame 'seee')"
+  echo "$kout" | grep -q '^>BB-5' \
+    || { echo "self-test: e should walk to an epic whose name holds a backslash:"; echo "$kout"; exit 1; }
+  echo "$kout" | grep -q '^ BB-4' \
+    && { echo "self-test: the third epic should drop the other epics' rows:"; echo "$kout"; exit 1; }
+  echo "$kout" | grep -q 'e epic: Epic H: Import from a Win…' \
+    || { echo "self-test: the keybar should name the backslash epic in full as far as it fits:"; echo "$kout"; exit 1; }
+  kout="$(key_frame 'seeee')"
   echo "$kout" | grep -q '^ BB-4' \
     || { echo "self-test: e should come back to every story:"; echo "$kout"; exit 1; }
   echo "$kout" | grep -q 'e epic: any' \
     || { echo "self-test: the keybar should read any once the filter is off:"; echo "$kout"; exit 1; }
 
   # d drops the stories nothing serves, says so, and the marker walks what is left: with BB-2
-  # hidden the second row is BB-3, not BB-2.
+  # hidden the second row is BB-3, not BB-2. It drops BB-5 too, the unticketed story under the
+  # backslash epic, so the toggle is not passing by hiding one row it happens to know.
   kout="$(key_frame 'sd')"
   echo "$kout" | grep -q '^ BB-2' \
     && { echo "self-test: d should hide the unticketed stories:"; echo "$kout"; exit 1; }
+  echo "$kout" | grep -q '^ BB-5' \
+    && { echo "self-test: d should hide every unticketed story, not just the first:"; echo "$kout"; exit 1; }
   echo "$kout" | grep -qE '^[ >]BB-1' \
     || { echo "self-test: d should keep the ticketed stories:"; echo "$kout"; exit 1; }
   echo "$kout" | grep -q 'd unticketed: hidden' \
@@ -1352,6 +1393,36 @@ GY
     && { echo "self-test: the hide should still hold with an epic chosen:"; echo "$kout"; exit 1; }
   echo "$kout" | grep -q 'e epic: Epic F: Data inventory, …   d unticketed: hidden' \
     || { echo "self-test: the keybar should carry both settings:"; echo "$kout"; exit 1; }
+
+  # The bar names both settings at every width the frame allows, 40 columns being the floor
+  # frame_width() enforces, and `r` and `q` stay on it. The review measured the first version at
+  # the floor printing ` e epic:    d unticketed: shown   r ref…` - the epic named nowhere and
+  # `q quit` off the bar. key_frame() defaults to 78, which is why the check could not catch that,
+  # so these three are driven at 40. At the floor the labels and then the key words give way, and
+  # the epic is cut last: `e: any` for no filter, the name itself when one is on.
+  kout="$(key_frame 's' 40)"
+  echo "$kout" | grep -qxF ' e: any   d: shown   r refresh   q quit' \
+    || { echo "self-test: the 40-column keybar should name both settings and keep r and q:"; echo "$kout"; exit 1; }
+  kout="$(key_frame 'se' 40)"
+  echo "$kout" | grep -qxF ' e: Epic F: Data inv…   d: shown   r   q' \
+    || { echo "self-test: the 40-column keybar should still name the epic it is narrowed to:"; echo "$kout"; exit 1; }
+  kout="$(key_frame 'sed' 40)"
+  echo "$kout" | grep -qxF ' e: Epic F: Data in…   d: hidden   r   q' \
+    || { echo "self-test: the 40-column keybar should carry both settings:"; echo "$kout"; exit 1; }
+
+  # Leaving the view and coming back keeps both settings. Decision 0011 says they belong to the
+  # view and are cleared by nothing but the keys, and switch_view() resets only the marker - so a
+  # round trip is narrowed as it was left, not silently widened.
+  kout="$(key_frame 'sess')"
+  echo "$kout" | grep -q 'e epic: Epic F: Data inventory, c…' \
+    || { echo "self-test: leaving the stories view should not clear the epic filter:"; echo "$kout"; exit 1; }
+  echo "$kout" | grep -q '^ BB-4' \
+    && { echo "self-test: the filter should still narrow the table after a round trip:"; echo "$kout"; exit 1; }
+  kout="$(key_frame 'sdss')"
+  echo "$kout" | grep -q 'd unticketed: hidden' \
+    || { echo "self-test: leaving the stories view should not clear the unticketed toggle:"; echo "$kout"; exit 1; }
+  echo "$kout" | grep -q '^ BB-2' \
+    && { echo "self-test: the hide should still hold after a round trip:"; echo "$kout"; exit 1; }
 
   # Neither key is a write, and neither is read outside the stories view: on the dashboard each
   # says what it does rather than narrowing a table that has no epic column.
@@ -1419,10 +1490,15 @@ load_stories() {
     return 1
   fi
   STORIES_EPICS="$(printf '%s\n' "$raw" | awk -F'\t' 'NF >= 5 && $4 != "" && !seen[$4]++ { print $4 }')"
-  STORIES_TEXT="$(printf '%s\n' "$raw" | awk -F'\t' -v epic="$EPIC" -v hide="$HIDE_UNTICKETED" '
+  # The two filter values go through the environment, not through awk's -v: a -v assignment
+  # escape-processes its value, so an epic holding a backslash (`Epic G: ... (C:\temp)`) would
+  # arrive as `... (C:` plus a TAB, match no row, and empty the table while the keybar still
+  # claimed a filter was on (LK-20's review).
+  STORIES_TEXT="$(printf '%s\n' "$raw" | EPIC_FILTER="$EPIC" HIDE_UNTICKETED="$HIDE_UNTICKETED" \
+    awk -F'\t' '
     /^stories: / { print; next }
-    NF >= 5 { if (epic != "" && $4 != epic) next
-              if (hide == 1 && $2 == "unticketed") next
+    NF >= 5 { if (ENVIRON["EPIC_FILTER"] != "" && $4 != ENVIRON["EPIC_FILTER"]) next
+              if (ENVIRON["HIDE_UNTICKETED"] == "1" && $2 == "unticketed") next
               print }')"
   return 0
 }
@@ -1478,6 +1554,10 @@ switch_view() { # <view>
     help)    if [ "$VIEW" = help ]; then VIEW=dashboard; else VIEW=help; fi ;;
     *)       VIEW="$1" ;;
   esac
+  # Only the marker. The stories view's two settings (LK-20) survive a view switched away from and
+  # back, which is what decision 0011 says they do: the marker indexes rows a refetch can change,
+  # while EPIC and HIDE_UNTICKETED are the view's own and the keybar names them both, so a reader
+  # who comes back is told what they are set to rather than surprised by a table.
   SEL=1
 }
 

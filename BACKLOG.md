@@ -221,6 +221,27 @@ widen its own diff, the way LK-19 left LK-29's.
 under-reports nothing the handler reads, and `scripts/loop-tui.sh --self-test` asserts it by named
 line with the stories golden frame regenerated.
 
+### LK-31 The other three keybars are cut at narrow widths, and `q` is off them at the 40-column floor
+LK-20 made the stories view's keybar give way in a fixed order — the labels shorten first, then the
+key words, and the epic's name is cut last — so it states both settings and keeps `r` and `q` at
+every width `frame_width()` allows. The other three bars are cut by `$emit` like any other line.
+Measured on the LK-20 repair: the dashboard's reads ` ? help   <sp> show   a add   x remove …` at 40
+columns, with `r refresh` and `q quit` both off it, ` ? help   <sp> show   a add   x remove   r …` at
+44 with `q quit` still off, and ` ? help   <sp> show   a add   x remove   r refres…` at 50. The open
+view's ` o sprint   s stories   r refresh   q quit` and the show view's
+` ? help   o open   s stories   r refresh   q quit` have the same shape at the same widths.
+
+So at the minimum supported width the frame does not name the key that quits the program, and the
+only bar that adapts is the one LK-20 happened to touch. The self-test's width loop asserts only
+that a line *fits*, never what it says, so nothing catches it: LK-20 added three key-driven
+assertions at 40 for its own bar and the other three have none. LK-30 asks the stories bar to name
+`? help` and a way out; this asks the other three to keep their keys. Both edit the same four lines,
+so whichever lands second rebases onto the first.
+**Done when:** each of the four keybars keeps its keys on the bar at every width `frame_width()`
+allows, with the words giving way before the keys the way the stories bar now does, and
+`scripts/loop-tui.sh --self-test` drives each one at 40 by named line with the affected goldens
+regenerated.
+
 ## The prompts
 
 ### LK-12 grill-me grounds itself in the repository it is run in

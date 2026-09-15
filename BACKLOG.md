@@ -577,7 +577,7 @@ comment LK-21 exists to correct.
 (not the template a project applies, and not "yet"), and `./check.sh` passes with nothing else in
 `.loop.toml` changed.
 
-### LK-23 The check takes about eight minutes here and about one on CI, and nothing explains the gap
+### LK-23 The check takes about eight minutes here and about one on CI, and nothing explains the gap — `doing`
 Measured while working LK-16, with LK-11 long landed: the fourteen self-tests take 150s (50s of
 that `scripts/loop-tui.sh` alone), `./install.sh --self-test` takes 282s, and `time ./check.sh`
 reports 8m18s in total - against the 57-64s the `Check (check.sh)` job takes on CI for the same

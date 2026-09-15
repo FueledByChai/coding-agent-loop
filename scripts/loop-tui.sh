@@ -840,6 +840,12 @@ EOF
     # backslash, which is the value a filter handed to awk through `-v` cannot carry: `-v`
     # escape-processes its value, so this epic arrives at the predicate as a name plus a tab,
     # matches no row, and empties the table (LK-20's review). The filter has to match it.
+    #
+    # It sits in the middle rather than last because that is where the `e` walk has somewhere to
+    # go: the walk hands its value over the same way, and with the backslash epic last its
+    # not-found arm lands on unfiltered - which is the answer the cycle owes from the last epic
+    # anyway, so no assertion could tell the two apart (LK-20's second review). Between two
+    # others, the press after it has to name the epic that follows.
     cat > PRODUCT.md <<'EOF'
 # Fixture product backlog
 
@@ -857,15 +863,15 @@ EOF
 
 **Status:** Complete
 
-## Epic G: Export and restore
-
-### BB-4 — A story in the second epic
-
-**Status:** Proposed
-
 ## Epic H: Import from a Windows share (C:\temp)
 
 ### BB-5 — A story under an epic whose name holds a backslash
+
+**Status:** Proposed
+
+## Epic G: Export and restore
+
+### BB-4 — A story in the second epic
 
 **Status:** Proposed
 EOF
@@ -982,7 +988,7 @@ TICKET LOOP  work   5 in sprint: 1 done 1 ready 1 claimed
 G60
 )"
   golden78="$(cat <<'G78'
-TICKET LOOP  work  main@e048b11   5 in sprint: 1 done 1 ready 1 claimed
+TICKET LOOP  work  main@a62f624   5 in sprint: 1 done 1 ready 1 claimed
 ------------------------------------------------------------------------------
  SPRINT
    # id     state    ready blocked          title
@@ -1002,7 +1008,7 @@ TICKET LOOP  work  main@e048b11   5 in sprint: 1 done 1 ready 1 claimed
 G78
 )"
   golden200="$(cat <<'G200'
-TICKET LOOP  work  main@e048b11   5 in sprint: 1 done 1 ready 1 claimed
+TICKET LOOP  work  main@a62f624   5 in sprint: 1 done 1 ready 1 claimed
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  SPRINT
    # id     state    ready blocked          title
@@ -1180,8 +1186,8 @@ STORIES  5 - 1 done - 1 open - 3 unticketed
  BB-1     open 0/1    1  Epic F: Data inventory, coverag… A story a ticket se…
  BB-2     unticketed  -  Epic F: Data inventory, coverag… A story nothing ser…
  BB-3     done        1  Epic F: Data inventory, coverag… A story whose ticke…
- BB-4     unticketed  -  Epic G: Export and restore       A story in the seco…
  BB-5     unticketed  -  Epic H: Import from a Windows s… A story under an ep…
+ BB-4     unticketed  -  Epic G: Export and restore       A story in the seco…
 ------------------------------------------------------------------------------
  e epic: any   d unticketed: shown   r refresh   q quit
 GS
@@ -1341,23 +1347,29 @@ GY
   echo "$kout" | grep -q 'e epic: Epic F: Data inventory, c…' \
     || { echo "self-test: the keybar should name the epic the table is narrowed to:"; echo "$kout"; exit 1; }
 
-  # The next press is the second epic, the one after is the epic whose name holds a backslash, and
-  # the one after that comes back to every story. The backslash is the case the review found: a
-  # value handed to awk through -v is escape-processed, so this epic arrives at the predicate as a
-  # name plus a tab, matches no row, and empties the table while the keybar claims a filter is on.
-  # These rows are what proves the value goes through the environment instead.
+  # The next press is the epic whose name holds a backslash, the one after that is the last epic,
+  # and the one after that comes back to every story. The backslash is the case both reviews found:
+  # a value handed to awk through -v is escape-processed, so this epic arrives at the predicate as
+  # a name plus a tab, matches no row, and empties the table while the keybar claims a filter is
+  # on. These rows are what proves the value goes through the environment instead - and because
+  # this epic sits between two others, the press that follows it proves the walk reads its value
+  # the same way: from the last epic the walk's not-found arm lands on unfiltered, which is the
+  # answer it owes from there anyway, so only a backslash epic with an epic after it can tell the
+  # two apart.
   kout="$(key_frame 'see')"
-  echo "$kout" | grep -q '^>BB-4' \
-    || { echo "self-test: e again should walk to the second epic:"; echo "$kout"; exit 1; }
-  echo "$kout" | grep -q 'e epic: Epic G: Export and restore' \
-    || { echo "self-test: the keybar should name the second epic:"; echo "$kout"; exit 1; }
-  kout="$(key_frame 'seee')"
   echo "$kout" | grep -q '^>BB-5' \
-    || { echo "self-test: e should walk to an epic whose name holds a backslash:"; echo "$kout"; exit 1; }
+    || { echo "self-test: e again should walk to an epic whose name holds a backslash:"; echo "$kout"; exit 1; }
   echo "$kout" | grep -q '^ BB-4' \
-    && { echo "self-test: the third epic should drop the other epics' rows:"; echo "$kout"; exit 1; }
+    && { echo "self-test: the second epic should drop the other epics' rows:"; echo "$kout"; exit 1; }
   echo "$kout" | grep -q 'e epic: Epic H: Import from a Win…' \
     || { echo "self-test: the keybar should name the backslash epic in full as far as it fits:"; echo "$kout"; exit 1; }
+  kout="$(key_frame 'seee')"
+  echo "$kout" | grep -q '^>BB-4' \
+    || { echo "self-test: e should walk on from the backslash epic to the one after it:"; echo "$kout"; exit 1; }
+  echo "$kout" | grep -q 'e epic: Epic G: Export and restore' \
+    || { echo "self-test: the keybar should name the epic the walk landed on:"; echo "$kout"; exit 1; }
+  echo "$kout" | grep -q '^ BB-5' \
+    && { echo "self-test: the last epic should drop the other epics' rows:"; echo "$kout"; exit 1; }
   kout="$(key_frame 'seeee')"
   echo "$kout" | grep -q '^ BB-4' \
     || { echo "self-test: e should come back to every story:"; echo "$kout"; exit 1; }
@@ -1575,7 +1587,13 @@ open_selected() {
 # cannot narrow the choices out from under the key that made it.
 cycle_epic() {
   load_stories || true
-  EPIC="$(printf '\n%s\n' "$STORIES_EPICS" | awk -v cur="$EPIC" '
+  # The value goes through the environment, not through awk's -v: a -v assignment escape-processes
+  # its value, so an epic whose heading holds a backslash would match no entry here, the walk would
+  # fall to its not-found arm - the empty first line, i.e. unfiltered - and the next epic would be
+  # skipped while the keybar said the filter was off (LK-20's second review). load_stories() carries
+  # the same note about its own two values.
+  EPIC="$(printf '\n%s\n' "$STORIES_EPICS" | EPIC_CUR="$EPIC" awk '
+    BEGIN { cur = ENVIRON["EPIC_CUR"] }
     { v[NR] = $0 }
     END {
       for (i = 1; i <= NR; i++) if (v[i] == cur) { print v[i % NR + 1]; exit }

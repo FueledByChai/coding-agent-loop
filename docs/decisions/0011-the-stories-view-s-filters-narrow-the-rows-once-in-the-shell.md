@@ -63,11 +63,15 @@ states (`e epic: any`, `d unticketed: shown`). A narrowed table is never a silen
 keypress in that view calls `--stories` twice — once for the marker and once for the frame. It did
 before this change too; the count is unchanged.
 
-The two filter values reach `awk` through the environment and are read with `ENVIRON[...]`, not
-through `-v`: a `-v` assignment escape-processes its value, so an epic whose heading holds a
-backslash would arrive at the predicate as a name plus a tab, match no row, and empty the table
-while the keybar still claimed a filter was on. `-v` is the tidier-looking form, which is why the
-fixture holds such an epic and the self-test asserts its rows.
+The values the filter is given reach `awk` through the environment and are read with
+`ENVIRON[...]`, not through `-v`: a `-v` assignment escape-processes its value, so an epic whose
+heading holds a backslash would arrive at the predicate as a name plus a tab, match no row, and
+empty the table while the keybar still claimed a filter was on. The walk's own comparison reads its
+value the same way, for the same reason — a `-v` there matches no epic, so the walk falls to its
+not-found arm and the epic after a backslash one is skipped while the keybar reads `any` (LK-20's
+second review). `-v` is the tidier-looking form, which is why the fixture holds such an epic with an
+epic after it — the position where the not-found arm is not also the answer the walk owes — and why
+the self-test asserts both the rows a filter narrows to and the epic the press after it names.
 
 The stories view is now the only one with state that is not about a keypress: `EPIC` and
 `HIDE_UNTICKETED` live beside `SEL` and `MSG` and are cleared by nothing but the keys. `switch_view`

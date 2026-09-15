@@ -226,6 +226,21 @@ one per prompt, its self-test asserts each is the pointer naming `loop/prompts/<
 self-test that replaces a skill's body with the prompt's fails — so a fresh install cannot
 reproduce the drift this ticket was filed from.
 
+### LK-27 grill-me requires three rounds and has no rule for an owner who ends them early
+Section 2 of `prompts/grill-me.md` requires "at least three rounds" of questions, the last one on
+proofs and edge cases, and forbids drafting a ticket with no named proof. Nothing says what to do
+when the owner is satisfied before the third round. In the recorded run in LK-17's pull request the
+owner answered round 2 with "Proceed to the write step", which leaves the agent two ways to be
+wrong: draft without the proof round the same section demands, or spend a round the owner has just
+ended. That run chose the second and said so inside the round it ran, which is the right call and
+is nowhere in the prompt - so it is the agent's judgement, and two agents will differ. The prompt
+is also the one place the round count is stated, so nothing else in the kit can settle it.
+**Done when:** the prompt states, one way only, what happens when the owner ends the rounds early -
+either that a proofs round still runs before the draft, or that the owner may end them and every
+ticket in the draft must still name a proof; `scripts/prompt-check.sh` pins the phrase that states
+it, as a new row in its table rather than prose alone; and the recorded run in LK-17's pull request
+is named in the ticket as the case the wording was written from.
+
 ## The kit as a project
 
 ### LK-05 The kit's check runs the decision-record check
@@ -500,6 +515,38 @@ report could only say so.
 **Done when:** step 6 says what actually merges the PR and names the review status its branch has to
 carry before that happens, and `scripts/prompt-check.sh` pins the phrase that states it.
 
+### LK-25 `AGENTS.md`'s Prompts bullet names a path this repository does not have
+The Prompts bullet names `loop/prompts/next-ticket.md`, `loop/prompts/grill-me.md`,
+`loop/prompts/grill-project.md` and `loop/prompts/review-prs.md`. That is the layout `install.sh`
+gives a project: it copies the kit's `prompts/` to `loop/prompts/` there, which is why
+`commands/*.md` points at that path on purpose. This repository is the kit, and `git ls-files loop`
+is empty - the files are `prompts/*.md`. The same file says so in its own inventory forty lines
+later ("`prompts/*.md` are what an agent follows"), so the bullet contradicts it, and the standing
+instructions send a reader to four paths that do not exist in the checkout they are reading. The
+run recorded in LK-17's pull request hit it and named it as "the installed-project layout" - the
+same class as LK-16, which is the check section of this file misdescribing the check.
+**Done when:** every prompt path `AGENTS.md` names exists in this checkout -
+`prompts/next-ticket.md`, `prompts/grill-me.md`, `prompts/grill-project.md` and
+`prompts/review-prs.md` - and any line that still mentions `loop/prompts/` says it is a project's
+layout rather than this repository's, so `grep -n 'loop/prompts' AGENTS.md` finds only such a line
+or nothing; and `./check.sh` passes.
+
+### LK-26 The trailer rule names three different things and only its presence is checked
+`AGENTS.md` says a commit carries "a `Co-Authored-By: <agent> <email>` trailer naming the agent and
+model that did the work when `trailer_required` is on (the PR script refuses a commit without
+one)", and `.loop.toml` sets `trailer_required = true`. Three texts disagree about what goes in it:
+`AGENTS.md` says "the agent and model", `scripts/open-ticket-pr.sh:129` says "the agent that did the
+work", and every commit in this repository's history carries `Co-Authored-By: WorkBuddy AI
+<noreply@workbuddy.ai>` - a harness and a role, naming neither an agent nor a model. Nothing can
+tell the three apart, because the refusal only asks whether a trailer is there at all:
+`head_trailer` (`scripts/open-ticket-pr.sh:104`) reads the line and the caller tests it with `-z`.
+So the rule cannot be followed as written and a reader cannot learn from it what to write. The run
+recorded in LK-17's pull request followed the history and flagged the difference rather than
+inventing a name, which is the behaviour the ticket exists to settle.
+**Done when:** one wording in all three places - `AGENTS.md`, the refusal message in
+`scripts/open-ticket-pr.sh`, and the trailer the next commit carries - says the same thing about
+what the trailer names; the script's message says what the script actually tests, which is that a
+trailer is present rather than what it says; and `./check.sh` passes.
 ### LK-28 The command wrappers and the skill pointers are the same sentences twice, and nothing compares them
 LK-18 made `skills/<name>/SKILL.md` a pointer at its prompt so that it cannot restate a rule, and
 left `commands/<name>.md` where it was: the same pointer, for a harness with slash commands. The two

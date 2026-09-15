@@ -424,3 +424,17 @@ comment above the list as the thing that settles which one applies, and does not
 except under the subset reading; `scripts/prompt-check.sh` still finds the phrases it pins for that
 prompt; and the pull request carries a recorded run of the prompt against a repository using the
 stricter reading, showing a filed ticket added to the sprint rather than left out.
+
+### LK-21 `.loop.toml` names the wrong ruleset file for this repository's own gating
+The comment above `review_context` says `ci/ruleset.json does not require it here yet (LK-06)`.
+"Here" is this repository, and this repository's own ruleset is `.github/ruleset.json`: the two
+files differ by the one context they require — `Check (check.sh)` here, `Check (scripts/check.sh)`
+in the template a project installs — and that difference is what LK-13 was filed to settle. LK-13
+updated `AGENTS.md`'s `ci/` paragraph and `README.md`'s table to say which file belongs to whom;
+`.loop.toml`'s comment was written before it (`1cb4511`, which created the file) and still names
+the file that has to keep the other context, which is the one thing LK-09's own text is careful
+about ("It is not `ci/ruleset.json`"). The cost is small and it lands in the worst place: the file
+a reader opens to learn what governs this repository's merges points at the ruleset a project
+applies instead.
+**Done when:** the comment names `.github/ruleset.json` as the ruleset that does not require the
+review here yet, and `./check.sh` passes with nothing else in `.loop.toml` changed.

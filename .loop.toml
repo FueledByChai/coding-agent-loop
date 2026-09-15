@@ -32,9 +32,9 @@ coverage = ""
 coverage_floor = "coverage-floor.txt"
 coverage_slack = "0"
 # The agent review (prompts/review-prs.md, scripts/review-status.sh): the commit status it
-# posts on each pull request's head. ci/ruleset.json does not require it here yet (LK-06):
-# nothing runs the review for this repository, and a required status nothing produces would
-# hold every pull request forever.
+# posts on each pull request's head. .github/ruleset.json requires it here, beside
+# Check (check.sh) (LK-06); ci/ruleset.json is the template a project applies (LK-13), and
+# names the context that template's workflow reports.
 review_context = "Agent review"
 # Decision records (scripts/decisions.sh): one file per decision, numbered, never edited in
 # place; grill-me reads them before asking and writes one when a story needs a decision.

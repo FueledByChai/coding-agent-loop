@@ -140,7 +140,7 @@ a project whose copy differs from the kit's, with `install.sh` still keeping a p
 at a file a project cannot have; and whichever route is taken is proved in the self-tests of
 `install.sh` and `loop-kit-sync.sh`.
 
-### LK-20 The stories view's keybar offers two keys nothing reads — `doing`
+### LK-20 The stories view's keybar offers two keys nothing reads
 `scripts/loop-tui.sh stories` ends with ` e epic filter   d hide unticketed   r refresh   q quit`,
 and the key handler LK-03 added reads `r` and `q` from that view but neither `e` nor `d`: the epic
 filter and the hide-unticketed toggle were drawn onto the frame by LK-02 as part of the view and
@@ -200,6 +200,26 @@ printed from `pairs()` rather than written by hand.
 **Done when:** the header and `pairs()` cannot disagree — either the header names no group and says
 where the list lives, or a check fails naming a group `pairs()` copies that the header omits — and
 the route taken is proved by a self-test that drops a group from the header and sees the check fail.
+
+### LK-30 The stories view's keybar is the only one that names neither the help key nor a way out
+`scripts/loop-tui.sh` draws a keybar under each of its four views, and it is the only place a
+reader learns which keys the view in front of them answers to. The dashboard's is
+` ? help   <sp> show   a add   x remove   r refresh   q quit`, the open view's is
+` o sprint   s stories   r refresh   q quit`, and the show view's is
+` ? help   o open   s stories   r refresh   q quit`. LK-20 made the stories view's two settings real,
+and its keybar now reads ` e epic: any   d unticketed: shown   r refresh   q quit` — the only one of
+the four that names no key taking you to another view and no `? help`. Both work there: `?` is the
+handler's global help screen and `s` comes back to the dashboard. The help screen is also where
+LK-20 documented `e` and `d`, so the one screen that explains the two new keys is the one the
+stories keybar does not name.
+
+`? help` is on two of the four keybars and a way out of the view on three, and the four are one
+fact — which keys a view answers to — written down four times with nothing comparing them, which is
+the LK-14/LK-16/LK-28 shape again. LK-20 saw it while widening this keybar and left it rather than
+widen its own diff, the way LK-19 left LK-29's.
+**Done when:** the stories view's keybar names `? help` and a key that leaves the view, so it
+under-reports nothing the handler reads, and `scripts/loop-tui.sh --self-test` asserts it by named
+line with the stories golden frame regenerated.
 
 ## The prompts
 

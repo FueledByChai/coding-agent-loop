@@ -83,7 +83,7 @@ STORIES  70 - 16 done - 5 open - 49 unticketed
  BT-1207  done        2  Epic L: Provider data so   Per-dataset schedules in…
  …
 ------------------------------------------------------------------------------
- e epic filter   d hide unticketed   r refresh   q quit
+ e epic: any   d unticketed: shown   r refresh   q quit
 ```
 
 **Wireframe** (the open view; the tickets outside the sprint, by section):

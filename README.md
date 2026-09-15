@@ -44,10 +44,17 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `check.sh` | the kit's own check: every self-test, then an install into a fresh repository |
 
 Every script has a `--self-test`; a project's check runs them, and `./check.sh` here runs
-them all plus the install (CI runs the same script). It takes about eight minutes on a laptop.
-Most of that is the loop's suite, which the install self-test runs once and proves the six stack
-skeletons' own stack steps separately, instead of running the whole suite once per skeleton
-(LK-11).
+them all plus the install (CI runs the same script). The same script takes about a minute on CI,
+about two minutes on this machine run outside an agent harness, and about seven inside one: the
+check is short-lived processes one after another - the biggest self-test alone starts bash 809 times
+- so what it measures is the cost of starting one where it runs, and a harness wraps each command
+and sources a shim on every shell start. Every figure here
+moves with what else the machine is doing; all three were measured on the same tree. Most of the
+work is the loop's suite, which runs twice on purpose - once in the kit's tree, once in the fresh
+repository the install builds, which is the only place the installed layout is proved. The install
+proves the six stack skeletons' own stack steps separately instead of running the whole suite once
+per skeleton (LK-11), and reads the installed self-tests back from the first skeleton's log instead
+of running them a third time (LK-23).
 
 ## How the loop works
 

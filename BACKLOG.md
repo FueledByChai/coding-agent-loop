@@ -657,3 +657,17 @@ frontmatter, so there is one copy and each skill's `description:` stays the only
 **Done when:** `./check.sh` fails when a command wrapper and the skill beside it disagree, naming the
 pair and the passage — proved by a self-test that drops a sentence from one side — or the skill's
 body is derived from its wrapper at install time, so that a disagreement cannot exist.
+
+### LK-33 `scripts/loop-tui.sh`'s self-test is over half the check, and nothing says which frames it needs
+Measured while working LK-23, with the agent harness out of the environment, where the whole check
+takes 127s: `scripts/loop-tui.sh --self-test` is 36s of that, and the check runs it twice - once in
+the kit's tree, once in the fresh repository the install builds - so 72s, or 57% of the check. It is
+the largest self-test by a wide margin, 53s against 19s for the next largest under the harness, and
+it starts bash 809 times on its own. Nothing says why: it drives `--keys` over fixtures it builds
+itself, one process per frame, and neither the file nor the check names which frames are wanted or
+which of the others already cover them. It is what is left of the check's cost now that LK-11
+removed the five extra skeleton passes and LK-23 the installed self-tests' second run.
+**Done when:** either the self-test is measurably faster with its assertions intact, naming in the
+commit which frames it stopped driving and what covers each one, or the frames it drives are listed
+where a reader of the self-test can see why each is there, so that the next person to ask has an
+answer that is not another measurement.

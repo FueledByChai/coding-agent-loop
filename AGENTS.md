@@ -128,10 +128,19 @@ script's `--self-test`, then `scripts/prompt-check.sh` (a prompt may not lose a 
 check demands of them), then the two checks that compare what is written down more than once,
 `scripts/check-list.sh` and `scripts/ruleset-check.sh`, then `./install.sh --self-test`, which
 installs into a fresh repository and runs the installed scripts' self-tests there, then
-`scripts/backlog-status.sh --sprint-check`. There is no fast variant: the whole thing takes about
-eight minutes, most of it the self-test suite, which the install runs once and then proves the six
-stack skeletons' own stack steps separately, rather than paying for the suite once per skeleton
-(LK-11). Nothing is resolved from a worktree, since there is nothing to build. The section's list of
+`scripts/backlog-status.sh --sprint-check`. There is no fast variant: the same script takes about a
+minute on CI, about two minutes here run outside an agent harness, and about seven inside one. The
+check is short-lived processes one after another - the biggest self-test alone starts bash 809
+times, and the check runs it twice - so what it measures is the cost of starting one, and a harness
+charges several times what a terminal or a runner does, wrapping each command and sourcing a shim on
+every shell start: one self-test here takes 20.7s inside a harness and 1.1s outside it, same tree,
+same machine. Most
+of the work is the loop's suite, and it runs twice on purpose - once in the kit's tree, once in the
+fresh repository the install builds, which is the only place the installed layout is proved - so
+neither run can go without giving up a proof. The install proves the six stack skeletons' stack
+steps separately rather than paying for the suite once per skeleton (LK-11), and reads the installed
+self-tests back from the first skeleton's log rather than running them a third time (LK-23). Nothing
+is resolved from a worktree, since there is nothing to build. The section's list of
 checks is compared with the script's by `scripts/check-list.sh --section`, so the two cannot drift
 apart again (LK-16).
 

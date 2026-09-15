@@ -265,20 +265,25 @@ self_test() {
     || { echo "self-test: the installed ruleset should match the installed workflow"; exit 1; }
   grep -q 'ruleset pair: none to check' "$dir/check-rust.log" \
     && { echo "self-test: the installed pair should be checked, not skipped:"; grep 'ruleset' "$dir/check-rust.log"; exit 1; }
-  (cd "$dir" && scripts/decisions.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed decisions self-test failed"; exit 1; }
-  (cd "$dir" && scripts/prompt-check.sh | grep -q 'rule(s) present') || { echo "self-test: the installed prompts should pass prompt-check"; exit 1; }
   [ -e "$dir/loop/prompts/next-ticket.md" ] && [ -e "$dir/loop/prompts/grill-me.md" ] || { echo "self-test: prompts missing"; exit 1; }
   grep -q '^## Project rules' "$dir/AGENTS.md" || { echo "self-test: AGENTS.md lacks the Project rules heading"; exit 1; }
   echo "$out" | grep -q '^installed: CLAUDE.md' || { echo "self-test: CLAUDE.md should be installed:"; echo "$out"; exit 1; }
   [ "$(cat "$dir/CLAUDE.md")" = "@AGENTS.md" ] || { echo "self-test: CLAUDE.md should be the one line @AGENTS.md"; exit 1; }
-  # The installed scripts prove themselves from the fresh repository.
-  (cd "$dir" && scripts/loop-config.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed loop-config self-test failed"; exit 1; }
-  (cd "$dir" && scripts/backlog-status.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed backlog-status self-test failed"; exit 1; }
-  (cd "$dir" && scripts/release-notes.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed release-notes self-test failed"; exit 1; }
-  (cd "$dir" && scripts/open-ticket-pr.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed open-ticket-pr self-test failed"; exit 1; }
-  (cd "$dir" && scripts/loop-tui.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed loop-tui self-test failed"; exit 1; }
-  (cd "$dir" && scripts/check-list.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed check-list self-test failed"; exit 1; }
-  (cd "$dir" && scripts/ruleset-check.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed ruleset-check self-test failed"; exit 1; }
+  # The installed scripts prove themselves in the run the first skeleton's own check.sh already
+  # made in the fresh repository - read back from its log, not made again here. Each of them
+  # drives hundreds of short-lived processes, and running seven of them a second time cost about
+  # two minutes of an eight-minute check while proving nothing that run had not: the same
+  # scripts, from the same directory, invoked the same way. Reading the log covers every
+  # installed script rather than seven of them, and still names the one that did not pass
+  # (LK-23).
+  for f in "$dir"/scripts/*.sh; do
+    f="$(basename "$f" .sh)"
+    case "$f" in check) continue ;; esac   # the skeleton's own check.sh, not a kit script
+    grep -qF "$f self-test passed" "$dir/check-rust.log" \
+      || { echo "self-test: the installed $f self-test should pass in the fresh repository:"; grep -n 'self-test' "$dir/check-rust.log"; exit 1; }
+  done
+  grep -q 'rule(s) present' "$dir/check-rust.log" \
+    || { echo "self-test: the installed prompts should pass prompt-check in the fresh repository"; exit 1; }
   # Installing again keeps what exists, and refreshes what is the kit's. The pair to prove is
   # .loop.toml against loop.toml.example: both are edited here, and only the example comes back
   # (LK-19).

@@ -5,8 +5,10 @@
 # --width fixes the width, and it takes no keys and writes nothing, so the interactive mode
 # (LK-03) is a key handler over these frames rather than a second implementation.
 #
-#   scripts/loop-tui.sh                  the dashboard: one frame on stdout, then exit
-#   scripts/loop-tui.sh --render         the same, spelled out
+#   scripts/loop-tui.sh                  on a terminal, the interactive mode (LK-03); anywhere
+#                                        else the dashboard frame on stdout, then exit
+#   scripts/loop-tui.sh --render         one dashboard frame on stdout, then exit, whatever
+#                                        stdout is
 #   scripts/loop-tui.sh stories          every story in the product backlog: its derived status,
 #                                        its ticket count, and the epic it sits under, uncut
 #                                        when the frame can hold it
@@ -21,11 +23,34 @@
 #                                        branch itself). Nothing is fetched here: the frame shows
 #                                        what the checkout already knows, and LK-03's `r` is
 #                                        what fetches.
+#   scripts/loop-tui.sh --keys '<keys>'  run the key handler over these keys and print the last
+#                                        frame. With it, or with a stdout that is not a terminal,
+#                                        the program renders frames instead of taking the screen,
+#                                        so the whole of it is driven without a pseudo-terminal
 #   scripts/loop-tui.sh --self-test      a fixture repository proves every frame, by named line
 #                                        and by golden frames
 #
 # --stories, --open, and --show <id> are the same views spelled as flags, which is how every
 # other option here is written; LS-01 names the views themselves, so both spellings are here.
+#
+# The interactive mode (LK-03) is a key handler over the frames above, never a second renderer.
+# On a terminal it takes the alternate screen, hides the cursor, and reads one key at a time; a
+# trap puts the terminal back on every exit path. The keys are the ones the frames advertise:
+#
+#   j, k (or the arrow keys)  move the marker down and up, wrapping at either end
+#   <sp>                      open the marked ticket or story in full
+#   a                         add a ticket to the sprint: type its id, then Enter (Esc cancels)
+#   x                         take the marked ticket out of the sprint
+#   s, o                      the stories and open views; the same key again comes back
+#   r                         fetch from origin, then redraw - the only thing here that fetches
+#   ?                         the key list; any of these keys again comes back
+#   q                         quit
+#
+# Every write goes through scripts/sprint.sh and changes only the `sprint` list in .loop.toml,
+# and nothing here runs git add, git commit, or git push: committing the sprint stays the owner's
+# (decision 0003), so the frame carries an uncommitted marker while the change is in the working
+# tree. An add is refused, with the reason on the frame, when the id is not a ticket heading, is
+# already done, or is already in the sprint.
 #
 # The data comes from the loop's own scripts, never from a second reading of the backlog:
 # scripts/backlog-status.sh --sprint gives the rows and the counts, --open what sits outside the
@@ -57,16 +82,21 @@ WIDTH=""
 REF=""
 MODE=dashboard
 WANT=""
+KEYS=""
+KEYS_GIVEN=0
+VIEW_GIVEN=0
+RENDER_GIVEN=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --render) MODE=dashboard ;;
-    stories|--stories) MODE=stories ;;
-    open|--open) MODE=open ;;
-    show|--show) MODE=show; WANT="${2:-}"; [ $# -ge 2 ] && shift ;;
+    --render) MODE=dashboard; RENDER_GIVEN=1 ;;
+    stories|--stories) MODE=stories; VIEW_GIVEN=1 ;;
+    open|--open) MODE=open; VIEW_GIVEN=1 ;;
+    show|--show) MODE=show; WANT="${2:-}"; VIEW_GIVEN=1; [ $# -ge 2 ] && shift ;;
     --width) WIDTH="${2:-}"; shift ;;
     --ref) REF="${2:-}"; shift ;;
+    --keys) KEYS="${2:-}"; KEYS_GIVEN=1; shift ;;
     --self-test) MODE=selftest ;;
-    *) echo "usage: scripts/loop-tui.sh [dashboard|stories|open|show <id>] [--width <n>] [--ref <ref>] | --self-test" >&2; exit 2 ;;
+    *) echo "usage: scripts/loop-tui.sh [dashboard|stories|open|show <id>] [--width <n>] [--ref <ref>] [--keys <keys>] | --self-test" >&2; exit 2 ;;
   esac
   shift
 done
@@ -168,6 +198,14 @@ binmode STDOUT, ":encoding(UTF-8)";
 my $d = sub { my $v = shift; return defined $v ? decode("UTF-8", $v) : "" };
 my $width = $d->($ENV{TUI_WIDTH}) + 0;
 my $mode = $d->($ENV{TUI_MODE});
+# The state the key handler keeps, and empty in a frame drawn without it (LK-03): the row the
+# marker is on, what the last key did, the mark that the sprint change is uncommitted, and the id
+# being typed for `a`. Every one of them is silent when unset, so a one-shot frame is byte for
+# byte what it was before the handler existed and the golden frames below still hold.
+my $sel = $d->($ENV{TUI_SEL});
+my $status = $d->($ENV{TUI_STATUS});
+my $dirty = $d->($ENV{TUI_DIRTY});
+my $prompt = $d->($ENV{TUI_PROMPT});
 my $ELL = "\x{2026}";
 my $rule = "-" x $width;
 
@@ -212,6 +250,20 @@ my $rpad = sub { my ($t, $w) = @_; $t = "" unless defined $t; return (" " x ($w 
 # Every line is cut to the frame's width on the way out, so a column that will not fit is a
 # layout choice and never a line that runs past the terminal (LS-01).
 my $emit = sub { for my $line (@_) { print $cut->($line, $width), "\n" } };
+# The lead of a row: a `>` on the row the marker is on, a space otherwise. The index handed in
+# counts rows from zero and the marker counts them from one, as the sprint position does, so the
+# two are compared after adding one. Same width either way, and with no selection every row is
+# exactly as it was (LK-03).
+my $mark = sub { my $i = shift; return ($sel ne "" && $i + 1 == $sel + 0) ? ">" : " " };
+# The lines between the last rule and the keybar: the uncommitted marker, what the last key did,
+# and the id being typed. All three are silent when the handler set none of them (LK-03).
+my $tail = sub {
+  my @t;
+  push @t, " ! $dirty" if $dirty ne "";
+  push @t, " ! $status" if $status ne "";
+  push @t, " add ticket: $prompt" if $prompt ne "";
+  return @t;
+};
 
 # ---- the stories view: every story, its derived status, its tickets, its epic (LS-01) ----
 if ($mode eq "stories") {
@@ -266,8 +318,10 @@ if ($mode eq "stories") {
   $head .= $pad->("t", $w{t}) . " " if $has->("t");
   $head .= $pad->("epic", $epic_w) . " title";
   push @out, $head;
+  my $i = 0;
   for my $r (@rows) {
-    my $line = " ";
+    my $line = $mark->($i);
+    $i++;
     $line .= $pad->($r->{id}, $w{id}) . " " if $has->("id");
     $line .= $pad->($r->{status}, $w{status}) . " " if $has->("status");
     $line .= $pad->($r->{tickets}, $w{t}) . " " if $has->("t");
@@ -275,6 +329,7 @@ if ($mode eq "stories") {
     $line .= $cut->($r->{title}, $title_w);
     push @out, $line;
   }
+  push @out, $tail->();
   push @out, $rule;
   push @out, " e epic filter   d hide unticketed   r refresh   q quit";
   $emit->(@out);
@@ -352,6 +407,7 @@ if ($mode eq "open") {
       push @out, $line;
     }
   }
+  push @out, $tail->();
   push @out, $rule;
   push @out, " o sprint   s stories   r refresh   q quit";
   $emit->(@out);
@@ -378,6 +434,7 @@ if ($mode eq "show") {
     if (length($line) <= $width) { push @out, $line }
     else { push @out, $wrap->($line, $width) }
   }
+  push @out, $tail->();
   push @out, $rule;
   push @out, " ? help   o open   s stories   r refresh   q quit";
   $emit->(@out);
@@ -517,10 +574,16 @@ if ($sprint_empty || !@rows) {
   $head .= $cell->("blocked", "blocked") if $has->("blocked");
   $head .= "title";
   push @out, $head;
-  my $shown = 0;
+  # The window follows the marker. A sprint longer than the frame would otherwise let the marker
+  # move onto a row that is not drawn, so the key would look like it did nothing - which is the
+  # whole point of moving it. With no selection the window starts at the top, as it always did.
+  my $first = ($sel ne "" && $sel + 0 > $max) ? $sel + 0 - $max : 0;
+  my $i = 0;
   for my $r (@rows) {
-    if ($shown >= $max) { last }
-    my $line = " ";
+    if ($i >= $first + $max) { last }
+    if ($i < $first) { $i++; next }
+    my $line = $mark->($i);
+    $i++;
     $line .= $rpad->($r->{pos} ne "" ? $r->{pos} : "-", $w{idx} - 1) . " " if $has->("idx");
     $line .= $cell->($r->{id}, "id") if $has->("id");
     $line .= $cell->($cut->($r->{state}, $w{state} - 1), "state") if $has->("state");
@@ -528,9 +591,17 @@ if ($sprint_empty || !@rows) {
     $line .= $cell->($cut->($r->{blocked}, $w{blocked} - 1), "blocked") if $has->("blocked");
     $line .= $cut->($r->{title}, $title_w);
     push @out, $line;
-    $shown++;
   }
-  push @out, "   " . $ELL . "  (" . (scalar(@rows) - $shown) . " more)" if scalar(@rows) > $shown;
+  # The rows the frame could not hold, above and below the window. With the window at the top this
+  # is the line the frame always carried.
+  my $above = $first;
+  my $below = scalar(@rows) - $i;
+  if ($above > 0 || $below > 0) {
+    my @note;
+    push @note, "$above above" if $above > 0;
+    push @note, "$below more" if $below > 0;
+    push @out, "   " . $ELL . "  (" . join(", ", @note) . ")";
+  }
 }
 push @out, "-" x $width;
 
@@ -566,6 +637,7 @@ push @out, $left;
 my $story_text = $stories =~ /^stories: (.*)$/ ? $1 : $stories;
 $story_text =~ s/, / - /g;
 push @out, " STORIES  $story_text";
+push @out, $tail->();
 push @out, "-" x $width;
 push @out, " ? help   <sp> show   a add   x remove   r refresh   q quit";
 
@@ -594,7 +666,27 @@ Write one (the grill-project prompt does) or point backlog at it."
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '-')"
   sha="$(git rev-parse --short HEAD 2>/dev/null || echo '-')"
   local sprint="" open_line="" stories_line="" next_id="" show_out="" sprint_out stories_file
-  case "$MODE" in
+  case "$VIEW" in
+    help)
+      # The key list, drawn here rather than by the renderer because it is not one of the views
+      # the renderer lays out. It exists because the dashboard keybar opens with `? help`, and a
+      # key that does nothing is a lie printed on the frame. The columns are a dash rather than
+      # padding: frame_text wraps by splitting on spaces and joining them back single, so a run of
+      # spaces used for alignment would not survive the wrap.
+      local hrule; hrule="$(printf '%*s' "$width" '' | tr ' ' '-')"
+      frame_text "$width" 0 "TICKET LOOP  keys"
+      echo "$hrule"
+      frame_text "$width" 3 "j, k or the arrow keys - move the marker, wrapping at either end
+<space> - open the marked ticket or story in full
+a - add a ticket to the sprint: type its id, then Enter
+x - take the marked ticket out of the sprint
+s, o - the stories and open views; the same key again comes back
+r - fetch from origin, then redraw
+? - this screen
+q - quit"
+      echo "$hrule"
+      return 0
+      ;;
     dashboard)
       # The rows and the counts come from --sprint, so a failure there is not "no tickets in the
       # sprint": keep the message and draw an error frame rather than a false one.
@@ -649,9 +741,10 @@ Write one, or point stories at it."
       fi
       ;;
   esac
-  TUI_MODE="$MODE" TUI_WIDTH="$width" TUI_PROJECT="$project" TUI_BRANCH="$branch" TUI_SHA="$sha" \
+  TUI_MODE="$VIEW" TUI_WIDTH="$width" TUI_PROJECT="$project" TUI_BRANCH="$branch" TUI_SHA="$sha" \
   TUI_SPRINT="$sprint" TUI_OPEN="$open_line" TUI_STORIES="$stories_line" TUI_NEXT="$next_id" \
-  TUI_SHOW="$show_out" TUI_MAX="$MAX_ROWS" \
+  TUI_SHOW="$show_out" TUI_MAX="$MAX_ROWS" TUI_SEL="$SEL" TUI_STATUS="$MSG" TUI_DIRTY="$DIRTY" \
+  TUI_PROMPT="$PROMPT_TEXT" \
     perl -e "$RENDER_PERL"
 }
 
@@ -1089,10 +1182,339 @@ GY
     fi
   done
 
+  # 11. The key handler (LK-03): the same frames, driven by --keys so the whole program runs
+  #     without a pseudo-terminal. The writes happen in a second checkout whose .loop.toml holds a
+  #     sprint the three refusal reasons can be told apart in: AA-01 is done and outside it, AA-02
+  #     is in it, AA-04 is ready and outside it, and AA-99 is not a ticket at all. So `a` has a
+  #     ready ticket to add, each refusal has its own reason, and the only file a run touches is
+  #     that .loop.toml - which is what the done line names. It is a copy of the fixture rather
+  #     than another clone, so it starts on the same branch at the same commit and its origin
+  #     still resolves.
+  local write="$dir/write"
+  cp -r "$work" "$write"
+  printf '[loop]\ndefault_branch = "main"\nsprint = ["AA-02", "AA-03", "AA-05"]\nstories = "PRODUCT.md"\n' > "$write/.loop.toml"
+  git -C "$write" add -A
+  GIT_AUTHOR_DATE="2026-01-02T03:04:05+00:00" GIT_COMMITTER_DATE="2026-01-02T03:04:05+00:00" \
+    git -C "$write" commit -q -m "Sprint without AA-01 and AA-04"
+  key_frame() { (cd "$write" && LOOP_ROOT="$write" "$me" --keys "$1" --width 78 2>&1) }
+  local kout write_head
+  write_head="$(git -C "$write" rev-parse HEAD)"
+
+  # q writes nothing. A frame is not a write, and the working tree is untouched.
+  kout="$(key_frame 'q')"
+  [ -z "$(git -C "$write" status --porcelain)" ] \
+    || { echo "self-test: q must write nothing:"; git -C "$write" status --porcelain; exit 1; }
+
+  # The marker starts on the first row, moves down, and wraps at either end.
+  kout="$(key_frame 'j')"
+  echo "$kout" | grep -q '^>  2 AA-03' \
+    || { echo "self-test: j should move the marker to the second row:"; echo "$kout"; exit 1; }
+  echo "$kout" | grep -q '^   1 AA-02' \
+    || { echo "self-test: the first row should give up the marker:"; echo "$kout"; exit 1; }
+  kout="$(key_frame 'jjj')"
+  echo "$kout" | grep -q '^>  1 AA-02' \
+    || { echo "self-test: the marker should wrap round the last row:"; echo "$kout"; exit 1; }
+  kout="$(key_frame 'k')"
+  echo "$kout" | grep -q '^>  3 AA-05' \
+    || { echo "self-test: the marker should wrap backwards to the last row:"; echo "$kout"; exit 1; }
+
+  # <space> opens the marked item in full.
+  kout="$(key_frame ' ')"
+  echo "$kout" | grep -q '^AA-02 A ticket someone holds$' \
+    || { echo "self-test: <sp> should open the marked ticket in full:"; echo "$kout"; exit 1; }
+  kout="$(key_frame 'j ')"
+  echo "$kout" | grep -q '^AA-03 A ticket waiting on someone else — `blocked until 2026-10-01 response`$' \
+    || { echo "self-test: <sp> should open the ticket the marker is on:"; echo "$kout"; exit 1; }
+
+  # An add is refused, with the reason on the frame, when the id is done, is not a ticket, or is
+  # already in the sprint - and a refused add writes nothing at all.
+  kout="$(key_frame $'aAA-01\n')"
+  echo "$kout" | grep -q 'AA-01 is already done' \
+    || { echo "self-test: an add of a done id should say so:"; echo "$kout"; exit 1; }
+  kout="$(key_frame $'aAA-99\n')"
+  echo "$kout" | grep -q 'AA-99 is not a ticket' \
+    || { echo "self-test: an add of an id that is not a ticket should say so:"; echo "$kout"; exit 1; }
+  kout="$(key_frame $'aAA-02\n')"
+  echo "$kout" | grep -q 'AA-02 is already in the sprint' \
+    || { echo "self-test: an add of a ticket already in the sprint should say so:"; echo "$kout"; exit 1; }
+  [ -z "$(git -C "$write" status --porcelain)" ] \
+    || { echo "self-test: a refused add must write nothing:"; git -C "$write" status --porcelain; exit 1; }
+
+  # A ready ticket outside the sprint is added through scripts/sprint.sh, the marker moves onto
+  # it, and the frame says the change is uncommitted. Only .loop.toml is modified.
+  kout="$(key_frame $'aAA-04\n')"
+  echo "$kout" | grep -q '^>  4 AA-04' \
+    || { echo "self-test: an add should append the ticket and mark it:"; echo "$kout"; exit 1; }
+  echo "$kout" | grep -q 'uncommitted' \
+    || { echo "self-test: an add should mark the sprint uncommitted:"; echo "$kout"; exit 1; }
+  [ "$(git -C "$write" status --porcelain)" = " M .loop.toml" ] \
+    || { echo "self-test: only .loop.toml should be modified:"; git -C "$write" status --porcelain; exit 1; }
+  grep -q '^sprint = \["AA-02", "AA-03", "AA-05", "AA-04"\]$' "$write/.loop.toml" \
+    || { echo "self-test: the add should have gone through scripts/sprint.sh:"; cat "$write/.loop.toml"; exit 1; }
+
+  # x takes the marked ticket back out - the marker is moved onto it first, so this also proves
+  # the marker and the write agree about which row is selected - and the file returns to what it
+  # was, which is why the run leaves no diff behind.
+  kout="$(key_frame 'jjjx')"
+  echo "$kout" | grep -qE '^[ >]  +[0-9]+ AA-04' \
+    && { echo "self-test: x should take the marked ticket out of the sprint:"; echo "$kout"; exit 1; }
+  grep -q '^sprint = \["AA-02", "AA-03", "AA-05"\]$' "$write/.loop.toml" \
+    || { echo "self-test: x should have put the sprint line back:"; cat "$write/.loop.toml"; exit 1; }
+  [ -z "$(git -C "$write" status --porcelain)" ] \
+    || { echo "self-test: add then remove should leave the file as it was:"; git -C "$write" status --porcelain; exit 1; }
+  [ "$(git -C "$write" rev-parse HEAD)" = "$write_head" ] \
+    || { echo "self-test: the UI must never commit"; exit 1; }
+
+  # r is the only thing in the program that fetches. A frame shows what the checkout already
+  # knows, which is what keeps the fetch off every other keypress.
+  rm -f "$work/.git/FETCH_HEAD"
+  kout="$(cd "$work" && LOOP_ROOT="$work" "$me" --render --width 78 2>&1)"
+  [ ! -f "$work/.git/FETCH_HEAD" ] \
+    || { echo "self-test: drawing a frame must not fetch from origin"; exit 1; }
+  kout="$(cd "$work" && LOOP_ROOT="$work" "$me" --keys 'r' --width 78 2>&1)"
+  [ -f "$work/.git/FETCH_HEAD" ] \
+    || { echo "self-test: r should fetch from origin before redrawing"; exit 1; }
+
   echo "loop-tui self-test passed"
+}
+
+# ---- the key handler (LK-03) -----------------------------------------------------------------
+# The interactive mode is a key handler over the frames above, never a second renderer. Every
+# write goes through scripts/sprint.sh and changes only the sprint list in .loop.toml; nothing
+# here runs git add, git commit, or git push, so the frame carries an uncommitted marker while
+# the change sits in the working tree (decision 0003).
+VIEW="$MODE"
+SEL=""
+MSG=""
+DIRTY=""
+PROMPT_TEXT=""
+PROMPTING=""
+QUIT=""
+
+# The file the sprint lives in: the one scripts/sprint.sh would write, so the marker and the
+# write cannot disagree about which file the change is in.
+sprint_file() { echo "${LOOP_CONFIG:-$ROOT/.loop.toml}"; }
+
+# The ids the selection moves over in the current view, one per line and in the order the
+# renderer draws its rows. Only the dashboard and the stories view have a list to move over: the
+# open view groups its rows under section headings, so a marker there would not line up with the
+# rows the renderer draws.
+view_ids() {
+  local backlog
+  case "$VIEW" in
+    dashboard) "$CONFIG" sprint ;;
+    stories)
+      backlog="$ROOT/$("$CONFIG" backlog)"
+      "$STATUS" --stories --ref "${REF:-$(default_ref)}" --local --plain --backlog "$backlog" 2>/dev/null \
+        | awk -F'\t' 'NF >= 5 { print $1 }'
+      ;;
+    *) : ;;
+  esac
+}
+
+# The id the marker is on, or nothing.
+selected_id() {
+  view_ids | awk -v n="$SEL" 'NF { c++; if (c == n) { print; exit } }'
+}
+
+# What the frame says under the rule: whether the sprint change is still uncommitted. That marker
+# is the whole safeguard the record asks for, because committing the sprint stays the owner's.
+set_dirty() {
+  local f; f="$(sprint_file)"
+  if [ -n "$(git -C "$ROOT" status --porcelain -- "$f" 2>/dev/null)" ]; then
+    DIRTY="$(basename "$f") modified: the sprint change is uncommitted - commit it, this UI never does"
+  else
+    DIRTY=""
+  fi
+}
+
+# Moves the marker, wrapping at either end so the list is a ring.
+move_sel() { # <delta>
+  local n; n="$(view_ids | awk 'NF { n++ } END { print n + 0 }')"
+  if [ "$n" -lt 1 ]; then SEL=1; return 0; fi
+  SEL=$(( SEL + $1 ))
+  if [ "$SEL" -lt 1 ]; then SEL="$n"; fi
+  if [ "$SEL" -gt "$n" ]; then SEL=1; fi
+  return 0
+}
+
+# The views are switched with the key their own keybar names, so `o` in the open view - whose
+# keybar reads "o sprint" - comes back here rather than going somewhere else.
+switch_view() { # <view>
+  case "$1" in
+    stories) if [ "$VIEW" = stories ]; then VIEW=dashboard; else VIEW=stories; fi ;;
+    open)    if [ "$VIEW" = open ]; then VIEW=dashboard; else VIEW=open; fi ;;
+    help)    if [ "$VIEW" = help ]; then VIEW=dashboard; else VIEW=help; fi ;;
+    *)       VIEW="$1" ;;
+  esac
+  SEL=1
+}
+
+open_selected() {
+  local id; id="$(selected_id)"
+  if [ -z "$id" ]; then MSG="nothing is selected here"; return 0; fi
+  WANT="$id"
+  VIEW=show
+  return 0
+}
+
+# The add and the remove are the only writes, and both go through scripts/sprint.sh. The reasons
+# are checked here as well as there: that script refuses an id which is not a heading and one
+# that is already done, but not one that is already in the sprint, which it would quietly leave
+# alone - and the ticket wants all three said out loud.
+add_ticket() { # <id>
+  local id="$1" err at
+  if [ -z "$id" ]; then MSG="no ticket id given"; return 0; fi
+  if "$CONFIG" sprint 2>/dev/null | grep -qx -- "$id"; then
+    MSG="$id is already in the sprint"
+    return 0
+  fi
+  if err="$("$SCRIPT_ROOT/scripts/sprint.sh" add "$id" 2>&1 >/dev/null)"; then
+    MSG="added $id to the sprint"
+    # Put the marker on the row just added, so the next key acts on it.
+    at="$(view_ids | awk -v id="$id" 'NF { c++; if ($0 == id) { print c; exit } }')"
+    if [ -n "$at" ]; then SEL="$at"; fi
+  else
+    MSG="$(printf '%s' "$err" | head -1)"
+  fi
+  return 0
+}
+
+remove_selected() {
+  local id err
+  id="$(selected_id)"
+  if [ -z "$id" ]; then MSG="nothing is selected here"; return 0; fi
+  if err="$("$SCRIPT_ROOT/scripts/sprint.sh" remove "$id" 2>&1 >/dev/null)"; then
+    MSG="removed $id from the sprint"
+  else
+    MSG="$(printf '%s' "$err" | head -1)"
+  fi
+  return 0
+}
+
+# `r` is the only thing in the program that fetches. A frame shows what the checkout already
+# knows - it passes an explicit ref, which is what keeps scripts/backlog-status.sh from fetching
+# behind it - so the keypress is what changes that.
+refresh() {
+  git -C "$ROOT" fetch -q 2>/dev/null || true
+  MSG="fetched from origin"
+}
+
+handle_key() { # <key>
+  local k="$1"
+  if [ "$PROMPTING" = 1 ]; then
+    case "$k" in
+      $'\n'|$'\r') local id="$PROMPT_TEXT"; PROMPTING=""; PROMPT_TEXT=""; add_ticket "$id" ;;
+      $'\e') PROMPTING=""; PROMPT_TEXT=""; MSG="add cancelled" ;;
+      $'\177'|$'\b') PROMPT_TEXT="${PROMPT_TEXT%?}" ;;
+      *) PROMPT_TEXT="$PROMPT_TEXT$k" ;;
+    esac
+    return 0
+  fi
+  case "$k" in
+    q) QUIT=1 ;;
+    j) move_sel 1 ;;
+    k) move_sel -1 ;;
+    ' ') open_selected ;;
+    a) PROMPTING=1; PROMPT_TEXT="" ;;
+    x) remove_selected ;;
+    s) switch_view stories ;;
+    o) switch_view open ;;
+    r) refresh ;;
+    '?') switch_view help ;;
+    *) : ;;
+  esac
+  return 0
+}
+
+# Runs the handler over a string of keys and leaves the state the last key produced. This is how
+# the whole program is driven without a pseudo-terminal, and what --self-test asserts. An arrow
+# key is the escape sequence the terminal would send, folded onto k and j so both spellings go
+# through one path.
+run_keys() { # <keys>
+  local keys="$1" i=0 k rest
+  # `local` marks every name it is given before it assigns any of them, so the length has to be
+  # taken in its own statement: `local keys="$1" n="${#keys}"` reads an unset local under set -u.
+  local n="${#keys}"
+  while [ "$i" -lt "$n" ]; do
+    k="${keys:$i:1}"
+    i=$(( i + 1 ))
+    if [ "$k" = $'\e' ] && [ "$PROMPTING" != 1 ]; then
+      rest="${keys:$i:2}"
+      case "$rest" in
+        '[A') k=k; i=$(( i + 2 )) ;;
+        '[B') k=j; i=$(( i + 2 )) ;;
+      esac
+    fi
+    handle_key "$k"
+    if [ "$QUIT" = 1 ]; then break; fi
+  done
+  return 0
+}
+
+# One key from the terminal, with the arrow keys folded onto k and j.
+read_key() {
+  local k rest
+  IFS= read -rsn1 k || return 1
+  if [ "$k" = $'\e' ] && [ "$PROMPTING" != 1 ]; then
+    IFS= read -rsn1 -t 1 rest || true
+    if [ "$rest" = "[" ]; then
+      IFS= read -rsn1 -t 1 rest || true
+      case "$rest" in
+        A) k=k ;;
+        B) k=j ;;
+      esac
+    fi
+  fi
+  printf '%s' "$k"
+  return 0
+}
+
+# Puts the terminal back: the cursor, the main screen, and the modes stty was in. Every exit path
+# runs it - q, a signal, or a frame that fails - which is what keeps a crash from leaving a
+# terminal with no echo and no cursor.
+restore_terminal() {
+  tput cnorm 2>/dev/null || true
+  tput rmcup 2>/dev/null || true
+  if [ -n "${SAVED_STTY:-}" ]; then stty "$SAVED_STTY" 2>/dev/null || true; fi
+}
+
+# The interactive mode proper: the alternate screen, one key at a time, redrawing the same frame
+# the one-shot path prints.
+screen() { # <ref> <width>
+  local ref="$1" width="$2" frame key
+  if [ ! -t 0 ] || [ ! -t 1 ]; then render "$ref" "$width"; return $?; fi
+  SAVED_STTY="$(stty -g 2>/dev/null || true)"
+  trap 'restore_terminal' EXIT
+  trap 'exit 130' INT TERM HUP
+  stty -icanon -echo min 1 time 0 2>/dev/null || true
+  tput smcup 2>/dev/null || true
+  tput civis 2>/dev/null || true
+  while [ "$QUIT" != 1 ]; do
+    set_dirty
+    frame="$(render "$ref" "$width")"
+    printf '\033[H%s\n' "$frame"
+    tput ed 2>/dev/null || true
+    key="$(read_key)" || break
+    handle_key "$key"
+  done
+  return 0
 }
 
 case "$MODE" in
   selftest) self_test ;;
-  *) render "${REF:-$(default_ref)}" "$(frame_width)" ;;
+  *)
+    if [ "$KEYS_GIVEN" = 1 ]; then
+      # The whole program without a terminal: run the keys, then print the frame they left.
+      SEL=1
+      run_keys "$KEYS"
+      set_dirty
+      render "${REF:-$(default_ref)}" "$(frame_width)"
+    elif [ "$VIEW_GIVEN" = 0 ] && [ "$RENDER_GIVEN" = 0 ] && [ -t 0 ] && [ -t 1 ]; then
+      SEL=1
+      screen "${REF:-$(default_ref)}" "$(frame_width)"
+    else
+      render "${REF:-$(default_ref)}" "$(frame_width)"
+    fi
+    ;;
 esac

@@ -488,3 +488,14 @@ measured it again until now - which is how the figure the docs stated drifted fr
 `README.md` corrected to what `time ./check.sh` then reports, or the difference between this
 machine and CI is written down where a contributor reads it, naming what costs the time and why
 it cannot be removed.
+
+### LK-24 `prompts/next-ticket.md` hands off a pull request that cannot merge until another prompt has run
+Step 6 says "The owner merges the PR", which was true when it was written and is now true of
+nothing: `scripts/open-ticket-pr.sh` arms auto-merge, so the PR merges itself, and since LK-06 this
+repository's ruleset also requires `Agent review`, which only a scheduled run of
+`prompts/review-prs.md` posts. An agent that follows the prompt finishes believing its PR is ready
+while it sits `BLOCKED` on a status that arrives on a schedule - and the prompt never mentions the
+review at all. LK-16 ran into exactly that: the branch was green on CI, armed, and blocked, and the
+report could only say so.
+**Done when:** step 6 says what actually merges the PR and names the review status its branch has to
+carry before that happens, and `scripts/prompt-check.sh` pins the phrase that states it.

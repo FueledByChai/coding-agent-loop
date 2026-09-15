@@ -8,3 +8,4 @@ the old one. Cite a decision by its number. `scripts/decisions.sh new "<title>"`
 - [0003](0003-the-terminal-ui-edits-the-working-tree-and-never-commits.md) The terminal UI edits the working tree and never commits — accepted
 - [0004](0004-the-terminal-ui-s-views-render-from-uncut-fields-not-from-th.md) The terminal UI's views render from uncut fields, not from the padded tables — accepted
 - [0005](0005-this-repository-s-own-merge-gating-is-applied-by-hand-and-re.md) This repository's own merge gating is applied by hand and recorded, not checked — accepted
+- [0006](0006-the-check-lets-the-loop-s-own-review-status-through-and-noth.md) The check lets the loop's own review status through, and nothing else — accepted

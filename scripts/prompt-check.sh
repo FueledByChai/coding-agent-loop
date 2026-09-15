@@ -26,6 +26,8 @@ grill-me.md	wireframe
 grill-me.md	80 columns
 grill-me.md	sprint
 grill-me.md	comment above the list
+grill-me.md	every open ticket, so an omission is a fault
+grill-me.md	"or none" only where that comment states the subset reading
 grill-me.md	--stories
 grill-me.md	settings file and the ticket file
 grill-me.md	this repository, a new one, or a sibling

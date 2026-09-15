@@ -120,10 +120,15 @@ changed, make one with the harness's design canvas when it has one and otherwise
 single HTML file, save it beside the product backlog (`docs/wireframes/<story id>.html`),
 and link it from the story and the ticket.
 
-**The sprint.** `sprint` in `.loop.toml` is the list of tickets chosen for now, in order;
-`scripts/backlog-status.sh --next` takes them first. Ask the owner which of the new tickets
-go into the sprint and where (ahead of, behind, or between the ones there), or none; the
-write step edits that list in the same commit (`scripts/sprint.sh add <id> [--before <id>]`).
+**The sprint.** `sprint` in `.loop.toml` is the list of tickets to work now, in order, and
+`scripts/backlog-status.sh --next` takes them first. It means one of two things, and the comment
+above the list in `.loop.toml` says which: the tickets chosen for now, leaving the rest as the pick
+list `--open` prints, or every open ticket, so an omission is a fault that
+`scripts/backlog-status.sh --sprint-check` fails on. Ask the owner which of the new tickets go into
+the sprint and where (ahead of, behind, or between the ones there) - and "or none" only where that
+comment states the subset reading, because under the other one a ticket you file and leave out is a
+ticket the full check fails on. The write step edits that list in the same commit
+(`scripts/sprint.sh add <id> [--before <id>]`).
 
 Ask the owner to confirm the draft, and apply their edits, before going on.
 

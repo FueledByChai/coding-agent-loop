@@ -428,7 +428,7 @@ the section's list of checks cannot drift from the script again, either by `scri
 pinning it or by a check comparing the two, proved by a self-test that drops a check from one side
 and sees `./check.sh` fail naming it.
 
-### LK-17 grill-me offers "or none" for the sprint, which one reading of the sprint does not allow — `doing`
+### LK-17 grill-me offers "or none" for the sprint, which one reading of the sprint does not allow
 LK-15 settled that `sprint` in `.loop.toml` means one of two things and made the check enforce the
 stricter one here: either the tickets chosen for now, leaving the rest as the pick list `--open`
 prints, or every open ticket, so an omission is a fault — this repository means the second and runs

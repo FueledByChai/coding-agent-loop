@@ -45,7 +45,7 @@ decisions = "docs/decisions"
 # is enforced: scripts/backlog-status.sh --sprint-check runs from ./check.sh and fails naming any
 # open ticket the list leaves out (LK-15). A project whose sprint is a chosen subset instead says
 # so in its own .loop.toml and does not name that check (see loop.toml.example).
-sprint = ["LK-01", "LK-02", "LK-03", "LK-04", "LK-05", "LK-22", "LK-06", "LK-07", "LK-08", "LK-13", "LK-09", "LK-10", "LK-11", "LK-12", "LK-15", "LK-14", "LK-16", "LK-17", "LK-18", "LK-19", "LK-20", "LK-21", "LK-23", "LK-24", "LK-28"]
+sprint = ["LK-01", "LK-02", "LK-03", "LK-04", "LK-05", "LK-06", "LK-07", "LK-08", "LK-09", "LK-10", "LK-11", "LK-12", "LK-13", "LK-14", "LK-15", "LK-16", "LK-17", "LK-18", "LK-19", "LK-20", "LK-21", "LK-22", "LK-23", "LK-24", "LK-25", "LK-26", "LK-27", "LK-28"]
 # The product backlog: the stories with their acceptance criteria that tickets say they serve
 # ("Serves LS-01"). backlog-status.sh --stories derives each story's status from those tickets.
 stories = "docs/PRODUCT_BACKLOG.md"

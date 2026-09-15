@@ -21,8 +21,10 @@ scripts/decisions.sh --check
 # The block above and a project's are one list; this fails when they have drifted apart (LK-14).
 scripts/check-list.sh check.sh templates/check/common.sh
 # A ruleset that requires a status its paired workflow never reports holds every pull request
-# forever, and both pairs here are one context apart from each other: this repository's workflow
-# reports `Check (check.sh)`, the template a project installs reports `Check (scripts/check.sh)`.
+# forever, and the pairs here differ by two contexts: this repository's workflow reports
+# `Check (check.sh)` and its ruleset also requires `Agent review`, which no workflow reports - the
+# loop posts it as a commit status - while the template a project installs reports
+# `Check (scripts/check.sh)` alone (decision 0006).
 scripts/ruleset-check.sh .github/ruleset.json .github/workflows/ci.yml ci/ruleset.json ci/workflow.yml
 ./install.sh --self-test
 # The `sprint` list here is every open ticket (LK-15), so an open heading it omits is a fault:

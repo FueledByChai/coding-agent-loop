@@ -242,6 +242,32 @@ allows, with the words giving way before the keys the way the stories bar now do
 `scripts/loop-tui.sh --self-test` drives each one at 40 by named line with the affected goldens
 regenerated.
 
+### LK-32 `Never force-push` does not say whose history, and a repair after a failed review has no stated path
+`AGENTS.md`'s Claims and hand-off bullet ends `Never push the default branch. Never force-push.
+Never rewrite its history.` The first clause names the default branch and the next two do not, so
+`its` reads as the default branch's — but three imperatives in a row read as three rules, and an
+agent taking them that way must not force-push any branch. Nothing in the kit says which.
+
+The kit rewrites a pull request's head itself: `scripts/open-ticket-pr.sh --update` is
+`gh pr update-branch --rebase`, `--update-all` runs it over every pull request that is behind, and
+`prompts/review-prs.md` says a rebased pull request "gets a new head commit and new checks". So the
+prohibition cannot cover every branch without the kit contradicting itself — and the one place an
+agent needs it plain is the one place it is not: a repair.
+
+A pull request whose `Agent review` came back fail needs its defects fixed on the same branch, and
+the status is pinned to a sha, so any repair changes the head and discards it. `prompts/review-prs.md`
+reviews and posts and stops; `prompts/next-ticket.md` ends at a green pull request; neither says
+whether the repair is another commit on the branch, a rebase, or `--update`. LK-20's repair (PR #50)
+needed that decision, and took it wrongly: the three defects were fixed and the fix went out as
+`git push --force-with-lease` when the commit was a direct child of the head the review had judged,
+so a plain `git push` would have fast-forwarded and the question would never have arisen. The rule
+was breached for no reason, which is the shape this ticket exists to close — a rule that does not say
+what it is about cannot be obeyed knowingly.
+**Done when:** `AGENTS.md` says which history the prohibition covers and what a repair after a failed
+review is, and either `scripts/open-ticket-pr.sh` has a mode that lands one or the rule says plainly
+that a repair is another commit pushed without a rewrite — with a check that a repair commit descends
+from the head the review judged, so no repair ever needs a force.
+
 ## The prompts
 
 ### LK-12 grill-me grounds itself in the repository it is run in

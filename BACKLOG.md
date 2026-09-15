@@ -196,7 +196,7 @@ repository, a new one, or a sibling — before any other question.
 `prompts/grill-me.md` fails the check; and the pull request records a real run of the prompt in a
 fixture checkout with no `.loop.toml`, showing it stop to ask where the artifacts belong.
 
-### LK-18 The kit installs its commands but not its skills, so the skills a harness loads are copies that drift
+### LK-18 The kit installs its commands but not its skills, so the skills a harness loads are copies that drift — `doing`
 The kit's prompts exist once, in `prompts/<name>.md`, and `commands/<name>.md` deliberately does not
 restate them: it is a pointer — "Read `loop/prompts/<name>.md` and follow it exactly, with
 `AGENTS.md` as the standing instructions" — so there is nothing to keep in step. The skills a

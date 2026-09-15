@@ -140,7 +140,7 @@ a project whose copy differs from the kit's, with `install.sh` still keeping a p
 at a file a project cannot have; and whichever route is taken is proved in the self-tests of
 `install.sh` and `loop-kit-sync.sh`.
 
-### LK-20 The stories view's keybar offers two keys nothing reads
+### LK-20 The stories view's keybar offers two keys nothing reads — `doing`
 `scripts/loop-tui.sh stories` ends with ` e epic filter   d hide unticketed   r refresh   q quit`,
 and the key handler LK-03 added reads `r` and `q` from that view but neither `e` nor `d`: the epic
 filter and the hide-unticketed toggle were drawn onto the frame by LK-02 as part of the view and

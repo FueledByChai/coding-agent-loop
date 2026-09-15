@@ -20,7 +20,12 @@
 #
 # Only one direction is a fault. A required context with no job deadlocks every pull request; a
 # job no ruleset requires is a check that runs and gates nothing, which is a choice. So the
-# check is one-way: every context must name a job.
+# check is one-way: every context must name a job - with one exception (LK-22). The loop's own
+# review status (`review_context` in .loop.toml) is not a job and cannot be one: scripts/
+# review-status.sh posts it as a commit status from the owner's machine, which is what the README
+# tells a project to require beside the job contexts. That one context is satisfied without a job;
+# every other one still has to name one. The check cannot know whether the review actually runs -
+# only that this context is the loop's to post rather than a workflow's.
 #
 # The workflow is read with perl and no YAML library, because the kit is bash, git, and perl. A
 # job is a key at the smallest indent under `jobs:`; its name is the `name:` at the smallest
@@ -36,12 +41,15 @@ ME="$ROOT/scripts/ruleset-check.sh"
 # program so both files are read in one place and the two shapes cannot drift apart between two
 # invocations.
 verdict() { # <ruleset.json> <workflow.yml>
-  local ruleset="$1" workflow="$2"
+  local ruleset="$1" workflow="$2" review_context
   [ -f "$ruleset" ] || { echo "ruleset-check: no such ruleset: $ruleset" >&2; exit 1; }
   [ -f "$workflow" ] || { echo "ruleset-check: no such workflow: $workflow" >&2; exit 1; }
+  # The one context that is not a job, read from the config rather than named a second time
+  # (LK-22). A missing or unreadable config leaves it empty, which exempts nothing.
+  review_context="$("$SCRIPT_ROOT/scripts/loop-config.sh" review_context 2>/dev/null || true)"
   perl -MJSON::PP -e '
     use strict; use warnings;
-    my ($ruleset, $workflow) = @ARGV;
+    my ($ruleset, $workflow, $review_context) = @ARGV;
 
     # The ruleset: the context of every required status check, in file order. Both the ruleset
     # shape and the older flat one are read, since a project may have applied either.
@@ -129,6 +137,9 @@ verdict() { # <ruleset.json> <workflow.yml>
     }
 
     my %reported = map { $_ => 1 } @names;
+    # The loop posts the review status itself, so it needs no job (LK-22); every other context
+    # still does.
+    $reported{$review_context} = 1 if defined $review_context && length $review_context;
     my @missing = grep { !$reported{$_} } @contexts;
     if (@missing) {
       my $have = @names ? join(", ", map { qq{"$_"} } @names) : "none";
@@ -138,7 +149,7 @@ verdict() { # <ruleset.json> <workflow.yml>
       exit 1;
     }
     exit 0;
-  ' "$ruleset" "$workflow"
+  ' "$ruleset" "$workflow" "$review_context"
 }
 
 self_test() {
@@ -251,6 +262,34 @@ YML
   printf '{ "rules": [ { "type": "deletion" } ] }\n' > "$SELF_TEST_DIR/none.json"
   "$ME" "$SELF_TEST_DIR/none.json" "$SELF_TEST_DIR/workflow.yml" \
     || { echo "self-test: a ruleset with no required checks should pass"; exit 1; }
+
+  # The loop's own review status is the one context that is not a job (LK-22): a ruleset that
+  # requires it beside the job context passes. A fixture root gives the case a known
+  # review_context, so the name is read from the config rather than assumed.
+  mkdir -p "$SELF_TEST_DIR/root"
+  printf '[loop]\nreview_context = "Robot review"\n' > "$SELF_TEST_DIR/root/.loop.toml"
+  cat > "$SELF_TEST_DIR/review.json" <<'JSON'
+{ "rules": [ { "type": "required_status_checks",
+  "parameters": { "required_status_checks": [ { "context": "Check (check.sh)", "integration_id": 15368 },
+                                              { "context": "Robot review" } ] } } ] }
+JSON
+  LOOP_ROOT="$SELF_TEST_DIR/root" "$ME" "$SELF_TEST_DIR/review.json" "$SELF_TEST_DIR/workflow.yml" \
+    || { echo "self-test: the loop's own review context should be satisfied without a job"; exit 1; }
+
+  # The exemption is the configured name and nothing else: a status the workflow does not report
+  # and the loop does not post still fails, and the failure names it.
+  sed 's/"Robot review"/"Robot approval"/' "$SELF_TEST_DIR/review.json" > "$SELF_TEST_DIR/approval.json"
+  if LOOP_ROOT="$SELF_TEST_DIR/root" "$ME" "$SELF_TEST_DIR/approval.json" "$SELF_TEST_DIR/workflow.yml" >"$SELF_TEST_DIR/out" 2>&1; then
+    echo "self-test: only the configured review context is exempt, not any status"; cat "$SELF_TEST_DIR/out"; exit 1
+  fi
+  grep -q 'requires "Robot approval"' "$SELF_TEST_DIR/out" || { echo "self-test: the failure should name the status it read:"; cat "$SELF_TEST_DIR/out"; exit 1; }
+
+  # And it is the config that names it, not a hardcoded "Agent review": the same ruleset against
+  # the same fixture root, whose review_context is "Robot review", must fail.
+  sed 's/"Robot review"/"Agent review"/' "$SELF_TEST_DIR/review.json" > "$SELF_TEST_DIR/agent.json"
+  if LOOP_ROOT="$SELF_TEST_DIR/root" "$ME" "$SELF_TEST_DIR/agent.json" "$SELF_TEST_DIR/workflow.yml" >"$SELF_TEST_DIR/out" 2>&1; then
+    echo "self-test: the exempt context should come from the config, not be hardcoded"; cat "$SELF_TEST_DIR/out"; exit 1
+  fi
 
   # A missing file is a mistake, not a pass.
   if "$ME" "$SELF_TEST_DIR/nope.json" "$SELF_TEST_DIR/workflow.yml" >"$SELF_TEST_DIR/out" 2>&1; then

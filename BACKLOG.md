@@ -152,6 +152,35 @@ what `e` and `d` do - the epic filter narrowing the rows to the chosen epic and 
 the unticketed ones, each with the frame showing which is on - or asserts that the keybar no longer
 names them; and the stories golden frame is regenerated if the keybar changed.
 
+### LK-22 `ruleset-check.sh` fails a ruleset that requires the agent review, which the README tells every project to do
+`scripts/ruleset-check.sh` is one-way on purpose: every required context must name a workflow job,
+because a required context no job reports holds every pull request forever (LK-13). But the agent
+review's status is not a job and never will be. It is a commit status posted by
+`scripts/review-status.sh` from a machine with the owner's subscription, and the README tells a
+project to do exactly that: "Add the context to the branch ruleset's required status checks and
+auto-merge waits for it." So the kit instructs a configuration its own check fails. Verified
+against this repository's real pair, with `{"context": "Agent review"}` added to a copy of
+`.github/ruleset.json`:
+
+```
+$ scripts/ruleset-check.sh /tmp/rs-test.json .github/workflows/ci.yml
+ruleset-check: /tmp/rs-test.json requires "Agent review", which .github/workflows/ci.yml has no job named; its jobs report "Check (check.sh)"
+exit=1
+```
+
+That is the very file LK-06 has to write to require the review here, and it is not a hypothetical:
+Tessera's committed `docs/github/ruleset-main.json` is already in this shape — its required checks
+are the two job contexts plus `{"context": "Agent review"}` — so a project that names that pair in
+its own check cannot pass it while following the README, and would have to either drop the review
+requirement or drop the check. The distinction the check is missing is in the file itself: a
+context bound to a GitHub App carries `integration_id` (15368 is Actions, which is what every job
+context has), while the review's carries none, because a status posted with a user's token belongs
+to no app and no workflow can report it.
+**Done when:** `scripts/ruleset-check.sh` passes a ruleset that requires the loop's own
+`review_context` (from `.loop.toml`) beside the job contexts, and still fails a context that is
+neither a job name nor that context, proved by a self-test for each direction; and `./check.sh`
+stays green with `.github/ruleset.json` unchanged.
+
 ## The prompts
 
 ### LK-12 grill-me grounds itself in the repository it is run in
@@ -209,7 +238,7 @@ in every project that carries the kit. Add the check to `./check.sh` beside `pro
 and when the index omits a record, and passes on the kit's own records; `install.sh`'s
 self-test still passes, since a freshly installed project has no records for it to check.
 
-### LK-06 The kit's ruleset requires the agent review — Blocked by LK-09
+### LK-06 The kit's ruleset requires the agent review — Blocked by LK-22
 `.github/ruleset.json` (LK-13) names one required status, `Check (check.sh)`, and Tessera's ruleset
 also waits for the agent review. `prompts/review-prs.md` reviews every open pull request whose
 head carries no review status, but it runs from a schedule on a machine with the owner's

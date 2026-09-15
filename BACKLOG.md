@@ -140,6 +140,18 @@ a project whose copy differs from the kit's, with `install.sh` still keeping a p
 at a file a project cannot have; and whichever route is taken is proved in the self-tests of
 `install.sh` and `loop-kit-sync.sh`.
 
+### LK-20 The stories view's keybar offers two keys nothing reads
+`scripts/loop-tui.sh stories` ends with ` e epic filter   d hide unticketed   r refresh   q quit`,
+and the key handler LK-03 added reads `r` and `q` from that view but neither `e` nor `d`: the epic
+filter and the hide-unticketed toggle were drawn onto the frame by LK-02 as part of the view and
+were never implemented, so half the keys the frame offers do nothing. Either implement them or stop
+advertising them; the same question hangs over `? help` in the other three keybars, which LK-03
+answered by adding a help screen rather than by removing the key.
+**Done when:** `scripts/loop-tui.sh --self-test` drives the stories view with `--keys` and asserts
+what `e` and `d` do - the epic filter narrowing the rows to the chosen epic and the toggle dropping
+the unticketed ones, each with the frame showing which is on - or asserts that the keybar no longer
+names them; and the stories golden frame is regenerated if the keybar changed.
+
 ## The prompts
 
 ### LK-12 grill-me grounds itself in the repository it is run in

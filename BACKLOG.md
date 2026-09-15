@@ -489,7 +489,7 @@ except under the subset reading; `scripts/prompt-check.sh` still finds the phras
 prompt; and the pull request carries a recorded run of the prompt against a repository using the
 stricter reading, showing a filed ticket added to the sprint rather than left out.
 
-### LK-21 `.loop.toml` names the wrong ruleset file for this repository's own gating
+### LK-21 `.loop.toml` names the wrong ruleset file for this repository's own gating — `doing`
 The comment above `review_context` says `ci/ruleset.json does not require it here yet (LK-06)`.
 "Here" is this repository, and this repository's own ruleset is `.github/ruleset.json`: the two
 files differ by the one context they require — `Check (check.sh)` here, `Check (scripts/check.sh)`

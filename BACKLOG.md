@@ -465,5 +465,12 @@ the file that has to keep the other context, which is the one thing LK-09's own 
 about ("It is not `ci/ruleset.json`"). The cost is small and it lands in the worst place: the file
 a reader opens to learn what governs this repository's merges points at the ruleset a project
 applies instead.
-**Done when:** the comment names `.github/ruleset.json` as the ruleset that does not require the
-review here yet, and `./check.sh` passes with nothing else in `.loop.toml` changed.
+
+LK-06 landed after this was filed, so the comment is now wrong twice over: it names the wrong file
+*and* says the review is not required here yet, which `.github/ruleset.json` has required since
+LK-06. The fix is one comment either way — name this repository's own ruleset and say that it does
+require the review — so this ticket is where both are written right, rather than LK-06 editing a
+comment LK-21 exists to correct.
+**Done when:** the comment names `.github/ruleset.json` as the ruleset that requires the review here
+(not the template a project applies, and not "yet"), and `./check.sh` passes with nothing else in
+`.loop.toml` changed.

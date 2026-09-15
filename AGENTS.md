@@ -95,10 +95,13 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
 - `ci/` holds what a project applies: the workflow skeleton and the `ruleset.json` that pairs
   with it, whose required context is the job that skeleton reports (`Check (scripts/check.sh)`).
   `.github/` holds this repository's own pair — `.github/workflows/ci.yml` and
-  `.github/ruleset.json` — whose context is the job this repository reports
-  (`Check (check.sh)`). The two pairs differ by that one context and are not interchangeable: a
-  project's check sits under `scripts/`, the kit's at the root. `scripts/ruleset-check.sh` fails
-  when either pair disagrees, so neither can drift.
+  `.github/ruleset.json` — whose required contexts are the job this repository reports
+  (`Check (check.sh)`) and the agent review (`Agent review`), a commit status the loop posts from
+  a machine with the owner's subscription rather than a job (LK-06, decision 0007). The two pairs
+  differ by where the check sits — a project's under `scripts/`, the kit's at the root — and by
+  that second context, and they are not interchangeable. `scripts/ruleset-check.sh` fails when
+  either pair disagrees, so neither can drift; the review context is the one context it accepts
+  without a job (decision 0006).
 - `BACKLOG.md` is this project's executable queue, `docs/PRODUCT_BACKLOG.md` its stories, and
   `docs/decisions/` its records (index in its `README.md`; cite a record by number and never
   restate one in a doc or a ticket).

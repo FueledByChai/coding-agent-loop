@@ -37,7 +37,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `loop.toml.example` | a `.loop.toml` to copy and fill in |
 | `ci/workflow.yml` | the workflow a project installs: one job per check command |
 | `ci/ruleset.json` | the branch ruleset that pairs with it, requiring the job that workflow reports |
-| `.github/workflows/ci.yml`, `.github/ruleset.json` | this repository's own pair, requiring `Check (check.sh)` |
+| `.github/workflows/ci.yml`, `.github/ruleset.json` | this repository's own pair, requiring `Check (check.sh)` and `Agent review` |
 | `commands/*.md` | two-line wrappers for a harness with slash commands |
 | `install.sh` | copies all of the above into a checkout and says what is still missing |
 | `check.sh` | the kit's own check: every self-test, then an install into a fresh repository |

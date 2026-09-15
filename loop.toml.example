@@ -1,7 +1,9 @@
 # Settings for the ticket loop, read by scripts/loop-config.sh. Copy to .loop.toml at the
-# repository root. One flat table; strings double-quoted, arrays on one line; a missing key
-# takes its default. `scripts/loop-config.sh --all` shows the effective values. TOML is only
-# the config format: nothing here depends on the project's language.
+# repository root: install.sh does that once and keeps what you then write. This file is the
+# kit's and is refreshed by scripts/loop-kit-sync.sh, so read it here and change .loop.toml
+# (LK-19). One flat table; strings double-quoted, arrays on one line; a missing key takes its
+# default. `scripts/loop-config.sh --all` shows the effective values. TOML is only the config
+# format: nothing here depends on the project's language.
 [loop]
 # The branch pull requests target and done is judged on.
 default_branch = "main"

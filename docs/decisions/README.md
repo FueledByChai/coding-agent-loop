@@ -12,3 +12,4 @@ the old one. Cite a decision by its number. `scripts/decisions.sh new "<title>"`
 - [0007](0007-the-agent-review-is-required-here-and-a-scheduled-run-on-the.md) The agent review is required here, and a scheduled run on the owner's machine produces it — accepted
 - [0008](0008-the-section-that-describes-the-check-is-compared-with-the-sc.md) The section that describes the check is compared with the script by name — accepted
 - [0009](0009-the-skills-a-harness-loads-are-pointers-to-the-prompts-insta.md) The skills a harness loads are pointers to the prompts, installed from the kit — accepted
+- [0010](0010-the-settings-example-is-a-synced-kit-file-and-loop-toml-besi.md) The settings example is a synced kit file, and .loop.toml beside it is the project's — accepted

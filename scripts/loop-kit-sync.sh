@@ -5,11 +5,17 @@
 # or branch to take from a URL.
 #
 #   scripts/loop-kit-sync.sh            copy the kit's scripts/*.sh into scripts/, its
-#                                       prompts/*.md into loop/prompts/, and its templates/*.md
-#                                       into loop/templates/, and say what changed
+#                                       prompts/*.md into loop/prompts/, its templates/*.md into
+#                                       loop/templates/, and its loop.toml.example to the root,
+#                                       and say what changed
 #   scripts/loop-kit-sync.sh --check    exit 1 with a list when any copy differs from the kit
 #   scripts/loop-kit-sync.sh --self-test
 #                                       a fixture kit and checkout prove both modes
+#
+# loop.toml.example is synced although .loop.toml is not: install.sh writes .loop.toml from the
+# example once and keeps the project's copy afterwards, so the example is the only place a project
+# can read what a setting means now. Leaving it unsynced left it a file that reached a project once
+# and then silently went stale (LK-19).
 #
 # A directory is used as it stands (no tag); a URL, file:// included, is cloned at kit_ref.
 # Each file is written beside its target and renamed into place, this script's own copy is
@@ -59,6 +65,7 @@ pairs() {
   for f in "$kit"/templates/*.md; do [ -e "$f" ] && echo "$f $ROOT/loop/templates/$(basename "$f")"; done
   for f in "$kit"/templates/check/*.sh; do [ -e "$f" ] && echo "$f $ROOT/loop/templates/check/$(basename "$f")"; done
   for f in "$kit"/templates/ci/*.yml; do [ -e "$f" ] && echo "$f $ROOT/loop/templates/ci/$(basename "$f")"; done
+  f="$kit/loop.toml.example"; [ -e "$f" ] && echo "$f $ROOT/loop.toml.example"
   return 0
 }
 
@@ -116,6 +123,7 @@ self_test() {
   cp "$SCRIPT_ROOT/scripts/loop-config.sh" "$dir/work/scripts/"
   printf '#!/usr/bin/env bash\necho tool v1\n' > "$dir/kit-src/scripts/tool.sh"
   printf 'prompt v1\n' > "$dir/kit-src/prompts/do.md"
+  printf 'settings v1\n' > "$dir/kit-src/loop.toml.example"
   (cd "$dir/kit-src" && git init -q && git config user.email t@example.com && git config user.name t && git add -A && git commit -q -m "kit v1" && git tag v1)
   printf '[loop]\nkit = "file://%s"\nkit_ref = "v1"\n' "$dir/kit-src" > "$dir/work/.loop.toml"
   export LOOP_ROOT="$dir/work"
@@ -123,16 +131,24 @@ self_test() {
   if out="$("$me" --check 2>&1)"; then echo "self-test: --check must fail before the first sync"; exit 1; fi
   echo "$out" | grep -q '^missing: scripts/tool.sh' || { echo "self-test: --check should list the missing script:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^missing: loop/prompts/do.md' || { echo "self-test: --check should list the missing prompt:"; echo "$out"; exit 1; }
+  # loop.toml.example is the file a project cannot otherwise keep current (LK-19), so it is
+  # checked like the scripts and the prompts.
+  echo "$out" | grep -q '^missing: loop.toml.example' || { echo "self-test: --check should list the missing loop.toml.example:"; echo "$out"; exit 1; }
   # The sync copies them; --check then passes and names the ref.
   out="$("$me")"
-  echo "$out" | grep -q '^loop kit: 2 file(s) updated' || { echo "self-test: the sync should copy two files:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q '^loop kit: 3 file(s) updated' || { echo "self-test: the sync should copy three files:"; echo "$out"; exit 1; }
   [ -x "$dir/work/scripts/tool.sh" ] || { echo "self-test: the copied script must be executable"; exit 1; }
+  cmp -s "$dir/kit-src/loop.toml.example" "$dir/work/loop.toml.example" || { echo "self-test: the sync should copy loop.toml.example to the root"; exit 1; }
   out="$("$me" --check)"
-  echo "$out" | grep -q "^loop kit: in sync with file://$dir/kit-src at v1 (2 files)" || { echo "self-test: --check should pass after the sync:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q "^loop kit: in sync with file://$dir/kit-src at v1 (3 files)" || { echo "self-test: --check should pass after the sync:"; echo "$out"; exit 1; }
   # Local drift fails --check; the kit moving on (a new tag) shows as a difference too.
   echo "edited" >> "$dir/work/scripts/tool.sh"
+  echo "edited" >> "$dir/work/loop.toml.example"
   if "$me" --check >/dev/null 2>&1; then echo "self-test: --check must fail on local drift"; exit 1; fi
+  out="$("$me" --check 2>&1 || true)"
+  echo "$out" | grep -q '^differs: loop.toml.example' || { echo "self-test: --check should report drift in loop.toml.example:"; echo "$out"; exit 1; }
   "$me" >/dev/null
+  cmp -s "$dir/kit-src/loop.toml.example" "$dir/work/loop.toml.example" || { echo "self-test: the sync should repair loop.toml.example"; exit 1; }
   (cd "$dir/kit-src" && printf 'prompt v2\n' > prompts/do.md && git commit -q -am "kit v2" && git tag v2)
   "$me" --check >/dev/null || { echo "self-test: v1 is still what the config names, so --check must pass"; exit 1; }
   printf '[loop]\nkit = "file://%s"\nkit_ref = "v2"\n' "$dir/kit-src" > "$dir/work/.loop.toml"

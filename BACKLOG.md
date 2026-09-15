@@ -122,7 +122,7 @@ same stdout, both in this checkout and in a copy with `.loop.toml` removed, and 
 `scripts/sprint.sh --self-test` is unchanged and still writes nothing to stderr; and `./check.sh`'s
 output is byte-identical between the two checkouts.
 
-### LK-19 `loop.toml.example` reaches a project once and is never synced again
+### LK-19 `loop.toml.example` reaches a project once and is never synced again — `doing`
 `install.sh` copies `loop.toml.example` into a project's `.loop.toml` at install time and never
 overwrites it afterwards, which is right — that file is the project's own. But `loop-kit-sync.sh`
 copies only `scripts/*.sh`, `prompts/*.md`, `templates/*.md`, `templates/check/*.sh` and

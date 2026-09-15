@@ -65,7 +65,9 @@ below it are this project's own and are what the loop prompts mean when they say
   project; `loop/prompts/review-prs.md` reviews the open pull requests and posts the
   `review_context` status the branch rules require (red only for a missing proof, an unmet
   done line, a rules breach, or a named defect). A harness with slash commands wraps them
-  in its command directory; any other agent is pointed at the prompt file directly.
+  in its command directory, and one that loads skills gets a `SKILL.md` pointer per prompt;
+  both are pointers, so neither restates a rule; any other agent is pointed at the prompt
+  file directly.
 - **The kit.** The scripts and prompts are copies from the loop kit named by `kit` in
   `.loop.toml`; `scripts/loop-kit-sync.sh --check` fails when they drift, and
   `scripts/loop-kit-sync.sh` brings them up to the kit's tag. Change them in the kit, not here.
@@ -88,7 +90,10 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
   one loses a phrase that states a rule.
 - `templates/` is what a project receives: `decision.md` and the per-stack check and CI
   skeletons (`templates/check/*.sh`, `templates/ci/*.yml`). `commands/*.md` are the wrappers a
-  harness with slash commands installs.
+  harness with slash commands installs, and `skills/*/SKILL.md` the pointers a harness that
+  loads skills reads: one per prompt, frontmatter plus the sentence naming
+  `loop/prompts/<name>.md`, checked by `install.sh --skills <dir>` so a skill cannot restate a
+  rule and drift from its prompt (LK-18).
 - `check.sh` sits at the repository root on purpose, so `install.sh` never copies it over a
   project's own `scripts/check.sh`. `install.sh` copies everything else and never overwrites a
   project's `AGENTS.md`, `CLAUDE.md`, `.loop.toml`, or workflow.

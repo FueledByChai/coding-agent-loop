@@ -196,7 +196,7 @@ repository, a new one, or a sibling — before any other question.
 `prompts/grill-me.md` fails the check; and the pull request records a real run of the prompt in a
 fixture checkout with no `.loop.toml`, showing it stop to ask where the artifacts belong.
 
-### LK-18 The kit installs its commands but not its skills, so the skills a harness loads are copies that drift — `doing`
+### LK-18 The kit installs its commands but not its skills, so the skills a harness loads are copies that drift
 The kit's prompts exist once, in `prompts/<name>.md`, and `commands/<name>.md` deliberately does not
 restate them: it is a pointer — "Read `loop/prompts/<name>.md` and follow it exactly, with
 `AGENTS.md` as the standing instructions" — so there is nothing to keep in step. The skills a
@@ -499,3 +499,27 @@ review at all. LK-16 ran into exactly that: the branch was green on CI, armed, a
 report could only say so.
 **Done when:** step 6 says what actually merges the PR and names the review status its branch has to
 carry before that happens, and `scripts/prompt-check.sh` pins the phrase that states it.
+
+### LK-28 The command wrappers and the skill pointers are the same sentences twice, and nothing compares them
+LK-18 made `skills/<name>/SKILL.md` a pointer at its prompt so that it cannot restate a rule, and
+left `commands/<name>.md` where it was: the same pointer, for a harness with slash commands. The two
+files now carry the same sentences. Each wrapper is "Read `loop/prompts/<name>.md` and follow it
+exactly, with `AGENTS.md` as the standing instructions." plus one ticket-specific sentence — "Work in
+an isolated worktree." for `next-ticket` — and each skill is that text minus the `$ARGUMENTS` clause
+a command substitutes into, under the frontmatter a harness needs to load it. Three of the four
+skills differ from their wrapper only by that clause; `review-prs`'s skill and its wrapper are
+identical.
+
+Nothing compares them. `install.sh`'s `check_skill` compares a skill with the prompt it points at
+and never with the wrapper beside it, so an edit to one of the pair leaves the two harnesses
+disagreeing about what the loop does — the fault LK-18 was filed from, one level down: an agent that
+loads the skill and an agent that runs the slash command read different instructions while both read
+the right prompt. It is the LK-14/LK-15/LK-16 shape again, two places holding one fact with nothing
+keeping them in step, and `scripts/prompt-check.sh` does not see it, since it pins phrases in
+`prompts/*.md` and reads neither pointer.
+
+The cheap fix is to derive one from the other: the wrapper is the body, the skill is that body under
+frontmatter, so there is one copy and each skill's `description:` stays the only hand-written part.
+**Done when:** `./check.sh` fails when a command wrapper and the skill beside it disagree, naming the
+pair and the passage — proved by a self-test that drops a sentence from one side — or the skill's
+body is derived from its wrapper at install time, so that a disagreement cannot exist.

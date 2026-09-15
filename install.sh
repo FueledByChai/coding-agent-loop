@@ -1,28 +1,60 @@
 #!/usr/bin/env bash
 # Installs the loop kit into a checkout (HK-16): the scripts into scripts/, the prompts into
 # loop/prompts/, AGENTS.md and .loop.toml when absent, the workflow skeleton when there is no
-# workflow, and the two wrappers when a command directory is given. Then it says what the
-# project still has to supply.
+# workflow, and the four wrappers and four skill pointers when their directories are given. Then
+# it says what the project still has to supply.
 #
-#   install.sh <checkout> [--commands <dir>]    install into <checkout>
+#   install.sh <checkout> [--commands <dir>] [--skills <dir>]
+#                                               install into <checkout>
 #   install.sh --self-test                      a fresh repository with a stub check proves the
 #                                               install and the installed self-tests
 set -euo pipefail
 KIT="$(cd "$(dirname "$0")" && pwd)"
 TARGET="${1:-}"
 COMMANDS=""
-[ -n "$TARGET" ] || { echo "usage: install.sh <checkout> [--commands <dir>] | --self-test" >&2; exit 2; }
+SKILLS=""
+[ -n "$TARGET" ] || { echo "usage: install.sh <checkout> [--commands <dir>] [--skills <dir>] | --self-test" >&2; exit 2; }
 shift
 while [ $# -gt 0 ]; do
   case "$1" in
     --commands) COMMANDS="$2"; shift ;;
+    --skills) SKILLS="$2"; shift ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
   shift
 done
 
+# A skill's body: everything after its frontmatter, which is the only part that could restate a
+# rule.
+skill_body() { awk '/^---$/{n++; next} n>=2' "$1"; }
+
+# A skill is a pointer, like a command wrapper: frontmatter a harness can match, then the sentence
+# that sends the agent to `loop/prompts/<name>.md`, and no line of that prompt. The skills this kit
+# used to leave to hand-copies were restatements, and three of them had drifted from their prompts
+# before anyone noticed (LK-18), so a skill that carries a prompt line - or names the wrong prompt,
+# or has no frontmatter for the harness to load - is refused here rather than installed.
+check_skill() {
+  local name="$1" skill="$2" prompt="$3" line
+  [ -f "$skill" ] || { echo "install: no skills/$name/SKILL.md for loop/prompts/$name.md" >&2; return 1; }
+  [ -f "$prompt" ] || { echo "install: no loop/prompts/$name.md for skills/$name/SKILL.md" >&2; return 1; }
+  grep -qx "name: $name" "$skill" \
+    || { echo "install: skills/$name/SKILL.md should declare 'name: $name'" >&2; return 1; }
+  grep -q '^description: .' "$skill" \
+    || { echo "install: skills/$name/SKILL.md should carry a description for the harness to match" >&2; return 1; }
+  grep -qF "Read \`loop/prompts/$name.md\` and follow it exactly" "$skill" \
+    || { echo "install: skills/$name/SKILL.md does not point at loop/prompts/$name.md" >&2; return 1; }
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if grep -Fxq "$line" "$prompt"; then
+      echo "install: skills/$name/SKILL.md restates loop/prompts/$name.md: $line" >&2
+      return 1
+    fi
+  done < <(skill_body "$skill")
+  return 0
+}
+
 install_into() {
-  local target="$1" commands="$2" f
+  local target="$1" commands="$2" skills="$3" f n d
   [ -d "$target" ] || { echo "no such directory: $target" >&2; return 1; }
   target="$(cd "$target" && pwd)"
   mkdir -p "$target/scripts" "$target/loop/prompts" "$target/loop/templates/check" "$target/loop/templates/ci"
@@ -71,6 +103,23 @@ install_into() {
     for f in "$KIT"/commands/*.md; do cp "$f" "$target/$commands/"; done
     echo "installed: $commands/{next-ticket,grill-me,review-prs,grill-project}.md wrappers"
   fi
+  # One skill per prompt, checked before it is copied, so a fresh install cannot reproduce the
+  # drift the hand-copied skills had (LK-18). The second loop is the other direction: a skill with
+  # no prompt to point at is a file nothing can keep honest.
+  if [ -n "$skills" ]; then
+    for f in "$KIT"/prompts/*.md; do
+      n="$(basename "$f" .md)"
+      check_skill "$n" "$KIT/skills/$n/SKILL.md" "$f" || return 1
+      mkdir -p "$target/$skills/$n"
+      cp "$KIT/skills/$n/SKILL.md" "$target/$skills/$n/SKILL.md"
+    done
+    for d in "$KIT"/skills/*/; do
+      n="$(basename "$d")"
+      [ -f "$KIT/prompts/$n.md" ] \
+        || { echo "install: skills/$n/SKILL.md has no loop/prompts/$n.md to point at" >&2; return 1; }
+    done
+    echo "installed: $skills/{$(cd "$KIT/prompts" && ls *.md | sed 's/\.md$//' | tr '\n' ',' | sed 's/,$//')}/SKILL.md pointers"
+  fi
   if [ ! -e "$target/$(basename "$(cd "$target" && "$target/scripts/loop-config.sh" backlog)")" ]; then
     echo "note: the backlog file ($(cd "$target" && "$target/scripts/loop-config.sh" backlog)) does not exist yet; create it with a heading per section and a ticket per '### <ID> <title>'"
   fi
@@ -100,17 +149,54 @@ EOF
 self_test() {
   SELF_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/loop-install.XXXXXX")"
   trap 'rm -rf "$SELF_TEST_DIR"' EXIT
-  local dir="$SELF_TEST_DIR/fresh" out loop_runs=0 pair f want marker first=1 suite='== loop self-tests'
+  local dir="$SELF_TEST_DIR/fresh" out loop_runs=0 pair f want marker first=1 suite='== loop self-tests' n p fix
   mkdir -p "$dir/scripts"
   (cd "$dir" && git init -q && git config user.email t@example.com && git config user.name t)
   printf '#!/usr/bin/env bash\necho stub check\n' > "$dir/scripts/check.sh"; chmod +x "$dir/scripts/check.sh"
-  out="$("$KIT/install.sh" "$dir" --commands .agent/commands)"
+  out="$("$KIT/install.sh" "$dir" --commands .agent/commands --skills .agent/skills)"
   echo "$out" | grep -q '^installed: AGENTS.md' || { echo "self-test: AGENTS.md should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .loop.toml' || { echo "self-test: .loop.toml should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .github/workflows/loop.yml' || { echo "self-test: the workflow should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: ci/ruleset.json' || { echo "self-test: the ruleset should be installed:"; echo "$out"; exit 1; }
   [ -f "$dir/ci/ruleset.json" ] || { echo "self-test: ci/ruleset.json should be installed"; exit 1; }
   echo "$out" | grep -q '^installed: .agent/commands/' || { echo "self-test: the wrappers should be installed:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q '^installed: .agent/skills/' || { echo "self-test: the skill pointers should be installed:"; echo "$out"; exit 1; }
+  # One skill per prompt, and each one a pointer at its prompt rather than a copy of it. This is
+  # the assertion a restatement fails, whichever way it got in (LK-18).
+  for p in "$dir"/loop/prompts/*.md; do
+    n="$(basename "$p" .md)"
+    check_skill "$n" "$dir/.agent/skills/$n/SKILL.md" "$p" \
+      || { echo "self-test: the installed $n skill should be a pointer at loop/prompts/$n.md"; exit 1; }
+  done
+  # The kit's own skills are checked at install time, so the check has to bite. A body replaced
+  # with the prompt's is the drift this was filed from; a skill pointing at another prompt, one
+  # whose frontmatter names another skill, and a prompt with no skill beside it are the rest.
+  fix="$SELF_TEST_DIR/drift"
+  mkdir -p "$fix/skills/AA-01" "$fix/prompts"
+  printf 'A rule the prompt states.\nAnother rule it states.\n' > "$fix/prompts/AA-01.md"
+  { printf -- '---\nname: AA-01\ndescription: a restatement.\n---\n\n'; cat "$fix/prompts/AA-01.md"; } > "$fix/skills/AA-01/SKILL.md"
+  if check_skill AA-01 "$fix/skills/AA-01/SKILL.md" "$fix/prompts/AA-01.md" >/dev/null 2>&1; then
+    echo "self-test: a skill whose body is the prompt's must be refused"; exit 1
+  fi
+  printf -- '---\nname: AA-01\ndescription: a pointer.\n---\n\nRead `loop/prompts/AA-99.md` and follow it exactly.\n' > "$fix/skills/AA-01/SKILL.md"
+  if check_skill AA-01 "$fix/skills/AA-01/SKILL.md" "$fix/prompts/AA-01.md" >/dev/null 2>&1; then
+    echo "self-test: a skill pointing at a different prompt must be refused"; exit 1
+  fi
+  printf -- '---\nname: AA-02\ndescription: a pointer.\n---\n\nRead `loop/prompts/AA-01.md` and follow it exactly.\n' > "$fix/skills/AA-01/SKILL.md"
+  if check_skill AA-01 "$fix/skills/AA-01/SKILL.md" "$fix/prompts/AA-01.md" >/dev/null 2>&1; then
+    echo "self-test: a skill whose frontmatter names another skill must be refused"; exit 1
+  fi
+  printf -- '---\ndescription: no name.\n---\n\nRead `loop/prompts/AA-01.md` and follow it exactly.\n' > "$fix/skills/AA-01/SKILL.md"
+  if check_skill AA-01 "$fix/skills/AA-01/SKILL.md" "$fix/prompts/AA-01.md" >/dev/null 2>&1; then
+    echo "self-test: a skill with no name: line must be refused"; exit 1
+  fi
+  printf -- '---\nname: AA-01\ndescription: a pointer.\n---\n\nRead `loop/prompts/AA-01.md` and follow it exactly.\n' > "$fix/skills/AA-01/SKILL.md"
+  check_skill AA-01 "$fix/skills/AA-01/SKILL.md" "$fix/prompts/AA-01.md" \
+    || { echo "self-test: a pointer skill should be accepted"; exit 1; }
+  printf 'A rule the prompt states.\n' > "$fix/prompts/AA-09.md"
+  if check_skill AA-09 "$fix/skills/AA-09/SKILL.md" "$fix/prompts/AA-09.md" >/dev/null 2>&1; then
+    echo "self-test: a prompt with no skill beside it must be refused"; exit 1
+  fi
   echo "$out" | grep -q '(present)' || { echo "self-test: the stub check should be reported present:"; echo "$out"; exit 1; }
   for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint loop-tui check-list ruleset-check; do
     [ -x "$dir/scripts/$f.sh" ] || { echo "self-test: scripts/$f.sh missing or not executable"; exit 1; }
@@ -196,5 +282,5 @@ self_test() {
 
 case "$TARGET" in
   --self-test) self_test ;;
-  *) install_into "$TARGET" "$COMMANDS" ;;
+  *) install_into "$TARGET" "$COMMANDS" "$SKILLS" ;;
 esac

@@ -64,6 +64,10 @@ install_into() {
   target="$(cd "$target" && pwd)"
   mkdir -p "$target/scripts" "$target/loop/prompts" "$target/loop/templates/check" "$target/loop/templates/ci"
   for f in "$KIT"/scripts/*.sh; do cp "$f" "$target/scripts/"; chmod +x "$target/scripts/$(basename "$f")"; done
+  # A helper in another language travels the same way the shell scripts do: two globs, two
+  # extensions, and nothing else under scripts/ ships. Widening one and not the other is how a
+  # file looks shipped and never arrives (LK-35).
+  for f in "$KIT"/scripts/*.py; do [ -e "$f" ] || continue; cp "$f" "$target/scripts/"; chmod +x "$target/scripts/$(basename "$f")"; done
   for f in "$KIT"/prompts/*.md; do cp "$f" "$target/loop/prompts/"; done
   for f in "$KIT"/templates/*.md; do cp "$f" "$target/loop/templates/"; done
   for f in "$KIT"/templates/check/*.sh; do cp "$f" "$target/loop/templates/check/"; done
@@ -71,7 +75,7 @@ install_into() {
   # The example is the kit's file and is refreshed every install, unlike the .loop.toml written
   # from it, which is the project's own and is written once (LK-19).
   cp "$KIT/loop.toml.example" "$target/loop.toml.example"
-  echo "installed: scripts/{$(cd "$KIT/scripts" && ls *.sh | sed 's/\.sh$//' | tr '\n' ',' | sed 's/,$//')}.sh, loop/prompts/*.md, loop/templates/*.md, loop/templates/check/*.sh, loop/templates/ci/*.yml, and loop.toml.example"
+  echo "installed: scripts/{$(cd "$KIT/scripts" && ls | tr '\n' ',' | sed 's/,$//')}, loop/prompts/*.md, loop/templates/*.md, loop/templates/check/*.sh, loop/templates/ci/*.yml, and loop.toml.example"
   if [ -e "$target/AGENTS.md" ]; then
     echo "kept: AGENTS.md (already present; compare its loop section with the kit's when you update)"
   else
@@ -210,6 +214,7 @@ self_test() {
   for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint check-list ruleset-check; do
     [ -x "$dir/scripts/$f.sh" ] || { echo "self-test: scripts/$f.sh missing or not executable"; exit 1; }
   done
+  [ -x "$dir/scripts/coverage-percent.py" ] || { echo "self-test: scripts/coverage-percent.py missing or not executable"; exit 1; }
   [ -f "$dir/loop/templates/decision.md" ] || { echo "self-test: the decision template should be installed"; exit 1; }
   for f in common rust python node java go other; do [ -f "$dir/loop/templates/check/$f.sh" ] || { echo "self-test: the $f check skeleton should be installed"; exit 1; }; done
   for f in rust python node java go other; do [ -f "$dir/loop/templates/ci/$f.yml" ] || { echo "self-test: the $f CI snippet should be installed"; exit 1; }; done
@@ -278,6 +283,8 @@ self_test() {
   (cd "$dir" && scripts/open-ticket-pr.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed open-ticket-pr self-test failed"; exit 1; }
   (cd "$dir" && scripts/check-list.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed check-list self-test failed"; exit 1; }
   (cd "$dir" && scripts/ruleset-check.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed ruleset-check self-test failed"; exit 1; }
+  (cd "$dir" && python3 scripts/coverage-percent.py --self-test | grep -q 'coverage-percent self-test passed') \
+    || { echo "self-test: the installed coverage helper's self-test failed"; exit 1; }
   # Installing again keeps what exists, and refreshes what is the kit's. The pair to prove is
   # .loop.toml against loop.toml.example: both are edited here, and only the example comes back
   # (LK-19).

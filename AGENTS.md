@@ -80,9 +80,10 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
 
 ### Layout
 
-- `scripts/*.sh` is the shipping surface. Every script is bash that stays within bash 3.2
-  (macOS's system bash: no `declare -A`, no `mapfile`, no `${var,,}`) and carries a
-  `--self-test` that proves it against a fixture repository it builds in a temporary directory.
+- `scripts/*.sh` and `scripts/*.py` are the shipping surface. Every shell script is bash that
+  stays within bash 3.2 (macOS's system bash: no `declare -A`, no `mapfile`, no `${var,,}`) and
+  carries a `--self-test` that proves it against a fixture repository it builds in a temporary
+  directory; a Python helper carries a `--self-test` that builds its own fixture the same way.
   `scripts/loop-config.sh` reads `.loop.toml`; every other script takes its project-specific
   values from it and names no branch, path, or build command of a project.
 - `prompts/*.md` are what an agent follows: `next-ticket`, `grill-me`, `grill-project`,
@@ -144,10 +145,11 @@ apart again (LK-16).
   belongs in "The check" above, which `scripts/check-list.sh --section` compares with `check.sh`
   and fails naming the side that lacks it (LK-16). `install.sh` copies `scripts/*.sh` by
   glob, so nothing else there needs changing.
-- **`scripts/*.sh` is the only thing that ships.** `scripts/loop-kit-sync.sh` and `install.sh`
-  both glob that extension, so a helper in another language, or a fixture directory beside the
-  scripts, silently never reaches a project (decision 0002). A fixture a self-test needs is
-  written into a temporary directory by the test itself.
+- **`scripts/*.sh` and `scripts/*.py` ship; nothing else under `scripts/` does.**
+  `scripts/loop-kit-sync.sh` and `install.sh` both glob those two extensions, so a fixture
+  directory beside the scripts, or a helper in a third language, silently never reaches a
+  project (LK-35). A fixture a self-test needs is written into a temporary directory by the
+  test itself. Adding a third extension means widening both globs in the same change.
 - **Nothing here writes to a project's default branch, and nothing here commits.** The scripts
   print and the agent or the owner commits: `scripts/open-ticket-pr.sh` pushes a `ticket/<id>`
   branch, and `scripts/sprint.sh` edits the working tree only (decision 0013).

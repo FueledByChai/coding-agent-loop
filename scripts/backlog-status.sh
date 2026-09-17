@@ -189,7 +189,7 @@ if ($stories_file ne "" && open my $sf, "<:encoding(UTF-8)", $stories_file) {
   while (my $line = <$sf>) {
     chomp $line;
     if ($line =~ /^## (.*)$/) { $epic = $1; $s = undef; next; }
-    if ($line =~ /^### ([A-Z]+-\d+) \x{2014} (.*)$/) {
+    if ($line =~ /^### ([A-Z][A-Z0-9]*-[a-z0-9]+) \x{2014} (.*)$/) {
       $s = { id => $1, title => $2, epic => $epic, written => "", heading => $line, body => [], tickets => [] };
       push @stories, $s; $story{$1} = $s; next;
     }
@@ -431,6 +431,11 @@ EOF
 **Acceptance criteria:**
 
 - it works
+
+### BT-1z — A generated story id
+
+**Status:** Proposed  
+**Acceptance criteria:** it works too.
 MD
   export PATH="$dir/bin:$PATH" LOOP_ROOT="$dir"
   out="$("$me" --ref trunk 2>&1)" || { echo "self-test: the table should pass:"; echo "$out"; exit 1; }
@@ -447,6 +452,9 @@ MD
   echo "$out" | grep -q '^sprint: yes (P1)' || { echo "self-test: --show should derive the sprint from the label:"; echo "$out"; exit 1; }
   out="$("$me" --ref trunk --stories 2>&1)" || { echo "self-test: --stories should pass"; exit 1; }
   echo "$out" | grep -q '^BT-01  *open 0/1' || { echo "self-test: the story should derive from the story: label:"; echo "$out"; exit 1; }
+  # A story id of the shape Beads mints is read from the backlog too: before the heading was
+  # widened, BT-1z was not a story at all and simply did not appear.
+  echo "$out" | grep -q '^BT-1z ' || { echo "self-test: a generated story id should be read from the backlog:"; echo "$out"; exit 1; }
   # A project that keeps no product backlog writes stories = "" (loop.toml.example), and the
   # queue still has to read. bash 3.2 initialises an unassigned `local` to empty and hides a
   # reference to it under set -u; bash 5, which CI runs, does not - so this case is the one that

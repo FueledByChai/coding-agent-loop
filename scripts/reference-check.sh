@@ -121,7 +121,7 @@ my (@stories, %story);
 if ($stories ne "" && -f $stories) {
   my @lines = split /\n/, slurp_text($stories), -1;
   for (my $i = 0; $i <= $#lines; $i++) {
-    next unless $lines[$i] =~ /^###\s+([A-Z][A-Z0-9]*-[0-9]+)\s+\Q$EM\E\s+\S/;
+    next unless $lines[$i] =~ /^###\s+([A-Z][A-Z0-9]*-[a-z0-9]+)\s+\Q$EM\E\s+\S/;
     my $id = $1;
     if ($story{$id}++) { push @problems, "$stories:" . ($i + 1) . ": duplicate story id $id"; next; }
     push @stories, $id;
@@ -221,6 +221,10 @@ JSON
 ### SS-01 — The first story
 **Status:** Proposed
 **Acceptance criteria:** it works.
+
+### SS-1z — A generated story id
+**Status:** Proposed
+**Acceptance criteria:** it works too.
 EOF
     printf '# 0001 - the first decision\n' > "$dir/docs/decisions/0001-the-first-decision.md"
   }
@@ -228,7 +232,7 @@ EOF
 
   good
   out="$("$me")" || { echo "self-test: a clean queue should pass:"; echo "$out"; exit 1; }
-    printf '%s\n' "$out" | grep -q '^reference-check: 3 ticket(s), 1 story(s), 1 decision record(s)' \
+    printf '%s\n' "$out" | grep -q '^reference-check: 3 ticket(s), 2 story(s), 1 decision record(s)' \
     || { echo "self-test: the pass line should count what it read:"; echo "$out"; exit 1; }
 
   assert_names() {

@@ -15,11 +15,13 @@ below it are this project's own and are what the loop prompts mean when they say
   the pick list `--open` prints, or every open ticket, so an omission is a fault). `scripts/loop-config.sh --all` prints the effective values. Prompts and scripts read them from there; they never hard-code
   a branch, a path, or a build command.
 - **Tickets.** The queue is Beads (`bd`), a hard dependency. A ticket is an issue whose id is
-  `<PREFIX>-<number>`: its `description` is the intent, its `acceptance_criteria` is the done
-  line naming the test, fixture, or measurable output that proves it, its `blocks` dependencies
-  are its blockers, and its `section:` and `story:` labels group it and name the story it
-  serves. Git is the record of done: a ticket is done when a commit whose subject starts with
-  its id is on the default branch, and `scripts/backlog-status.sh` derives every ticket's state
+  `<PREFIX>-<suffix>`, where the suffix is a number until the prefix's numeric space is spent
+  and then the alphanumeric id Beads mints instead (`LK-1af`): its `description` is the intent,
+  its `acceptance_criteria` is the done line naming the test, fixture, or measurable output that
+  proves it, its `blocks` dependencies are its blockers, and its `section:` and `story:` labels
+  group it and name the story it serves. Git is the record of done: a ticket is done when a
+  commit whose subject starts with its id is on the default branch, and
+  `scripts/backlog-status.sh` derives every ticket's state
   from the commits and the queue (`--next` names the first ready ticket, the `sprint_label`
   tickets first by priority; `--sprint` their states; `--open` the tickets outside the sprint;
   `--sprint-check` the label pairing; `--reconcile` git against Beads; `--show <id>` a ticket

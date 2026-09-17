@@ -752,3 +752,23 @@ configured image, database, role, and URL built from the published port; the con
 after success, after a failing command whose exit code reaches the caller, and after a
 `SIGTERM`; a container whose ownership label is not this run's left alone; and the three
 refusals - no Docker, a daemon that is not running, and no command to run - named.
+
+### LK-39 The Compose proof is a kit tool, and the project supplies the proof
+rockbox-ghl's `scripts/compose-smoke.sh` starts its stack under a project name of its own,
+waits for health, proves the things a check cannot (HTTP, Flyway, rows surviving a restart),
+and removes only that project's containers and volumes - never the developer's own stack, never
+a prune. Almost none of that is rockbox-shaped: the lifecycle is the reusable part, and what is
+project-shaped is the environment the compose file reads (`ROCKBOX_DATABASE_PASSWORD`,
+`ROCKBOX_HTTP_PORT`), the files, and the proof itself. So the kit takes the lifecycle and the
+project keeps the data, through three settings: `compose_files`, `compose_env` (a command whose
+output is KEY=VALUE lines, exported before the stack starts - the same shape `coverage` and
+`check` already have), and `compose_proof` (a command run once it is healthy). The proof runs
+with `COMPOSE_PROJECT_NAME` and `COMPOSE_FILE` exported, so it can drive the same stack without
+recomputing any of it.
+**Done when:** `./check.sh` passes with `scripts/compose-smoke.sh` installed and its
+`--self-test` in the shared check block, and the self-test shows the stack started once from
+every configured file with the run's own project name and `--wait`, the environment command's
+values reaching the proof, the stack taken down with its volumes on a passing run, on a failing
+proof whose exit code reaches the caller, and on a stack that never came up (logs printed
+first), and no stack started at all when the environment command prints something that is not
+an assignment.

@@ -32,7 +32,9 @@ check_id() {
   [[ "$id" =~ ^[A-Z]+-[0-9]+$ ]] || { echo "not a ticket id: $id" >&2; return 1; }
   grep -q "^### $id " "$backlog" 2>/dev/null || { echo "$id is not a ticket in $backlog" >&2; return 1; }
   local state
-  state="$(cd "$(dirname "$backlog")" && "$ROOT/scripts/backlog-status.sh" --backlog "$backlog" --local 2>/dev/null | awk -v id="$id" '$1 == id { print $2 }')"
+  # The queue is Beads now (0012), so the state comes from backlog-status against the project
+  # root the settings file names, not from the heading text.
+  state="$(cd "$(dirname "$backlog")" && LOOP_ROOT="$(dirname "$backlog")" "$ROOT/scripts/backlog-status.sh" --local 2>/dev/null | awk -v id="$id" '$1 == id { print $2 }')"
   [ "$state" != "done" ] || { echo "$id is already done" >&2; return 1; }
   return 0
 }
@@ -95,6 +97,18 @@ case "$cmd" in
      git add -A && git commit -q -m "Scaffold" && git branch -q -M main && git commit -q --allow-empty -m "AA-03: third landed")
     printf '[loop]\ndefault_branch = "main"\n' > "$dir/.loop.toml"
     export LOOP_CONFIG="$dir/.loop.toml"
+    mkdir -p "$dir/bin"
+    cat > "$dir/bin/bd" <<'EOF'
+#!/usr/bin/env bash
+# Stub bd: the fixture queue. AA-03 is claimed in Beads but its commit landed on main.
+cat <<'JSON'
+[{"id":"AA-01","title":"First","description":"","acceptance_criteria":"proof","status":"open","priority":2,"issue_type":"task","labels":[],"assignee":"","dependencies":[]},
+ {"id":"AA-02","title":"Second","description":"","acceptance_criteria":"proof","status":"open","priority":2,"issue_type":"task","labels":[],"assignee":"","dependencies":[]},
+ {"id":"AA-03","title":"Third","description":"","acceptance_criteria":"proof","status":"in_progress","priority":2,"issue_type":"task","labels":[],"assignee":"someone","dependencies":[]}]
+JSON
+EOF
+    chmod +x "$dir/bin/bd"
+    export PATH="$dir/bin:$PATH"
     out="$("$me" add AA-01)"; [ "$out" = "sprint: AA-01" ] || { echo "self-test: add should start the list: $out"; exit 1; }
     grep -q '^sprint = \["AA-01"\]$' "$dir/.loop.toml" || { echo "self-test: the line should be appended under [loop]"; cat "$dir/.loop.toml"; exit 1; }
     out="$("$me" add AA-02 --before AA-01)"; [ "$out" = "sprint: AA-02 AA-01" ] || { echo "self-test: --before should place it first: $out"; exit 1; }

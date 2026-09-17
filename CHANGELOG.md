@@ -3,6 +3,38 @@
 What shipped, by release: the commits that carry a ticket id between two tags, with the
 ticket text read from Beads (scripts/release-notes.sh --archive).
 
+## v0.21.1 — 2026-09-17 (v0.21.0..HEAD)
+
+### kit (LK)
+
+- **LK-7o6** backlog-status.sh reads an unset stories path as an unbound variable — 2026-09-17 · 7142c12 (read the queue when no stories file is configured)
+- **LK-c0d** The loop's ticket-id shape drops the ids Beads generates — 2026-09-17 · 1659e21 (read the ids Beads generates)
+
+### kit (LK): archived tickets
+
+#### LK-7o6 backlog-status.sh reads an unset stories path as an unbound variable — 2026-09-17 · 7142c12
+
+loop.toml.example documents stories = "" as the supported setting for a project that keeps no product backlog, and .loop.toml's stories key is optional. scripts/backlog-status.sh does not survive either: status() declares 'local stories json gitlog' and assigns stories only inside 'if [ -n "$STORIES_FILE" ]', then passes "$stories" to perl at line 101. Under set -u the reference is an unbound variable, so every mode that reads the queue - the table, --next, --open, --sprint, --sprint-check, --reconcile, --show and --stories - dies before reading anything.
+
+It reproduces with the setting the documentation names and with no setting at all:
+
+  /opt/homebrew/bin/bash ./scripts/backlog-status.sh --stories-file ""
+  ./scripts/backlog-status.sh: line 101: stories: unbound variable   (exit 1)
+
+bash 3.2 initialises 'local' to empty and hides it; bash 5 does not, and bash 5 is what CI runs on ubuntu-latest and what Homebrew installs here. So the defect is invisible on macOS /bin/bash and immediate everywhere the check actually runs. The reviewer raised it as a P2 on rockbox-ghl PR #121, where the synced copy carries the same line.
+
+**Done when:** status() initialises stories to an empty string before the conditional, so scripts/backlog-status.sh reads the queue with stories unset, stories = "" and a stories path all alike; the self-test runs the fixture with no stories configured and proves a table is printed; and the full ./check.sh passes under bash 5.
+
+#### LK-c0d The loop's ticket-id shape drops the ids Beads generates — 2026-09-17 · 1659e21
+
+Beads does not only mint <PREFIX>-<number> ids. Once a prefix's numeric space is spent it mints an alphanumeric suffix - LK-1af here, RB-y3f, RB-50q, RB-6xw and RB-m7x in rockbox-ghl - and every ticket filter in the kit still reads /^[A-Z][A-Z0-9]*-[0-9]+$/, which silently drops them. Nothing errors: the ticket simply is not there.
+
+Four scripts share the shape, and each loses the ticket in its own way. scripts/backlog-status.sh:142 drops it from the table, --next, --open, --sprint, --sprint-check, --reconcile and --show. scripts/reference-check.sh:80 drops it from the acceptance-criteria and dependency checks, so an alphanumeric ticket is never proved and a blocks edge onto one reads as an unknown dependency. scripts/release-notes.sh:111 drops it from the archive and ship list. scripts/pr-readiness.sh:82 and :87 fail to parse 'ticket/RB-y3f' and 'RB-y3f: subject' at all, so the gate's own bead criterion reports that the branch names no ticket.
+
+In this repository the loss is visible today: LK-1af is an open P1 that scripts/backlog-status.sh does not list and scripts/reference-check.sh does not count (it reports 20 tickets against a 21-row queue). In rockbox-ghl it bit PR #121, whose own ticket RB-y3f is invisible to the gate judging it, and the reviewer raised it as a P1 on that pull request. The kit is the place it is fixed: the copies a project syncs then carry the same shape. The documentation states the shape too (backlog-status.sh:32, pr-readiness.sh's branch_ticket comment), so those are corrected with it.
+
+**Done when:** Every ticket filter accepts a Beads id with an alphanumeric suffix as well as a numeric one - the queue rows and the git subjects in scripts/backlog-status.sh, the queue rows in scripts/reference-check.sh, the queue rows and the ship subjects in scripts/release-notes.sh, the validated id in scripts/sprint.sh, and the branch and head subject in scripts/pr-readiness.sh; each of those scripts carries a generated id in its self-test and proves it is read rather than dropped; and in this repository scripts/reference-check.sh counts a ticket for every row of the queue, LK-1af included.
+
 ## v0.21.0 — 2026-09-16 (v0.20.0..HEAD)
 
 ### kit (LK)

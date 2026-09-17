@@ -57,3 +57,13 @@ sprint = []
 # ("Serves BT-nnn"). backlog-status.sh --stories derives each story's status from those
 # tickets, and --show <id> prints a story or a ticket. "" when the project keeps none.
 stories = "docs/PRODUCT_BACKLOG.md"
+# A disposable synthetic database for a command that needs one (scripts/with-test-postgres.sh):
+# it starts a container, waits for it, runs your command with the URL in its environment, and
+# removes the container it created. Nothing here is used until a project names the script from
+# its own check; leave the values alone unless the stack needs another image or another URL
+# shape, and write the jdbc: form in test_db_url for a JDBC project.
+test_db_image = "postgres:17-bookworm"
+test_db_name = "test"
+test_db_user = "test"
+test_db_env = "TEST_DATABASE_URL"
+test_db_url = "postgres://{user}:{password}@{host}:{port}/{name}"

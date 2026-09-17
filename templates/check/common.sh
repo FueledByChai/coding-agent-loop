@@ -14,6 +14,9 @@ loop_checks() {
   scripts/prompt-check.sh
   # The kit's records answer to the same sections and index a project's check demands of them.
   scripts/decisions.sh --check
+  # The queue's own references: every id it names is defined, every ticket says how it is
+  # proved, no ticket waits on itself, and every decision it cites is a record here.
+  scripts/reference-check.sh
   # <<< loop checks
   # A ruleset that requires a status the paired workflow never reports holds every pull request
   # forever (LK-13). A project's pair is the ruleset the README's setup commands apply and the

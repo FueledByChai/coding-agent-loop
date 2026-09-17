@@ -67,3 +67,12 @@ test_db_name = "test"
 test_db_user = "test"
 test_db_env = "TEST_DATABASE_URL"
 test_db_url = "postgres://{user}:{password}@{host}:{port}/{name}"
+# The Compose proof (scripts/compose-smoke.sh): the files the stack is made of, a command that
+# prints the KEY=VALUE lines a compose file reads from its environment, and a command that
+# proves the started stack. The proof runs with COMPOSE_PROJECT_NAME and COMPOSE_FILE exported
+# for the run's own project, so it can `docker compose exec` the same stack, or restart it, and
+# the script removes that project's containers and volumes either way. Empty compose_proof
+# proves only that the stack came up.
+compose_files = ["compose.yaml"]
+compose_env = ""
+compose_proof = ""

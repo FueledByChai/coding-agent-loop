@@ -135,7 +135,9 @@ a story here, every ticket carries its **Done when** line, no dependency cycle, 
 it cites is a record), then the two checks that compare what is written down more than once,
 `scripts/check-list.sh` and `scripts/ruleset-check.sh`, then `./install.sh --self-test`, which
 installs into a fresh repository and runs the installed scripts' self-tests there, then
-`scripts/backlog-status.sh --sprint-check`. There is no fast variant: the whole thing takes about
+`scripts/backlog-status.sh --sprint-check` (the sprint here is every open ticket, so an omission is
+a fault) and `scripts/backlog-status.sh --reconcile` (a ticket Beads has closed must have a landed
+commit, and a landed commit must name a ticket Beads has closed). There is no fast variant: the whole thing takes about
 eight minutes, most of it the self-test suite, which the install runs once and then proves the six
 stack skeletons' own stack steps separately, rather than paying for the suite once per skeleton
 (LK-11). Nothing is resolved from a worktree, since there is nothing to build. The section's list of

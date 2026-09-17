@@ -732,3 +732,23 @@ and its name in "The check" above, and its `--self-test` shows the clean queue p
 missing **Done when** line, an unknown dependency, a dependency cycle, a duplicate id, an
 undefined ticket or story named in either file, and a citation of a record that does not exist
 each fail alone naming the file and the fault.
+
+### LK-38 A disposable PostgreSQL is a kit tool, and its cleanup is proved without a daemon
+An integration suite that needs a database should start one it owns and delete it, and the
+hard part is not starting it but *deleting exactly it*: rockbox-ghl's
+`scripts/with-test-postgres.sh` names its container for the run, puts an ownership label on it,
+and removes a container only when that label names the same run, so a name collision and an
+interruption between Docker creating the container and `docker run` returning are both handled
+- and 60 lines of its project-owned `check.sh` exist to keep that from rotting. What is
+rockbox-shaped in it is five values: the name prefix, the two labels, the database and role,
+and `RB_TEST_JDBC_URL`. Bring it up as the kit's `scripts/with-test-postgres.sh` with those in
+`.loop.toml` (`test_db_image`, `test_db_name`, `test_db_user`, `test_db_env`, `test_db_url`,
+the last a URL template so a JDBC project writes the `jdbc:` form), and prove the lifecycle in
+the kit's own style rather than with a daemon the kit's check would then need: `--self-test`
+drives a stub docker that keeps the state a daemon would.
+**Done when:** `./check.sh` passes with `scripts/with-test-postgres.sh` installed and its
+`--self-test` in the shared check block, and the self-test shows the command running with the
+configured image, database, role, and URL built from the published port; the container removed
+after success, after a failing command whose exit code reaches the caller, and after a
+`SIGTERM`; a container whose ownership label is not this run's left alone; and the three
+refusals - no Docker, a daemon that is not running, and no command to run - named.

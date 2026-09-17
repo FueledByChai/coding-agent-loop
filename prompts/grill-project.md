@@ -1,19 +1,20 @@
 Interview the owner of a new project on the first day, and leave behind what the loop needs
-before any code exists: the Project rules, the decision records, the first epics, and a check
-that runs. Interrogate first, write second. Follow the standing instructions in `AGENTS.md`
-(the loop section; the Project rules are what this session writes).
+before any code exists: the Project rules, the decision records, the Beads queue, the first
+epics, and a check that runs. Interrogate first, write second. Follow the standing instructions
+in `AGENTS.md` (the loop section; the Project rules are what this session writes).
 
-Settings come from `.loop.toml` when it exists (`scripts/loop-config.sh --all`); this session
-fills it in. The kit's templates are under `loop/templates/` after `install.sh`: the decision
-record, a check skeleton per stack under `loop/templates/check/`, and the CI toolchain steps
-per stack under `loop/templates/ci/`.
+The queue is Beads (`bd`), a hard dependency. Settings come from `.loop.toml` when it exists
+(`scripts/loop-config.sh --all`); this session fills it in. The kit's templates are under
+`loop/templates/` after `install.sh`: the decision record, a check skeleton per stack under
+`loop/templates/check/`, and the CI toolchain steps per stack under `loop/templates/ci/`.
 
 ## 1. Ground yourself
 
 Read `AGENTS.md`, `.loop.toml`, and the decision index (`docs/decisions/README.md` when it
 exists), so a project that is not quite new is not asked what it already knows. Look at what
 is in the repository already: a manifest (`Cargo.toml`, `pyproject.toml`, `package.json`,
-`pom.xml`, `build.gradle`, `go.mod`), a README, any code. Never ask what a file already answers.
+`pom.xml`, `build.gradle`, `go.mod`), a README, any code, and a `.beads` workspace (`bd where`).
+Never ask what a file already answers.
 
 ## 2. Interview
 
@@ -23,13 +24,13 @@ opens with one question that has no options: what is it, in a sentence: what goe
 comes out, and what it replaces today; tell the owner to type the sentence (a harness that
 offers option buttons delivers free text only through its "other" box, so an option label is
 not an answer). Nothing else is asked until that sentence is in hand, and the restatement at
-the top of round 2 quotes it back word for word. Each area ends in one of two things: a decision record written in this session
-(`scripts/decisions.sh new "<title>"`, then its Context, Decision, Alternatives, Consequences,
-and what would show it was wrong), or a dated deferral: a record whose Status line reads
-`deferred until YYYY-MM-DD` and whose Decision section says what has to be learned first. Do
-not draft anything until every area has one or the other. Push back on "whatever is easiest"
-with a concrete option to accept or reject, and restate the owner's answers in your own words
-at the start of the next round.
+the top of round 2 quotes it back word for word. Each area ends in one of two things: a decision
+record written in this session (`scripts/decisions.sh new "<title>"`, then its Context, Decision,
+Alternatives, Consequences, and what would show it was wrong), or a dated deferral: a record whose
+Status line reads `deferred until YYYY-MM-DD` and whose Decision section says what has to be
+learned first. Do not draft anything until every area has one or the other. Push back on "whatever
+is easiest" with a concrete option to accept or reject, and restate the owner's answers in your own
+words at the start of the next round.
 
 The five areas, in order:
 
@@ -67,16 +68,18 @@ Show the owner everything below in chat and get a yes before writing.
   how long it takes); the rules from area 5 as bullets that begin with "Never" or "Always";
   UI conventions from area 4 when there is a UI; Docs to keep current. Cite the record numbers
   where a rule comes from a decision.
+- **The Beads queue.** Initialise it with `bd init --prefix <PREFIX> --non-interactive` when
+  `bd where` finds none, then create the first ticket with `bd create`: a title, the intent in
+  `--description`, the done line in `--acceptance`, the story it serves and the records it rests
+  on in the description, a `section:` label, and the sprint label. Ids are the project's prefix
+  and a number; `bd update <id> --claim` is how an agent takes one.
 - **The product backlog**, `docs/PRODUCT_BACKLOG.md` unless the owner names another path:
   the format grill-me expects (an epic per area of the product the interview surfaced, each
   with one or two stories in the `### BT-nnn — <title>` shape with Status, User story, and
   Acceptance criteria). Two to four epics; the stories are the ones the owner would build
-  first, not a roadmap.
-- **The ticket file** (`backlog` in `.loop.toml`, `BACKLOG.md` by default): the protocol
-  header grill-me's tickets assume, one `## <section>` per epic, and a first ticket whose
-  done line is "`scripts/check.sh` passes in CI on this repository's first pull request".
-- **`.loop.toml`** from `loop.toml.example`: `default_branch`, `backlog`, `check` and
-  `check_fast`, `code_paths` and `proof_paths` and `proof_pattern` for the stack from the
+  first, not a roadmap. Stories are intent; the tickets live in Beads.
+- **`.loop.toml`** from `loop.toml.example`: `default_branch`, `check` and `check_fast`,
+  `sprint_label`, `code_paths` and `proof_paths` and `proof_pattern` for the stack from the
   table below, `coverage` when the stack row gives a command, `review_paths` from area 5,
   `kit` and `kit_ref` (the kit's URL and its current tag).
 - **`.github/workflows/loop.yml`**: the kit's workflow (`install.sh` put it there when the
@@ -109,12 +112,12 @@ Then run `scripts/check.sh` and show its output: it must exit 0 before you finis
 Commit everything as one commit, subject `Project: first-day interview`, with the trailer the
 config requires. On a repository with no pull request rules yet this commit sits on the
 default branch and the owner pushes it; from the next change on, the loop's rules apply
-(`scripts/open-ticket-pr.sh`, never push the default branch). Then report: the records written
-and deferred (with their dates), the epics and the first ticket, the stack and the skeleton
-used, what the check covers today and which TODO lines remain, and the two things the owner
-does next: apply the repository settings and ruleset from the kit README, and run
-`/next-ticket`.
+(`scripts/open-ticket-pr.sh`, never push the default branch). Push the queue (`bd dolt push`) so
+the first ticket exists wherever the loop runs. Then report: the records written and deferred
+(with their dates), the epics, the first ticket's id, the stack and the skeleton used, what the
+check covers today and which TODO lines remain, and the two things the owner does next: apply
+the repository settings and ruleset from the kit README, and run `/next-ticket`.
 
 Rules: this prompt writes only the files named above. It never invents a decision the owner
 did not make: an area without an answer is a dated deferral, not a guess. Nothing private the
-owner names in area 5 goes into the repository.
+owner names in area 5 goes into the repository or the Beads queue.

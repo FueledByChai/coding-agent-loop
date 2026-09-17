@@ -2,32 +2,32 @@ Turn a loosely stated feature idea into user stories with acceptance criteria an
 the loop can execute. Interrogate first, draft second, write third. Follow the standing
 instructions in `AGENTS.md` (the loop section and the Project rules).
 
-Settings come from `.loop.toml`: `scripts/loop-config.sh backlog` names the ticket file,
-`default_branch` the branch to branch from, `check` the full check, `trailer_required`
-whether commits sign with an agent trailer, `decisions` the directory of decision records
-(`docs/decisions` by default). The Project rules name the product backlog (the file of
-stories and long-form acceptance criteria) when the project keeps one; without one, stories
-go at the top of the ticket file under a heading of their own.
+The queue is Beads (`bd`), a hard dependency; the settings file is `.loop.toml` and the stories
+document is the product backlog named by `stories`. Settings come from `scripts/loop-config.sh`:
+`check` (the full check), `trailer_required`, `decisions` (the directory of decision records,
+`docs/decisions` by default), `sprint_label` (the Beads label that marks the sprint) and `stories`.
+The Project rules name the product backlog when the project keeps one; without one, keep the
+stories at the top of the product backlog you write, not in Beads, because stories are intent and
+Beads holds tickets.
 
 ## 1. Ground yourself before asking anything
 
 Before anything else, check that this repository is loop-managed: it must have the settings file
-and the ticket file. The settings file is `.loop.toml` at the repository root; the ticket file is
-the one `scripts/loop-config.sh backlog` names (`BACKLOG.md` by default). When either is missing,
-stop before any other question and ask the owner where the artifacts belong — this repository, a
-new one, or a sibling of it — and where the settings file should live, because nothing below can
-run until they exist. Do not infer either from the code: a repository with neither is not an
-invitation to guess, and a session that guesses spends its rounds working out what one question
-would have settled.
+and the Beads queue. The settings file is `.loop.toml` at the repository root; the queue is the
+`.beads` workspace `bd where` names (`bd init --prefix <PREFIX>` creates one). When either is
+missing, stop before any other question and ask the owner where the artifacts belong - this
+repository, a new one, or a sibling of it - and where the settings file should live, because
+nothing below can run until they exist. Do not infer either from the code: a repository with
+neither is not an invitation to guess, and a session that guesses spends its rounds working out
+what one question would have settled.
 
 Then read the decision records: the index in the decisions directory (`docs/decisions/README.md`
 by default) and every record that touches the idea. A decision that has a record is settled;
-never ask about it, cite it by number. Then read the product backlog (every epic that
-touches the idea), the ticket file (the protocol and the tickets in the sections the idea
-touches), and run `scripts/backlog-status.sh --stories` and `--open` so you know which
-stories are unticketed or open and what has landed. Skim the code and
-docs the idea would change, using the Layout in the Project rules to find them, so every
-question you ask is one the repository cannot answer.
+never ask about it, cite it by number. Then read the product backlog (every epic that touches the
+idea), the Beads queue (`bd list --all --json`, the ids and sections the idea touches), and run
+`scripts/backlog-status.sh --stories` and `--open` so you know which stories are unticketed or
+open and what has landed. Skim the code and docs the idea would change, using the Layout in the
+Project rules to find them, so every question you ask is one the repository cannot answer.
 
 ## 2. Grill
 
@@ -92,43 +92,35 @@ epic with the next letter and a new hundred block of its story prefix):
 Each criterion is a statement someone could check without reading the code. No "works
 correctly", "is fast", "handles errors"; say what is shown, refused, frozen, or measured.
 
-**Executable tickets** for the ticket file, one per shippable slice, in its exact format under
-the matching section (or a new `## <section>` with a new two-letter prefix), ids continuing
-that prefix's sequence (`grep -o '^### XX-[0-9]*' <ticket file> | sort | tail -1`):
+**Executable tickets in Beads**, one per shippable slice, created with `bd create` (never a
+markdown heading): a title, a paragraph of intent in `--description` with the file and function
+names and the story and decision records it rests on ("Serves BT-nnn"; "Decisions: 0007, 0012"),
+the done line in `--acceptance`, blockers as `--deps blocked-by:<id>`, a `section:<name>` label and
+a `story:<ID>` label, and a priority that states the order to work them. Ids continue the
+project's prefix and sequence; give the id explicitly (`bd create ... --id <PREFIX>-nn`) so the
+loop's `<ID>: ...` commit subjects keep matching. A ticket is one commit's worth of work for one
+agent, testable on its own with the full check, and carries the done line the review judges it
+against. Split anything larger. Put a dependency only where the work cannot start earlier.
 
-```
-### XX-nn <title> — Blocked by XX-mm
-<One paragraph: what is wrong or missing today, with file and function names; what changes;
-what stays fixed. Mention the story it serves and the decision records it rests on
-("Decisions: 0007, 0012").>
-**Done when:** <the test, fixture, script self-test, or measurable output that ships in the same
-commit, by name: a test function, a check script, a fixture, a line a command prints, a value
-an endpoint returns>.
-```
-
-A ticket is one commit's worth of work for one agent, testable on its own with the full check.
-Split anything larger. Put `Blocked by` only where the work cannot start earlier. Do not add
-`todo` or any other state; the heading carries no state until someone claims it.
-
-**Wireframes.** A story that touches a screen carries, after its acceptance criteria, a
-fenced text wireframe at most 80 columns wide that names the panels, tables, and controls and
+**Wireframes.** A story that touches a screen carries, after its acceptance criteria, a fenced
+text wireframe at most 80 columns wide that names the panels, tables, and controls and
 their order, top to bottom and left to right, with what the story adds or changes marked.
-The owner confirms it with the draft. The ticket points at it by story id (`Wireframe:
-BT-nnn`) rather than describing the layout again, and its done line's fixture or check
-matches the wireframe. When the owner asks for a mockup, or the screen is new rather than
+The owner confirms it with the draft. The ticket points at it by story id in its description
+(`Wireframe: BT-nnn`) rather than describing the layout again, and its done line's fixture or
+check matches the wireframe. When the owner asks for a mockup, or the screen is new rather than
 changed, make one with the harness's design canvas when it has one and otherwise as a
 single HTML file, save it beside the product backlog (`docs/wireframes/<story id>.html`),
 and link it from the story and the ticket.
 
-**The sprint.** `sprint` in `.loop.toml` is the list of tickets to work now, in order, and
-`scripts/backlog-status.sh --next` takes them first. It means one of two things, and the comment
-above the list in `.loop.toml` says which: the tickets chosen for now, leaving the rest as the pick
-list `--open` prints, or every open ticket, so an omission is a fault that
-`scripts/backlog-status.sh --sprint-check` fails on. Ask the owner which of the new tickets go into
-the sprint and where (ahead of, behind, or between the ones there) - and "or none" only where that
-comment states the subset reading, because under the other one a ticket you file and leave out is a
-ticket the full check fails on. The write step edits that list in the same commit
-(`scripts/sprint.sh add <id> [--before <id>]`).
+**The sprint.** The sprint is the Beads label `sprint_label` names (`sprint` by default), worked by
+priority then id - there is no list in `.loop.toml`. It means one of two things, and the comment
+above `sprint_label` in `.loop.toml` says which: the tickets chosen for now, leaving the rest as
+the pick list `--open` prints, or every open ticket, so an omission is a fault that
+`scripts/backlog-status.sh --sprint-check` fails on. Ask the owner which of the new tickets carry
+the label and at what priority (`scripts/sprint.sh add <id> [--priority N]`) - and "or none" only
+where that comment states the subset reading, because under the other one a ticket you file and
+leave unlabelled is a ticket the full check fails on. The write step labels them in the same
+session.
 
 Ask the owner to confirm the draft, and apply their edits, before going on.
 
@@ -137,19 +129,23 @@ Ask the owner to confirm the draft, and apply their edits, before going on.
 Never write to the default branch. From the main checkout:
 
 1. `git checkout -b backlog/<short-slug>` from the default branch.
-2. Insert the stories and tickets. Keep the files' ordering (epics by letter, tickets by id).
-   If a story replaces or narrows an existing one, edit that story's status line rather than
-   adding a duplicate. The decision records written during the session go in the same
-   commit, with the index (`scripts/decisions.sh index`).
-3. Commit with the subject `Backlog: <XX-nn..XX-mm> <one-line summary>` and, when the config
-   requires it, a `Co-Authored-By: <agent> <email>` trailer naming the agent and model.
+2. Write the stories into the product backlog, the decision records written during the session
+   (with the index, `scripts/decisions.sh index`), and any wireframes. Create the tickets with
+   `bd create`, then push the queue (`bd dolt push`) so the tickets exist for the next
+   `scripts/backlog-status.sh --next` however it is run. Keep the product backlog's ordering
+   (epics by letter, stories by id). If a story replaces or narrows an existing one, edit that
+   story's status line rather than adding a duplicate.
+3. Commit the stories, records, and wireframes with the subject `Backlog: <XX-nn..XX-mm> <one-line
+   summary>` and, when the config requires it, a `Co-Authored-By: <agent> <email>` trailer naming
+   the agent and model.
 4. `git push -u origin backlog/<short-slug>` and open the PR with `gh pr create --fill`, then
    `gh pr merge --auto --rebase`; CI on a docs-only change is quick and the owner can merge or
    wait for auto-merge.
 5. Report: the PR URL, the story ids and ticket ids added, the decision records written or
-   superseded, what the first next-ticket run will pick up, and any question the owner
-   deferred (record those as a `blocked <question>` claim on the ticket that needs the answer).
+   superseded, what the first next-ticket run will pick up, and any question the owner deferred
+   (record those as `bd update <id> --status blocked --append-notes "<the question>"` on the ticket
+   that needs the answer).
 
-Rules: this prompt changes only the product backlog, the ticket file, the decision
-records, the wireframe files, and the `sprint` list in `.loop.toml`. It never edits code or anything the Project rules say never to touch, and never
-copies private details into a public backlog.
+Rules: this prompt changes only the product backlog, the decision records, the wireframe files, the
+Beads queue's tickets and labels, and never edits code or anything the Project rules say never to
+touch, and never copies private details into a public backlog.

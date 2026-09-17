@@ -14,6 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The queue checks read the commits, and a shallow clone leaves git log origin/main with
+      # only the tip, so --reconcile cannot see the commits a closed ticket names (LK-48).
+      - name: Fetch the queue's history
+        run: |
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+            git fetch --unshallow
+          fi
       # The queue lives in Beads, behind the refs/dolt/data ref rather than in the working
       # tree, so the runner installs the pinned release and bootstraps the queue before the
       # check: the same tickets a checkout reads, read from the same database name.

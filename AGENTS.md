@@ -130,7 +130,9 @@ until then `scripts/loop-kit-sync.sh --check` fails there, which is the intended
 `./check.sh` is the definition of done, and CI runs the same script. In order it runs every
 script's `--self-test`, then `scripts/prompt-check.sh` (a prompt may not lose a rule), then
 `scripts/decisions.sh --check` (the kit's records answer to the same sections and index a project's
-check demands of them), then the two checks that compare what is written down more than once,
+check demands of them), then `scripts/reference-check.sh` (every id the queue names is a ticket or
+a story here, every ticket carries its **Done when** line, no dependency cycle, and every decision
+it cites is a record), then the two checks that compare what is written down more than once,
 `scripts/check-list.sh` and `scripts/ruleset-check.sh`, then `./install.sh --self-test`, which
 installs into a fresh repository and runs the installed scripts' self-tests there, then
 `scripts/backlog-status.sh --sprint-check`. There is no fast variant: the whole thing takes about

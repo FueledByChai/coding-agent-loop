@@ -77,7 +77,7 @@ if (!defined $rows || ref $rows ne "ARRAY") {
 my (%ticket, @tickets);
 for my $r (@$rows) {
   my $id = $r->{id} // "";
-  next unless $id =~ /^[A-Z][A-Z0-9]*-[0-9]+$/;
+  next unless $id =~ /^[A-Z][A-Z0-9]*-[a-z0-9]+$/;
   next if ($r->{issue_type} // "") =~ /^(epic|milestone|decision)$/;
   my @deps;
   for my $d (@{ $r->{dependencies} // [] }) {
@@ -211,7 +211,8 @@ EOF
     cat > "$dir/queue.json" <<'JSON'
 [
  {"id":"AA-01","title":"The first ticket","description":"It does the first thing. Decisions: 0001.","acceptance_criteria":"a fixture proves it","status":"closed","issue_type":"task","labels":["story:SS-01"],"dependencies":[]},
- {"id":"AA-02","title":"The second ticket","description":"It does the next thing.","acceptance_criteria":"another fixture proves it","status":"open","issue_type":"task","labels":[],"dependencies":[{"issue_id":"AA-02","depends_on_id":"AA-01","type":"blocks"}]}
+ {"id":"AA-02","title":"The second ticket","description":"It does the next thing.","acceptance_criteria":"another fixture proves it","status":"open","issue_type":"task","labels":[],"dependencies":[{"issue_id":"AA-02","depends_on_id":"AA-01","type":"blocks"}]},
+ {"id":"AA-1a","title":"The generated-id ticket","description":"Beads minted this id.","acceptance_criteria":"the generated id is read","status":"open","issue_type":"task","labels":[],"dependencies":[]}
 ]
 JSON
     cat > "$dir/docs/PRODUCT_BACKLOG.md" <<'EOF'
@@ -227,7 +228,7 @@ EOF
 
   good
   out="$("$me")" || { echo "self-test: a clean queue should pass:"; echo "$out"; exit 1; }
-  printf '%s\n' "$out" | grep -q '^reference-check: 2 ticket(s), 1 story(s), 1 decision record(s)' \
+    printf '%s\n' "$out" | grep -q '^reference-check: 3 ticket(s), 1 story(s), 1 decision record(s)' \
     || { echo "self-test: the pass line should count what it read:"; echo "$out"; exit 1; }
 
   assert_names() {
@@ -243,6 +244,10 @@ EOF
 
   assert_names "missing acceptance" "AA-02 carries no acceptance criteria" \
     "perl -pi -e 's/\"another fixture proves it\"/\"\"/' \"\$dir/queue.json\"" || failed=1
+  # A Beads-generated id is a ticket too: before the shape was widened this fault was invisible,
+  # because the row never reached the acceptance-criteria check at all.
+  assert_names "generated id missing acceptance" "AA-1a carries no acceptance criteria" \
+    "perl -pi -e 's/\"the generated id is read\"/\"\"/' \"\$dir/queue.json\"" || failed=1
   assert_names "unknown dependency" "AA-02 is blocked by AA-09, which is not a ticket in the queue" \
     "perl -pi -e 's/depends_on_id\":\"AA-01/depends_on_id\":\"AA-09/' \"\$dir/queue.json\"" || failed=1
   assert_names "cycle" "cyclic dependency at AA-01" \

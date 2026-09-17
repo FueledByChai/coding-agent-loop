@@ -3,19 +3,19 @@
 # acceptance criteria, their blockers, their labels and their state; git stays the proof of done:
 # a ticket is done when a commit whose subject starts with its id (`LK-01: ...`) is reachable
 # from the ref being judged, the default branch by default. The default branch, the stories
-# file and the sprint list come from .loop.toml through scripts/loop-config.sh.
+# file and the sprint label come from .loop.toml through scripts/loop-config.sh.
 #
 #   scripts/backlog-status.sh                 every ticket: id, state, date, sha, blockers, title
-#   scripts/backlog-status.sh --next          the id of the first ready todo: the sprint list in
-#                                             .loop.toml first, in its order, then priority and id
-#                                             (exit 1 when there is none)
-#   scripts/backlog-status.sh --sprint        the sprint's tickets in sprint order with their
-#                                             states, and a summary line
+#   scripts/backlog-status.sh --next          the id of the first ready todo: the tickets carrying
+#                                             the sprint label first, by priority then id, then the
+#                                             rest by priority then id (exit 1 when there is none)
+#   scripts/backlog-status.sh --sprint        the sprint-labelled tickets by priority then id, with
+#                                             their states, and a summary line
 #   scripts/backlog-status.sh --open [--section <name>]
 #                                             the tickets not done and not in the sprint, grouped
 #                                             by their section: label, with the story each serves
-#   scripts/backlog-status.sh --sprint-check  both directions of the sprint pairing: a sprint id
-#                                             with no ticket, and an open ticket the sprint omits
+#   scripts/backlog-status.sh --sprint-check  an open ticket the sprint label omits, which is a
+#                                             fault where the sprint is every open ticket
 #   scripts/backlog-status.sh --reconcile     git and Beads against each other: a ticket Beads has
 #                                             closed with no naming commit, and a landed commit
 #                                             naming a ticket Beads has not closed (0012)
@@ -31,8 +31,9 @@
 #
 # A ticket is a Beads issue whose id is `<PREFIX>-<number>`; epics, milestones and decisions are
 # not tickets. `acceptance_criteria` is the done line, a `blocks` dependency is a blocker, a
-# `story:<ID>` label names the story it serves and a `section:<name>` label groups it. Beads
-# `closed` is a claim like any other: git decides `done`, and --reconcile fails when the two
+# `story:<ID>` label names the story it serves, a `section:<name>` label groups it, and the
+# `sprint_label` label (default `sprint`) puts it in the sprint, ordered by priority then id.
+# Beads `closed` is a claim like any other: git decides `done`, and --reconcile fails when the two
 # disagree. Needs `bd` with this repository's database.
 set -euo pipefail
 SCRIPT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -41,12 +42,12 @@ CONFIG="$SCRIPT_ROOT/scripts/loop-config.sh"
 REF="$("$CONFIG" default_branch)"
 REF_GIVEN=0
 LOCAL=0
-BACKLOG_IGNORED=""
 MODE=table
 PLAIN=0
 WANT=""
 SECTION=""
 STORIES_FILE="$("$CONFIG" stories)"
+SPRINT_LABEL="$("$CONFIG" sprint_label)"
 while [ $# -gt 0 ]; do
   case "$1" in
     --next) MODE=next ;;
@@ -62,8 +63,6 @@ while [ $# -gt 0 ]; do
     --local) LOCAL=1 ;;
     --self-test) MODE=selftest ;;
     --ref) REF="$2"; REF_GIVEN=1; shift ;;
-    # Retained while scripts/sprint.sh still passes it; the queue is Beads now, not a file.
-    --backlog) BACKLOG_IGNORED="$2"; shift ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
   shift
@@ -83,8 +82,7 @@ judged_ref() {
 status() {
   local ref="${1:-}" mode="$2"
   ref="$(judged_ref "$ref")"
-  local sprint stories json gitlog
-  sprint="$("$CONFIG" sprint | tr '\n' ',')"
+  local stories json gitlog
   if [ -n "$STORIES_FILE" ]; then
     case "$STORIES_FILE" in /*) stories="$STORIES_FILE" ;; *) stories="$ROOT/$STORIES_FILE" ;; esac
   fi
@@ -100,12 +98,12 @@ status() {
   fi
   rm -f "$json.err"
   git -C "$ROOT" log --reverse --date=short --format='%h %ad %s' "$ref" > "$gitlog" 2>/dev/null || true
-  perl - "$json" "$gitlog" "$mode" "$sprint" "$stories" "$WANT" "$SECTION" "$PLAIN" "$ref" <<'PERL'
+  perl - "$json" "$gitlog" "$mode" "$SPRINT_LABEL" "$stories" "$WANT" "$SECTION" "$PLAIN" "$ref" <<'PERL'
 use strict;
 use warnings;
 use JSON::PP;
 
-my ($json_file, $gitlog_file, $mode, $sprint_csv, $stories_file, $want, $section_filter, $plain, $judged_ref) = @ARGV;
+my ($json_file, $gitlog_file, $mode, $sprint_label, $stories_file, $want, $section_filter, $plain, $judged_ref) = @ARGV;
 
 binmode(STDOUT, ":encoding(UTF-8)");
 binmode(STDERR, ":encoding(UTF-8)");
@@ -138,9 +136,6 @@ while (my $line = <$gf>) {
 }
 close $gf;
 
-my @sprint = grep { length } split /,/, $sprint_csv;
-my %sprint; my $pos = 0; $sprint{$_} //= ++$pos for @sprint;
-
 my (@tickets, %by_id);
 for my $r (@$rows) {
   my $id = $r->{id} // "";
@@ -170,12 +165,17 @@ for my $r (@$rows) {
             assignee => $assignee, blockers => \@blockers, section => $section, labels => \@labels,
             priority => (defined $r->{priority} ? $r->{priority} : 2),
             acceptance => $r->{acceptance_criteria} // "", description => $r->{description} // "",
-            serves => \@serves,
+            serves => \@serves, sprint => ($label{$sprint_label} ? 1 : 0),
             false_close => ($bd_status eq "closed" && !$done{$id}) ? 1 : 0,
             orphan => ($done{$id} && $bd_status ne "closed") ? 1 : 0 };
   push @tickets, $t;
   $by_id{$id} = $t;
 }
+
+# The sprint is the label, ordered by priority then id; a ticket outside it is ordered after.
+my @sprint = sort { $a->{priority} <=> $b->{priority} || $a->{id} cmp $b->{id} }
+             grep { $_->{sprint} } @tickets;
+my %sprint = map { $_->{id} => $_ } @sprint;
 
 # The product backlog, when the project keeps one: `## <epic>` and `### <ID> - <title>` stories
 # with their body; a story's status is derived from the tickets carrying its story: label.
@@ -238,16 +238,11 @@ my $section_filter_match = sub {
 
 if ($mode eq "sprint-check") {
   my $bad = 0;
-  # A sprint id the queue no longer holds is fine once its commit has landed: git is the proof,
-  # and Beads need not carry a done ticket at all.
-  for my $id (@sprint) {
-    next if $by_id{$id} || $done{$id};
-    print STDERR "sprint: $id is in the sprint but not in the Beads queue\n";
-    $bad = 1;
-  }
+  # The label is the sprint, so the only fault is an open ticket without it: a done ticket may
+  # leave the sprint freely, since git is the proof.
   for my $t (@tickets) {
     next if $t->{state} eq "done" || $sprint{ $t->{id} };
-    printf STDERR "sprint: %s is open and not in the sprint: %s\n", $t->{id}, $t->{title};
+    printf STDERR "sprint: %s is open and carries no %s label: %s\n", $t->{id}, $sprint_label, $t->{title};
     $bad = 1;
   }
   exit($bad ? 1 : 0);
@@ -284,7 +279,7 @@ if ($mode eq "show") {
     print "$t->{description}\n" if $t->{description} ne "";
     print "\n**Done when:** $t->{acceptance}\n" if $t->{acceptance} ne "";
     printf "state: %s%s\n", $state_of->($t), ($ready->($t) ? ", ready" : "");
-    printf "sprint: %s\n", ($sprint{$want} ? "position $sprint{$want}" : "no");
+    printf "sprint: %s\n", ($t->{sprint} ? "yes (P$t->{priority})" : "no");
     printf "section: %s\n", ($t->{section} ne "" ? $t->{section} : "(none)");
     printf "priority: P%s\n", $t->{priority};
     printf "assignee: %s\n", ($t->{assignee} ne "" ? $t->{assignee} : "(none)");
@@ -344,19 +339,19 @@ if ($mode eq "open") {
     }
     $n++;
   }
-  print "open: $n ticket(s) not done and not in the sprint", (@sprint ? " (sprint: " . join(", ", @sprint) . ")" : " (no sprint set)"), "\n";
+  print "open: $n ticket(s) not done and not in the sprint", (@sprint ? " (sprint: " . join(", ", map { $_->{id} } @sprint) . ")" : " (no sprint label)"), "\n";
   exit 0;
 }
 
 my @rows = @tickets;
 if ($mode eq "sprint") {
-  @rows = grep { defined } map { $by_id{$_} } @sprint;
-  if (!@rows) { print "sprint: empty (set sprint = [...] in .loop.toml)\n"; exit 0; }
+  @rows = @sprint;
+  if (!@rows) { print "sprint: empty (no ticket carries the $sprint_label label)\n"; exit 0; }
 }
 printf "%-6s %-8s %-10s %-8s %-6s %-6s %-22s %s\n", "id", "state", "date", "sha", "ready", "sprint", "blocked by", "title";
 for my $t (@rows) {
   my ($date, $sha) = $done{ $t->{id} } ? @{ $done{ $t->{id} } } : ("-", "-");
-  printf "%-6s %-8s %-10s %-8s %-6s %-6s %-22s %s\n", $t->{id}, $state_of->($t), $date, $sha, ($ready->($t) ? "yes" : ""), ($sprint{ $t->{id} } // ""), $blockers_of->($t), $t->{title};
+  printf "%-6s %-8s %-10s %-8s %-6s %-6s %-22s %s\n", $t->{id}, $state_of->($t), $date, $sha, ($ready->($t) ? "yes" : ""), ($t->{sprint} ? "P$t->{priority}" : ""), $blockers_of->($t), $t->{title};
 }
 if ($mode eq "sprint") {
   my %n; $n{ $_->{state} }++ for @rows;
@@ -382,16 +377,20 @@ if [ "${BD_SCENARIO:-}" = "no-db" ]; then
 fi
 case "$1" in
   list)
-    cat <<'JSON'
+    # AA-08's label is the scenario knob: empty makes --sprint-check fail naming it, and
+    # BD_SCENARIO=all-sprint labels it so the check passes.
+    AA08_LABEL="${AA08_LABEL:-}"
+    cat <<JSON
 [
  {"id":"AA-01","title":"First","description":"first body","acceptance_criteria":"first proof","status":"open","priority":1,"issue_type":"task","labels":["sprint","section:Alpha","story:BT-01"],"assignee":"","dependencies":[]},
  {"id":"AA-02","title":"Second","description":"needs first","acceptance_criteria":"second proof","status":"open","priority":2,"issue_type":"task","labels":["sprint"],"assignee":"","dependencies":[{"issue_id":"AA-02","depends_on_id":"AA-01","type":"blocks"}]},
  {"id":"AA-03","title":"Third","description":"landed already","acceptance_criteria":"third proof","status":"in_progress","priority":3,"issue_type":"task","labels":["sprint"],"assignee":"someone","dependencies":[]},
  {"id":"AA-04","title":"Fourth","description":"claimed and landed","acceptance_criteria":"fourth proof","status":"in_progress","priority":4,"issue_type":"task","labels":["sprint"],"assignee":"someone","dependencies":[]},
- {"id":"AA-05","title":"Fifth","description":"claimed, not sprint","acceptance_criteria":"fifth proof","status":"in_progress","priority":1,"issue_type":"task","labels":[],"assignee":"someone","dependencies":[]},
+ {"id":"AA-05","title":"Fifth","description":"claimed, in the sprint","acceptance_criteria":"fifth proof","status":"in_progress","priority":0,"issue_type":"task","labels":["sprint"],"assignee":"someone","dependencies":[]},
  {"id":"AA-06","title":"Sixth","description":"blocked by an archived ticket whose commit landed","acceptance_criteria":"sixth proof","status":"open","priority":0,"issue_type":"task","labels":["sprint"],"assignee":"","dependencies":[{"issue_id":"AA-06","depends_on_id":"ZZ-09","type":"blocks"}]},
  {"id":"AA-07","title":"Seventh","description":"closed with no commit","acceptance_criteria":"seventh proof","status":"closed","priority":2,"issue_type":"task","labels":["sprint"],"assignee":"","dependencies":[]},
- {"id":"AA-08","title":"Epic, not a ticket","description":"story","acceptance_criteria":"","status":"open","priority":2,"issue_type":"epic","labels":[],"assignee":"","dependencies":[]}
+ {"id":"AA-08","title":"Outside the sprint","description":"open, no sprint label","acceptance_criteria":"eighth proof","status":"open","priority":2,"issue_type":"task","labels":[${AA08_LABEL}],"assignee":"","dependencies":[]},
+ {"id":"AA-09","title":"Epic, not a ticket","description":"story","acceptance_criteria":"","status":"open","priority":2,"issue_type":"epic","labels":[],"assignee":"","dependencies":[]}
 ]
 JSON
     ;;
@@ -411,8 +410,8 @@ EOF
     git commit -q --allow-empty -m "AA-04: fourth landed"
     git commit -q --allow-empty -m "ZZ-09: the blocker landed"
   )
-  printf '[loop]\ndefault_branch = "trunk"\nsprint = ["AA-05", "AA-06", "AA-01", "AA-02", "AA-03", "AA-04", "AA-07"]\nstories = "PRODUCT.md"\n' > "$dir/.loop.toml"
-  printf '[loop]\ndefault_branch = "trunk"\nsprint = ["AA-06", "AA-01", "AA-02", "AA-03", "AA-04", "AA-07"]\nstories = "PRODUCT.md"\n' > "$dir/nosprint.toml"
+  # No sprint list: the label is the sprint, and sprint_label defaults to "sprint".
+  printf '[loop]\ndefault_branch = "trunk"\nstories = "PRODUCT.md"\n' > "$dir/.loop.toml"
   cat > "$dir/PRODUCT.md" <<'MD'
 # Product
 
@@ -435,15 +434,22 @@ MD
   [ "$next" = "AA-06" ] || { echo "self-test: --next should pass over the claimed AA-05 and take AA-06, got '$next'"; exit 1; }
   out="$("$me" --ref trunk --show AA-02 2>&1)" || { echo "self-test: --show should find AA-02"; exit 1; }
   echo "$out" | grep -q 'second proof' || { echo "self-test: --show should print the acceptance criteria:"; echo "$out"; exit 1; }
+  out="$("$me" --ref trunk --show AA-01 2>&1)"
+  echo "$out" | grep -q '^sprint: yes (P1)' || { echo "self-test: --show should derive the sprint from the label:"; echo "$out"; exit 1; }
   out="$("$me" --ref trunk --stories 2>&1)" || { echo "self-test: --stories should pass"; exit 1; }
   echo "$out" | grep -q '^BT-01  *open 0/1' || { echo "self-test: the story should derive from the story: label:"; echo "$out"; exit 1; }
+  out="$("$me" --ref trunk --sprint 2>&1)" || { echo "self-test: --sprint should pass"; exit 1; }
+  [ "$(printf '%s\n' "$out" | awk '$1 ~ /^AA-/ { print $1; exit }')" = "AA-05" ] || { echo "self-test: --sprint should order by priority then id, starting with AA-05:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q '^AA-05  claimed .*P0' || { echo "self-test: --sprint should show the sprint priority:"; echo "$out"; exit 1; }
+  out="$("$me" --ref trunk --open 2>&1)" || { echo "self-test: --open should pass"; exit 1; }
+  echo "$out" | grep -q 'AA-08' || { echo "self-test: --open should list the ticket outside the sprint:"; echo "$out"; exit 1; }
   rc=0; out="$("$me" --ref trunk --reconcile 2>&1)" || rc=$?
   [ "$rc" = 1 ] || { echo "self-test: --reconcile should fail on the closed-with-no-commit and the orphan (rc $rc):"; echo "$out"; exit 1; }
   echo "$out" | grep -q 'AA-07 is closed in Beads but no commit' || { echo "self-test: --reconcile should name the false close:"; echo "$out"; exit 1; }
   echo "$out" | grep -q 'names AA-04' || { echo "self-test: --reconcile should name the open ticket whose commit landed:"; echo "$out"; exit 1; }
-  out="$("$me" --ref trunk --sprint-check 2>&1)" || { echo "self-test: --sprint-check should pass when the sprint holds every open ticket:"; echo "$out"; exit 1; }
-  rc=0; out="$(LOOP_CONFIG="$dir/nosprint.toml" "$me" --ref trunk --sprint-check 2>&1)" || rc=$?
-  [ "$rc" = 1 ] && echo "$out" | grep -q 'AA-05 is open and not in the sprint' || { echo "self-test: --sprint-check should fail naming AA-05:"; echo "$out"; exit 1; }
+  rc=0; out="$("$me" --ref trunk --sprint-check 2>&1)" || rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q 'AA-08 is open and carries no sprint label' || { echo "self-test: --sprint-check should fail naming AA-08:"; echo "$out"; exit 1; }
+  out="$(BD_SCENARIO=all-sprint AA08_LABEL='"sprint"' "$me" --ref trunk --sprint-check 2>&1)" || { echo "self-test: --sprint-check should pass when every open ticket carries the label:"; echo "$out"; exit 1; }
   unset LOOP_ROOT
   # A checkout with no Beads database is told the command that creates one.
   rc=0; out="$(BD_SCENARIO=no-db "$me" --ref trunk 2>&1)" || rc=$?

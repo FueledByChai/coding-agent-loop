@@ -201,7 +201,7 @@ printed from `pairs()` rather than written by hand.
 where the list lives, or a check fails naming a group `pairs()` copies that the header omits — and
 the route taken is proved by a self-test that drops a group from the header and sees the check fail.
 
-### LK-30 The stories view's keybar is the only one that names neither the help key nor a way out
+### LK-30 The stories view's keybar is the only one that names neither the help key nor a way out — `blocked withdrawn by owner; the terminal UI is withdrawn (0013)`
 `scripts/loop-tui.sh` draws a keybar under each of its four views, and it is the only place a
 reader learns which keys the view in front of them answers to. The dashboard's is
 ` ? help   <sp> show   a add   x remove   r refresh   q quit`, the open view's is
@@ -221,7 +221,7 @@ widen its own diff, the way LK-19 left LK-29's.
 under-reports nothing the handler reads, and `scripts/loop-tui.sh --self-test` asserts it by named
 line with the stories golden frame regenerated.
 
-### LK-31 The other three keybars are cut at narrow widths, and `q` is off them at the 40-column floor
+### LK-31 The other three keybars are cut at narrow widths, and `q` is off them at the 40-column floor — `blocked withdrawn by owner; the terminal UI is withdrawn (0013)`
 LK-20 made the stories view's keybar give way in a fixed order — the labels shorten first, then the
 key words, and the epic's name is cut last — so it states both settings and keeps `r` and `q` at
 every width `frame_width()` allows. The other three bars are cut by `$emit` like any other line.
@@ -657,3 +657,29 @@ frontmatter, so there is one copy and each skill's `description:` stays the only
 **Done when:** `./check.sh` fails when a command wrapper and the skill beside it disagree, naming the
 pair and the passage — proved by a self-test that drops a sentence from one side — or the skill's
 body is derived from its wrapper at install time, so that a disagreement cannot exist.
+
+### LK-33 `backlog-status.sh --plain` has no reader now that the terminal UI is withdrawn
+`--plain` prints `--stories` and `--open` as tab-separated fields with nothing cut, so a renderer
+can lay them out at its own width. Its only caller was `scripts/loop-tui.sh`, which 0013 removed,
+so the mode now serves a renderer that does not exist — and a mode nothing reads is the shape this
+kit keeps filing against itself (LK-20). Either remove the mode and its self-test, or name what
+reads it; the padded tables are what a person and a prompt read.
+**Done when:** `./check.sh` passes with `--plain` either gone from `scripts/backlog-status.sh` —
+its flag, its Perl branches, and its self-test's assertions all removed, with the padded tables
+unchanged — or kept and given a caller named in this file and in the script's header comment.
+
+### LK-34 The terminal UI is withdrawn, and the records that describe it are superseded
+`scripts/loop-tui.sh` is the kit's only interactive surface: 1777 lines, the largest file here,
+and the subject of both product stories (LS-01, LS-02), four decision records (0002, 0003, 0004,
+0011), and two open tickets (LK-30, LK-31). The owner drives the loop from the prompts —
+`next-ticket`, `grill-me`, `grill-project`, `review-prs` — loaded as skills, and does not use the
+screen; a frame that restates what `scripts/backlog-status.sh` already prints is a second
+derivation of the same figures, the shape this kit keeps filing against itself (LK-11, LK-14,
+LK-16, LK-20, LK-28). Decision 0013 records the withdrawal, 0012 records Beads as the ticket
+store that replaces the markdown queue, and the four records that describe the screen are
+superseded where they stand.
+**Done when:** `./check.sh` passes with `scripts/loop-tui.sh` gone; `check.sh`,
+`templates/check/common.sh`, and `install.sh` name no `loop-tui`; LK-30 and LK-31 carry the
+`blocked withdrawn by owner` claim that keeps `--next` off them; and `scripts/backlog-status.sh
+--self-test` still passes, because the field mode the renderer read (`--plain`) stays until its
+own ticket (LK-33) moves it.

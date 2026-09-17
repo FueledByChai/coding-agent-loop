@@ -683,3 +683,19 @@ superseded where they stand.
 `blocked withdrawn by owner` claim that keeps `--next` off them; and `scripts/backlog-status.sh
 --self-test` still passes, because the field mode the renderer read (`--plain`) stays until its
 own ticket (LK-33) moves it.
+
+### LK-35 The kit ships helpers in Python too, and the JaCoCo coverage figure is one of them
+`scripts/*.sh` is the shipping surface: `install.sh` and `scripts/loop-kit-sync.sh` both glob
+that extension, so a helper in another language never reaches a project — it would sit in the
+kit looking shipped and be absent everywhere the kit is installed. The Beads import path, the
+project-owned build helpers (a JaCoCo coverage figure, a Compose proof), and this kit's own
+record say otherwise: the loop needs one non-shell helper and the honest place for it is
+`scripts/`. Widen both globs to carry `scripts/*.py` as well as `scripts/*.sh`, and put the
+first real one there: `scripts/coverage-percent.py`, the JaCoCo line-coverage figure that
+`templates/check/java.sh` currently documents as a `python3 -c` one-liner for every Java
+project to copy by hand.
+**Done when:** `./check.sh` passes with `scripts/coverage-percent.py` installed into the fresh
+repository by `install.sh --self-test`, which runs the helper's own `--self-test` there;
+`scripts/loop-kit-sync.sh --self-test` proves a `.py` file is copied, is identical after a
+sync, and is reported as drift when the project edits it; and `templates/check/java.sh` names
+the helper rather than repeating its one-liner.

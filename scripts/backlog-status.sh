@@ -82,7 +82,9 @@ judged_ref() {
 status() {
   local ref="${1:-}" mode="$2"
   ref="$(judged_ref "$ref")"
-  local stories json gitlog
+  # Assigned unconditionally: a project that keeps no product backlog leaves STORIES_FILE empty
+  # and loop.toml.example call that setting supported, so the reference below must see a value.
+  local stories="" json gitlog
   if [ -n "$STORIES_FILE" ]; then
     case "$STORIES_FILE" in /*) stories="$STORIES_FILE" ;; *) stories="$ROOT/$STORIES_FILE" ;; esac
   fi
@@ -438,6 +440,12 @@ MD
   echo "$out" | grep -q '^sprint: yes (P1)' || { echo "self-test: --show should derive the sprint from the label:"; echo "$out"; exit 1; }
   out="$("$me" --ref trunk --stories 2>&1)" || { echo "self-test: --stories should pass"; exit 1; }
   echo "$out" | grep -q '^BT-01  *open 0/1' || { echo "self-test: the story should derive from the story: label:"; echo "$out"; exit 1; }
+  # A project that keeps no product backlog writes stories = "" (loop.toml.example), and the
+  # queue still has to read. bash 3.2 initialises an unassigned `local` to empty and hides a
+  # reference to it under set -u; bash 5, which CI runs, does not - so this case is the one that
+  # catches the unbound variable rather than the machine it was written on.
+  out="$("$me" --ref trunk --stories-file "" 2>&1)" || { echo "self-test: no stories file should still read the queue:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q '^AA-03  done' || { echo "self-test: the table without stories should still list the queue:"; echo "$out"; exit 1; }
   out="$("$me" --ref trunk --sprint 2>&1)" || { echo "self-test: --sprint should pass"; exit 1; }
   [ "$(printf '%s\n' "$out" | awk '$1 ~ /^AA-/ { print $1; exit }')" = "AA-05" ] || { echo "self-test: --sprint should order by priority then id, starting with AA-05:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^AA-05  claimed .*P0' || { echo "self-test: --sprint should show the sprint priority:"; echo "$out"; exit 1; }

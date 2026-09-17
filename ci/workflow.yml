@@ -28,9 +28,11 @@ jobs:
       # published (bd dolt push) fails here, which is the point: the check reads the queue.
       - name: Install Beads
         run: |
-          mkdir -p "$RUNNER_TEMP/bin"
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/bd-extract"
           curl -fsSL "https://github.com/gastownhall/beads/releases/download/v1.3.0/beads_1.3.0_linux_amd64.tar.gz" \
-            | tar -xz -C "$RUNNER_TEMP/bin" ./bd
+            | tar -xz -C "$RUNNER_TEMP/bd-extract"
+          mv "$RUNNER_TEMP/bd-extract/bd" "$RUNNER_TEMP/bin/bd"
+          chmod +x "$RUNNER_TEMP/bin/bd"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/bin/bd" version
       - name: Bootstrap the Beads queue

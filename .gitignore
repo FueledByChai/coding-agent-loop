@@ -1,0 +1,8 @@
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*
+# The Beads git hooks are per-machine integration files; the scripts call bd directly.
+.beads/hooks/

@@ -29,8 +29,10 @@
 #   scripts/backlog-status.sh --local         do not fetch origin first
 #   scripts/backlog-status.sh --self-test     a fixture repo and a stub bd prove the reading
 #
-# A ticket is a Beads issue whose id is `<PREFIX>-<number>`; epics, milestones and decisions are
-# not tickets. `acceptance_criteria` is the done line, a `blocks` dependency is a blocker, a
+# A ticket is a Beads issue whose id is `<PREFIX>-<suffix>`, where the suffix is a number until
+# the prefix's numeric space is spent and then the alphanumeric id Beads mints instead
+# (`LK-1af`, `RB-y3f`). Epics, milestones and decisions are not tickets. `acceptance_criteria`
+# is the done line, a `blocks` dependency is a blocker, a
 # `story:<ID>` label names the story it serves, a `section:<name>` label groups it, and the
 # `sprint_label` label (default `sprint`) puts it in the sprint, ordered by priority then id.
 # Beads `closed` is a claim like any other: git decides `done`, and --reconcile fails when the two
@@ -133,7 +135,7 @@ open my $gf, "<", $gitlog_file or die "backlog-status: cannot read $gitlog_file:
 while (my $line = <$gf>) {
   chomp $line;
   my ($sha, $date, $subject) = split / /, $line, 3;
-  next unless defined $subject && $subject =~ /^([A-Z]+-\d+):/;
+  next unless defined $subject && $subject =~ /^([A-Z][A-Z0-9]*-[a-z0-9]+):/;
   $done{$1} //= [$date, $sha];
 }
 close $gf;
@@ -141,7 +143,7 @@ close $gf;
 my (@tickets, %by_id);
 for my $r (@$rows) {
   my $id = $r->{id} // "";
-  next unless $id =~ /^[A-Z][A-Z0-9]*-[0-9]+$/;
+  next unless $id =~ /^[A-Z][A-Z0-9]*-[a-z0-9]+$/;
   my $type = $r->{issue_type} // "task";
   next if $type =~ /^(epic|milestone|decision)$/;
   my @labels = @{ $r->{labels} // [] };
@@ -392,6 +394,7 @@ case "$1" in
  {"id":"AA-06","title":"Sixth","description":"blocked by an archived ticket whose commit landed","acceptance_criteria":"sixth proof","status":"open","priority":0,"issue_type":"task","labels":["sprint"],"assignee":"","dependencies":[{"issue_id":"AA-06","depends_on_id":"ZZ-09","type":"blocks"}]},
  {"id":"AA-07","title":"Seventh","description":"closed with no commit","acceptance_criteria":"seventh proof","status":"closed","priority":2,"issue_type":"task","labels":["sprint"],"assignee":"","dependencies":[]},
  {"id":"AA-08","title":"Outside the sprint","description":"open, no sprint label","acceptance_criteria":"eighth proof","status":"open","priority":2,"issue_type":"task","labels":[${AA08_LABEL}],"assignee":"","dependencies":[]},
+ {"id":"AA-1a","title":"A generated id","description":"Beads minted this id","acceptance_criteria":"the generated id is read","status":"closed","priority":2,"issue_type":"task","labels":["sprint"],"assignee":"","dependencies":[]},
  {"id":"AA-09","title":"Epic, not a ticket","description":"story","acceptance_criteria":"","status":"open","priority":2,"issue_type":"epic","labels":[],"assignee":"","dependencies":[]}
 ]
 JSON
@@ -410,6 +413,7 @@ EOF
     git commit -q -m "Scaffold"
     git commit -q --allow-empty -m "AA-03: third landed"
     git commit -q --allow-empty -m "AA-04: fourth landed"
+    git commit -q --allow-empty -m "AA-1a: the generated id landed"
     git commit -q --allow-empty -m "ZZ-09: the blocker landed"
   )
   # No sprint list: the label is the sprint, and sprint_label defaults to "sprint".
@@ -432,6 +436,9 @@ MD
   out="$("$me" --ref trunk 2>&1)" || { echo "self-test: the table should pass:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^AA-03  done' || { echo "self-test: a landed commit should beat an in_progress claim:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^AA-06  todo' || { echo "self-test: AA-06 should be todo:"; echo "$out"; exit 1; }
+  # Beads mints an alphanumeric id once a prefix's numeric space is spent. The row has to be
+  # read rather than dropped: it was silently absent while the id shape was digits-only.
+  echo "$out" | grep -q '^AA-1a  done' || { echo "self-test: a generated Beads id should be read and reconciled:"; echo "$out"; exit 1; }
   next="$("$me" --ref trunk --next)" || { echo "self-test: --next should find a ready ticket"; exit 1; }
   [ "$next" = "AA-06" ] || { echo "self-test: --next should pass over the claimed AA-05 and take AA-06, got '$next'"; exit 1; }
   out="$("$me" --ref trunk --show AA-02 2>&1)" || { echo "self-test: --show should find AA-02"; exit 1; }

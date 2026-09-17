@@ -76,15 +76,16 @@ tsv() { printf '%s\t%s\n' "$1" "$2"; }
 
 # The ticket id a branch or subject names, or nothing. Both matches are exact, so a branch in
 # another namespace (backlog/ideas, AB-124 on its own) or a subject that only starts with an id
-# (AB-124-extra: ...) names no ticket rather than borrowing one. Ids are `<PREFIX>-<number>`,
-# the shape every project in the loop uses.
+# (AB-124-extra: ...) names no ticket rather than borrowing one. Ids are `<PREFIX>-<suffix>`,
+# where the suffix is a number until the prefix's numeric space is spent and then the
+# alphanumeric id Beads mints instead (`LK-1af`, `RB-y3f`).
 branch_ticket() {
-  local re='^ticket/([A-Z][A-Z0-9]*-[0-9]+)$'
+  local re='^ticket/([A-Z][A-Z0-9]*-[a-z0-9]+)$'
   if [[ "$1" =~ $re ]]; then printf '%s\n' "${BASH_REMATCH[1]}"; fi
 }
 
 subject_ticket() {
-  local re='^([A-Z][A-Z0-9]*-[0-9]+): '
+  local re='^([A-Z][A-Z0-9]*-[a-z0-9]+): '
   if [[ "$1" =~ $re ]]; then printf '%s\n' "${BASH_REMATCH[1]}"; fi
 }
 
@@ -343,6 +344,7 @@ branch=ticket/AA-01; title='AA-01: first'; merge=CLEAN; decision=; reviews=COMME
 case "$SCENARIO" in
   no-ticket) branch=backlog/ideas; title='Backlog: ideas' ;;
   branch-mismatch) branch=ticket/AA-02 ;;
+  generated-id) branch=ticket/AA-1a; title='AA-1a: first' ;;
   branch-suffix) branch=ticket/AA-01-extra ;;
   branch-bare) branch=AA-01 ;;
   behind) merge=BEHIND ;;
@@ -395,6 +397,7 @@ case "$1 $2" in
       no-ticket) echo 'Backlog: ideas' ;;
       subject-mismatch) echo 'AA-02: another ticket' ;;
       subject-suffix) echo 'AA-01-extra: first' ;;
+      generated-id) printf 'AA-1a: first\n\nCo-Authored-By: Self Test <self@example.com>\n' ;;
       *) printf 'AA-01: first\n\nCo-Authored-By: Self Test <self@example.com>\n' ;;
     esac
     ;;
@@ -415,6 +418,7 @@ case "$SCENARIO" in
   bead-unowned) printf '[{"id":"AA-01","status":"in_progress","assignee":"","acceptance_criteria":"criterion"}]' ;;
   bead-nocriteria) printf '[{"id":"AA-01","status":"in_progress","assignee":"someone","acceptance_criteria":"  "}]' ;;
   bead-missing) printf '[]' ;;
+  generated-id) printf '[{"id":"AA-1a","status":"in_progress","assignee":"FueledByChai","acceptance_criteria":"the criterion"}]' ;;
   bead-broken) printf 'not json' ;;
   *) printf '[{"id":"AA-01","status":"in_progress","assignee":"FueledByChai","acceptance_criteria":"the criterion"}]' ;;
 esac
@@ -464,6 +468,15 @@ EOF
   # The queue is the configured base branch, read past gh's default page of thirty.
   grep -q -- '--base trunk' "$GH_LOG" || { echo "self-test: the list should ask for the configured base branch:"; cat "$GH_LOG"; exit 1; }
   grep -q -- '--limit 200' "$GH_LOG" || { echo "self-test: the list should ask for more than gh's default page:"; cat "$GH_LOG"; exit 1; }
+
+  # Beads mints an alphanumeric id once a prefix's numeric space is spent, and the branch, the
+  # head subject and the queue row name the same one. Before the shape was widened the gate read
+  # this pull request as naming no ticket at all, which is the criterion failing on its own gate.
+  export SCENARIO=generated-id
+  out="$("$me" --ready)" || { echo "self-test: a generated Beads id should be ready:"; echo "$out"; exit 1; }
+  [ "$out" = "12 aaaaaaa111 ticket/AA-1a AA-1a: first" ] \
+    || { echo "self-test: --ready should list a pull request on a generated id, got:"; echo "$out"; exit 1; }
+  export SCENARIO=ok
 
   # --pr names one pull request: the queue is not listed, the same block is printed, and the
   # verdict is about that number rather than a count.

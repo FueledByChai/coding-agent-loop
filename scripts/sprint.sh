@@ -45,7 +45,7 @@ print_sprint() {
 # A ticket id must exist in the Beads queue and not be done (git is the proof).
 check_id() {
   local id="$1" state
-  [[ "$id" =~ ^[A-Z]+-[0-9]+$ ]] || { echo "not a ticket id: $id" >&2; return 1; }
+  [[ "$id" =~ ^[A-Z][A-Z0-9]*-[a-z0-9]+$ ]] || { echo "not a ticket id: $id" >&2; return 1; }
   bd_run show "$id" --json >/dev/null 2>&1 \
     || { echo "$id is not in the Beads queue" >&2; return 1; }
   state="$(LOOP_ROOT="$PROJECT" LOOP_CONFIG="$FILE" "$SCRIPT_ROOT/scripts/backlog-status.sh" --local 2>/dev/null | awk -v id="$id" '$1 == id { print $2 }')"
@@ -94,6 +94,7 @@ case "$cmd" in
       bd create "First" --id AA-01 --description "first" --acceptance "proof" --priority 2 --silent >/dev/null
       bd create "Second" --id AA-02 --description "second" --acceptance "proof" --priority 2 --silent >/dev/null
       bd create "Third" --id AA-03 --description "third" --acceptance "proof" --priority 2 --silent >/dev/null
+      bd create "Fourth" --id AA-1a --description "generated" --acceptance "proof" --priority 2 --silent >/dev/null
       git commit -q --allow-empty -m "AA-03: third landed"
     )
     printf '[loop]\ndefault_branch = "main"\n' > "$dir/.loop.toml"
@@ -111,6 +112,9 @@ case "$cmd" in
     out="$("$me" clear)"; [ "$out" = "sprint: empty" ] || { echo "self-test: clear should empty the sprint: $out"; exit 1; }
     remaining="$(bd -C "$dir" list --json -n 0 --label sprint 2>/dev/null)"
     case "$remaining" in ""|"[]") ;; *) echo "self-test: no ticket should carry the label after clear"; exit 1 ;; esac
+    # Beads mints an alphanumeric id once a prefix's numeric space is spent, and the sprint is
+    # a label like any other: the id has to be accepted rather than refused as "not a ticket id".
+    out="$("$me" add AA-1a)"; [ "$out" = "sprint: AA-1a" ] || { echo "self-test: a generated Beads id should be accepted: $out"; exit 1; }
     unset LOOP_ROOT
     echo "sprint self-test passed" ;;
   *) echo "usage: scripts/sprint.sh [add <id> [--priority N] | remove <id> | set <id>... | clear | --self-test]" >&2; exit 2 ;;

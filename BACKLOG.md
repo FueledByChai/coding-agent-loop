@@ -717,3 +717,18 @@ repository and its `--self-test` in the shared check block; the self-test shows 
 criteria failing alone with a reason while the other five pass, `--pr 12` reading one pull
 request without listing the queue and reporting `#12 is ready`, a number that is not there
 exiting non-zero, and a pull request to another branch refused by name.
+
+### LK-37 The queue's own references are checked by the kit, not by each project
+Every project writes the same integrity check beside its backlog: that each `Serves` names a
+story that exists, each `Blocked by` names a ticket that exists, no dependency cycle means a
+ticket never becomes ready, every ticket carries the **Done when** line the loop's whole notion
+of done rests on, and every `Decisions: NNNN` names a record. rockbox-ghl carries it in its
+project-owned `check.sh` where nothing shares it; the kit's own copy of the same faults has no
+check at all, which is why a ticket can be filed with a typo for its blocker and `--next` will
+walk it in silence. Bring it up as `scripts/reference-check.sh`, scoped to the id spaces the
+project's own headings define, so a ticket may still quote another project's ids as prose.
+**Done when:** `./check.sh` passes with `scripts/reference-check.sh` in the shared check block
+and its name in "The check" above, and its `--self-test` shows the clean queue passing while a
+missing **Done when** line, an unknown dependency, a dependency cycle, a duplicate id, an
+undefined ticket or story named in either file, and a citation of a record that does not exist
+each fail alone naming the file and the fault.

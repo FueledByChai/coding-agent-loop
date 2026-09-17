@@ -211,7 +211,7 @@ self_test() {
     echo "self-test: a prompt with no skill beside it must be refused"; exit 1
   fi
   echo "$out" | grep -q '(present)' || { echo "self-test: the stub check should be reported present:"; echo "$out"; exit 1; }
-  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint check-list ruleset-check; do
+  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint check-list ruleset-check pr-readiness; do
     [ -x "$dir/scripts/$f.sh" ] || { echo "self-test: scripts/$f.sh missing or not executable"; exit 1; }
   done
   [ -x "$dir/scripts/coverage-percent.py" ] || { echo "self-test: scripts/coverage-percent.py missing or not executable"; exit 1; }

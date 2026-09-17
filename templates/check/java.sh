@@ -30,9 +30,11 @@ else
 fi
 
 if [ "$FAST" = 0 ]; then
-  # `coverage` in .loop.toml should print one percentage; with JaCoCo (line coverage from
-  # its CSV, after `mvn -q -B verify` or `./gradlew jacocoTestReport`):
-  #   python3 -c 'import csv,sys; r=list(csv.DictReader(open(sys.argv[1]))); m=sum(int(x["LINE_MISSED"]) for x in r); c=sum(int(x["LINE_COVERED"]) for x in r); print("%.1f" % (100.0*c/max(1,m+c)))' target/site/jacoco/jacoco.csv
+  # `coverage` in .loop.toml should print one percentage. With JaCoCo (line coverage from its
+  # CSV, after `mvn -q -B verify` or `./gradlew jacocoTestReport`) the kit ships the figure:
+  #   coverage = "python3 scripts/coverage-percent.py"
+  # reads target/site/jacoco/jacoco.csv, and takes another CSV path as its argument; use your
+  # own command for anything else.
   ratchet
 fi
 

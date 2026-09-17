@@ -6,7 +6,8 @@ no particular model or harness: the instructions live in `AGENTS.md`, the prompt
 Markdown, and every project-specific value sits in one settings file, `.loop.toml`.
 
 The only hosting assumption is GitHub: the hand-off uses `gh`, and merges are gated with a
-branch ruleset and auto-merge. Everything else is bash, git, and perl.
+branch ruleset and auto-merge. Everything else is bash, git, perl, and the few `scripts/*.py`
+helpers a stack needs — a JaCoCo coverage figure today, the Beads import path next.
 
 ## What is in the kit
 
@@ -20,6 +21,7 @@ branch ruleset and auto-merge. Everything else is bash, git, and perl.
 | `scripts/loop-kit-sync.sh` | keeps a project's copies of these files in step with the kit |
 | `scripts/proof-gate.sh` | fails a change to code that brings no change to a test, fixture, or check |
 | `scripts/coverage-ratchet.sh` | fails when the project's coverage figure is below the committed floor; `--set` raises the floor |
+| `scripts/coverage-percent.py` | prints line coverage from a JaCoCo CSV, for the `coverage` command in `.loop.toml`; refuses an absent or unmeasured report |
 | `scripts/review-status.sh` | lists pull requests awaiting the agent review (`--pending`) and posts its verdict as a commit status |
 | `scripts/decisions.sh` | decision records: `new "<title>" [--supersedes NNNN]`, `index`, `--check` |
 | `scripts/prompt-check.sh` | fails when a prompt no longer carries a phrase that states one of its rules |
@@ -97,6 +99,9 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   with `--set` in the same commit, so the floor only moves up. `coverage_slack` (default 0)
   absorbs run-to-run jitter: a measurement within the slack below the floor passes, and a
   raise is suggested only when it clears the floor by more than the slack.
+  For JaCoCo the kit ships the figure itself: `coverage = "python3 scripts/coverage-percent.py"`
+  reads `target/site/jacoco/jacoco.csv` (or the CSV path you give it), and refuses a report with
+  no executable lines rather than printing the `0.00` a `0/0` would produce.
 
 ## Deciding things once
 

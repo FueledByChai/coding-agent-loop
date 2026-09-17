@@ -36,7 +36,11 @@ below it are this project's own and are what the loop prompts mean when they say
   owner. Several agents can run at once: claims keep them on different tickets, and
   `scripts/open-ticket-pr.sh --update-all` (run first by the review pass) rebases the open
   pull requests a merge left behind. Never push the default branch. Never force-push. Never
-  rewrite its history.
+  rewrite its history. `scripts/pr-readiness.sh` prints, for every open pull request, the six
+  facts a merge waits on (`--pr <number>` for one of them, `--ready` for the ones that pass all
+  six): the project's check ran on the head, no review conversation is unresolved, no changes
+  are requested, the agent review's status is success, the branch is current and clean, and the
+  branch and the head commit subject name one claimed Beads ticket.
 - **Commits.** One commit per ticket. The subject starts with the ticket id (`AB-12: ...`); the
   body says what changed and how the done line is proven; the message ends with a
   `Co-Authored-By: <agent> <email>` trailer naming the agent and model that did the work when

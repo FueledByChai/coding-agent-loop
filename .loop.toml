@@ -39,13 +39,12 @@ review_context = "Agent review"
 # Decision records (scripts/decisions.sh): one file per decision, numbered, never edited in
 # place; grill-me reads them before asking and writes one when a story needs a decision.
 decisions = "docs/decisions"
-# Every open ticket, in the order to work them. backlog-status.sh --next takes the first ready
-# one of these before falling back to file order, so an open ticket this list omits would be
-# worked in file order once the sprint drains - which is not the order stated here. That reading
-# is enforced: scripts/backlog-status.sh --sprint-check runs from ./check.sh and fails naming any
-# open ticket the list leaves out (LK-15). A project whose sprint is a chosen subset instead says
-# so in its own .loop.toml and does not name that check (see loop.toml.example).
-sprint = ["LK-42", "LK-43", "LK-44", "LK-45", "LK-46", "LK-47", "LK-23", "LK-24", "LK-25", "LK-26", "LK-27", "LK-28", "LK-29", "LK-30", "LK-31", "LK-32", "LK-33"]
+# The Beads label that marks the sprint. This repository's sprint is every open ticket, so every
+# non-done ticket carries it and backlog-status.sh --next takes the first ready labelled ticket by
+# priority. That reading is enforced: scripts/backlog-status.sh --sprint-check runs from ./check.sh
+# and fails naming an open ticket without the label (LK-15). A project whose sprint is a chosen
+# subset labels only those tickets and does not name that check (see loop.toml.example).
+sprint_label = "sprint"
 # The product backlog: the stories with their acceptance criteria that tickets say they serve
 # ("Serves LS-01"). backlog-status.sh --stories derives each story's status from those tickets.
 stories = "docs/PRODUCT_BACKLOG.md"

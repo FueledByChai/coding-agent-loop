@@ -15,7 +15,7 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | --- | --- |
 | `scripts/loop-config.sh` | reads `.loop.toml` (`<key>`, `--all`), with defaults |
 | `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views; `--plain` gives `--stories` and `--open` as tab-separated fields for a renderer; `--sprint-check` fails when the sprint and the open tickets disagree |
-| `scripts/sprint.sh` | edits the sprint list in `.loop.toml` (`add`, `remove`, `set`, `clear`) |
+| `scripts/sprint.sh` | edits the sprint in Beads: the `sprint_label` label and priorities (`add`, `remove`, `set`, `clear`) |
 | `scripts/open-ticket-pr.sh` | claims (`--claim`), opens the PR, applies the merge policy |
 | `scripts/release-notes.sh` | what shipped between two refs; `--archive` into `CHANGELOG.md`; `--prefix` narrows either to one ticket prefix |
 | `scripts/loop-kit-sync.sh` | keeps a project's copies of these files in step with the kit |
@@ -63,15 +63,13 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   id is on the default branch. The file carries only claims: `doing` and `blocked <reason>`.
 - **Claims** are `ticket/<id>` branches on origin. `--next` passes over claimed ids, so
   several agents can hold several tickets.
-- **The sprint** is `sprint = [...]` in `.loop.toml`: the tickets chosen for now, in order.
-  `--next` takes the first ready one of them before file order, `--sprint` shows their
-  states, and choosing a sprint is a commit that edits the list (`scripts/sprint.sh add
-  <id> [--before <id>]`). Tickets carry no sprint state, so a sprint change forgets nothing.
-  A project may mean either of two things by the list, and says which in the comment above it:
-  the tickets chosen for now, so what is left out is the pick list `--open` prints, or **every
-  open ticket**, so an omission is a fault. This repository means the second, and runs
-  `scripts/backlog-status.sh --sprint-check` from `./check.sh`, which fails naming an open
-  ticket the list leaves out or an id the backlog has no heading for (LK-15).
+- **The sprint** is the Beads label named by `sprint_label` in `.loop.toml` (`sprint` by
+  default), ordered by priority then id: `--next` takes the first ready labelled ticket before
+  the rest, `--sprint` shows their states, and `scripts/sprint.sh add|remove|set|clear` edits the
+  label. A project may mean either of two things by it: the tickets chosen for now, so what is
+  not labelled is the pick list `--open` prints, or **every open ticket**, so an omission is a
+  fault. This repository means the second, and runs `scripts/backlog-status.sh --sprint-check`
+  from `./check.sh`, which fails naming an open ticket without the label (LK-15).
 - **Stories** live in the product backlog (`stories` in `.loop.toml`, `docs/PRODUCT_BACKLOG.md`
   by default) as `### BT-nnn — <title>` with acceptance criteria; a ticket says which it
   serves (`Serves BT-nnn`). `--stories` derives each story's status from git (done when every

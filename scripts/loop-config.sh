@@ -37,9 +37,9 @@
 #                                            (scripts/review-status.sh); the ruleset requires it
 #   decisions         "docs/decisions"       the directory of decision records
 #                                            (scripts/decisions.sh), one file per decision
-#   sprint            []                     the tickets chosen for now, in order: backlog-status.sh
-#                                            --next takes the first ready one of them before file
-#                                            order, and --sprint shows their states
+#   sprint_label      "sprint"               the Beads label that marks the sprint: backlog-status.sh
+#                                            --next takes the first ready labelled ticket before the
+#                                            rest, in priority order, and --sprint shows their states
 #   stories           "docs/PRODUCT_BACKLOG.md" the product backlog (stories with acceptance
 #                                            criteria); backlog-status.sh --stories derives each
 #                                            story's status from the tickets that serve it; ""
@@ -84,14 +84,14 @@ read_config() {
     my ($file, $mode, $key) = @ARGV;
     my @order = qw(default_branch backlog check check_fast review_paths trailer_required kit kit_ref
                    code_paths proof_paths proof_pattern coverage coverage_floor coverage_slack review_context
-                   decisions sprint stories
+                   decisions sprint_label stories
                    test_db_image test_db_name test_db_user test_db_env test_db_url
                    compose_files compose_env compose_proof);
     my %default = (default_branch => "main", backlog => "BACKLOG.md", check => "scripts/check.sh",
                    check_fast => undef, review_paths => [], trailer_required => "true",
                    kit => "", kit_ref => "", code_paths => [], proof_paths => [], proof_pattern => "",
                    coverage => "", coverage_floor => "coverage-floor.txt", coverage_slack => "0",
-                   review_context => "Agent review", decisions => "docs/decisions", sprint => [], stories => "docs/PRODUCT_BACKLOG.md",
+                   review_context => "Agent review", decisions => "docs/decisions", sprint_label => "sprint", stories => "docs/PRODUCT_BACKLOG.md",
                    test_db_image => "postgres:17-bookworm", test_db_name => "test", test_db_user => "test",
                    # The @ in the URL template is escaped because this is a Perl double-quoted
                    # string, where @{host} would interpolate an array named @host.
@@ -190,7 +190,7 @@ coverage_floor = "ci/floor.txt"
 coverage_slack = "0.3"
 review_context = "Robot review"
 decisions = "adr"
-sprint = ["AB-12", "AB-07"]
+sprint_label = "current"
 stories = "docs/STORIES.md"
 EOF
   got="$(LOOP_CONFIG="$dir/other.toml" "$me" backlog)"; [ "$got" = "docs/QUEUE.md" ] || { echo "self-test: backlog should be docs/QUEUE.md, got '$got'"; exit 1; }
@@ -208,8 +208,8 @@ EOF
   got="$(LOOP_ROOT="$dir" "$me" coverage_slack)"; [ "$got" = "0" ] || { echo "self-test: coverage_slack should default to 0, got '$got'"; exit 1; }
   got="$(LOOP_CONFIG="$dir/other.toml" "$me" decisions)"; [ "$got" = "adr" ] || { echo "self-test: decisions should be set, got '$got'"; exit 1; }
   got="$(LOOP_ROOT="$dir" "$me" decisions)"; [ "$got" = "docs/decisions" ] || { echo "self-test: decisions should default, got '$got'"; exit 1; }
-  got="$(LOOP_CONFIG="$dir/other.toml" "$me" sprint)"; [ "$got" = $'AB-12\nAB-07' ] || { echo "self-test: sprint should list two ids in order, got '$got'"; exit 1; }
-  got="$(LOOP_ROOT="$dir" "$me" sprint)"; [ -z "$got" ] || { echo "self-test: sprint should default to empty, got '$got'"; exit 1; }
+  got="$(LOOP_CONFIG="$dir/other.toml" "$me" sprint_label)"; [ "$got" = "current" ] || { echo "self-test: sprint_label should be current, got '$got'"; exit 1; }
+  got="$(LOOP_ROOT="$dir" "$me" sprint_label)"; [ "$got" = "sprint" ] || { echo "self-test: sprint_label should default to sprint, got '$got'"; exit 1; }
   got="$(LOOP_CONFIG="$dir/other.toml" "$me" stories)"; [ "$got" = "docs/STORIES.md" ] || { echo "self-test: stories should be set, got '$got'"; exit 1; }
   got="$(LOOP_ROOT="$dir" "$me" stories)"; [ "$got" = "docs/PRODUCT_BACKLOG.md" ] || { echo "self-test: stories should default, got '$got'"; exit 1; }
   got="$(LOOP_CONFIG="$dir/other.toml" "$me" test_db_image)"; [ "$got" = "postgres:17-bookworm" ] || { echo "self-test: test_db_image should default, got '$got'"; exit 1; }

@@ -35,10 +35,10 @@ scripts/check-list.sh --section AGENTS.md "The check" check.sh
 # `Check (scripts/check.sh)` alone (decision 0006).
 scripts/ruleset-check.sh .github/ruleset.json .github/workflows/ci.yml ci/ruleset.json ci/workflow.yml
 ./install.sh --self-test
-# The `sprint` list here is every open ticket (LK-15), so an open heading it omits is a fault:
-# --next would work that ticket in file order once the sprint drains, which is not the order the
-# list states. It is deliberately one-sided - a project whose sprint is a chosen subset does not
-# name it - so it sits outside the shared block, with the install self-test.
+# The sprint here is every open ticket (LK-15), so an open ticket without the sprint label is a
+# fault: --next would work it after the labelled ones, which is not the order the label states.
+# It is deliberately one-sided - a project whose sprint is a chosen subset does not name it - so
+# it sits outside the shared block, with the install self-test.
 scripts/backlog-status.sh --sprint-check
 # The queue is reconciled with git (0012): a ticket Beads has closed must have a landed commit,
 # and a landed commit must name a ticket Beads has closed. Also one-sided, for the same reason.

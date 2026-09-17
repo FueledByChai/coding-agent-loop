@@ -45,14 +45,14 @@ review_context = "Agent review"
 # Decision records (scripts/decisions.sh): one file per decision, numbered, never edited in
 # place; grill-me reads them before asking and writes one when a story needs a decision.
 decisions = "docs/decisions"
-# The sprint: the tickets chosen for now, in the order to work them. backlog-status.sh --next
-# takes the first ready one of these before falling back to file order; --sprint shows their
-# states. Choosing a sprint is a commit that edits this list; a ticket keeps no sprint state.
-# This is the subset reading: what is not chosen is the pick list --open prints. A project that
-# instead means the sprint to hold every open ticket - so an omission is a fault, not a plan -
-# says so in this comment and runs scripts/backlog-status.sh --sprint-check from its check, which
-# fails naming an open ticket the list omits (LK-15).
-sprint = []
+# The sprint: the Beads label that marks the tickets to work now. backlog-status.sh --next takes
+# the first ready labelled ticket, ordered by priority then id, before the unlabelled ones, and
+# --sprint shows their states; scripts/sprint.sh add|remove|set|clear edits the label. This is
+# the subset reading: what is not labelled is the pick list --open prints. A project that instead
+# means the sprint to hold every open ticket - so an omission is a fault, not a plan - labels
+# every open ticket and runs scripts/backlog-status.sh --sprint-check from its check, which fails
+# naming an open ticket the label omits (LK-15).
+sprint_label = "sprint"
 # The product backlog: the stories with their acceptance criteria that tickets say they serve
 # ("Serves BT-nnn"). backlog-status.sh --stories derives each story's status from those
 # tickets, and --show <id> prints a story or a ticket. "" when the project keeps none.

@@ -10,21 +10,20 @@ below it are this project's own and are what the loop prompts mean when they say
 - **Settings.** `.loop.toml` holds everything the loop knows about this project:
   `default_branch`, `backlog` (the ticket file), `check` (the full check), `check_fast` (the
   check to run while iterating), `review_paths` (changes that need a human review),
-  `trailer_required`, `kit` (where the loop kit lives), and `sprint` (the tickets to work now,
-  in order: either the ones chosen for this sprint, leaving the rest as the pick list `--open`
-  prints, or every open ticket, so an omission is a fault - the comment above the list says
-  which). `scripts/loop-config.sh --all` prints the effective values. Prompts and scripts read them from there; they never hard-code
+  `trailer_required`, `kit` (where the loop kit lives), and `sprint_label` (the Beads label that
+  marks the tickets to work now, by priority then id: either a chosen subset, leaving the rest as
+  the pick list `--open` prints, or every open ticket, so an omission is a fault). `scripts/loop-config.sh --all` prints the effective values. Prompts and scripts read them from there; they never hard-code
   a branch, a path, or a build command.
 - **Tickets.** The backlog is a list of tickets, each a paragraph of intent plus a **Done when**
   line naming the test, fixture, or measurable output that proves it. Git is the record of
   done: a ticket is done when a commit whose subject starts with its id is on the default
   branch. `scripts/backlog-status.sh` derives every ticket's state from the commits and
-  `--next` names the first `todo` whose `Blocked by` tickets have landed, taking the
-  `sprint` list first and file order after it (`--sprint` shows the sprint's states;
+  `--next` names the first `todo` whose blockers have landed, taking the tickets carrying the
+  `sprint_label` first, by priority then id (`--sprint` shows the sprint's states;
   `--open` the tickets not done and not in the sprint; `--sprint-check` fails when that list
   and the open tickets disagree, for a sprint that means "every open ticket"; `--show <id>` a
   ticket or story in full; `--stories` every story with a status derived from the tickets that
-  serve it; `scripts/sprint.sh add|remove|set` edits the sprint list). The backlog file
+  serve it; `scripts/sprint.sh add|remove|set` edits the Beads labels). The backlog file
   carries only claims: `doing` while someone works a ticket, `blocked <reason>` when it needs
   a decision. Clear the `doing` claim in the ticket's own commit and never write a done line.
   Anything discovered while working goes in as a new ticket, not into the current one.
@@ -160,7 +159,7 @@ apart again (LK-16).
   test itself. Adding a third extension means widening both globs in the same change.
 - **Nothing here writes to a project's default branch, and nothing here commits.** The scripts
   print and the agent or the owner commits: `scripts/open-ticket-pr.sh` pushes a `ticket/<id>`
-  branch, and `scripts/sprint.sh` edits the working tree only (decision 0013).
+  branch, and `scripts/sprint.sh` edits the Beads queue's labels only (decision 0013).
 - **`--self-test` is the proof.** A change with no fixture behind it has not met its done line;
   the exception is a commit body line `No new test: <reason>`.
 - **A prompt changes with its phrases.** Editing a rule out of a prompt fails

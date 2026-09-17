@@ -7,8 +7,6 @@
 [loop]
 # The branch pull requests target and done is judged on.
 default_branch = "main"
-# The ticket file.
-backlog = "BACKLOG.md"
 # The definition of done, and the cheaper check to run while iterating.
 check = "scripts/check.sh"
 check_fast = "scripts/check.sh --fast"

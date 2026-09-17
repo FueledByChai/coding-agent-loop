@@ -8,28 +8,30 @@ below it are this project's own and are what the loop prompts mean when they say
 ## The loop
 
 - **Settings.** `.loop.toml` holds everything the loop knows about this project:
-  `default_branch`, `backlog` (the ticket file), `check` (the full check), `check_fast` (the
-  check to run while iterating), `review_paths` (changes that need a human review),
+  `default_branch`, `check` (the full check), `check_fast` (the check to run while iterating),
+  `review_paths` (changes that need a human review),
   `trailer_required`, `kit` (where the loop kit lives), and `sprint_label` (the Beads label that
   marks the tickets to work now, by priority then id: either a chosen subset, leaving the rest as
   the pick list `--open` prints, or every open ticket, so an omission is a fault). `scripts/loop-config.sh --all` prints the effective values. Prompts and scripts read them from there; they never hard-code
   a branch, a path, or a build command.
-- **Tickets.** The backlog is a list of tickets, each a paragraph of intent plus a **Done when**
-  line naming the test, fixture, or measurable output that proves it. Git is the record of
-  done: a ticket is done when a commit whose subject starts with its id is on the default
-  branch. `scripts/backlog-status.sh` derives every ticket's state from the commits and
-  `--next` names the first `todo` whose blockers have landed, taking the tickets carrying the
-  `sprint_label` first, by priority then id (`--sprint` shows the sprint's states;
-  `--open` the tickets not done and not in the sprint; `--sprint-check` fails when that list
-  and the open tickets disagree, for a sprint that means "every open ticket"; `--show <id>` a
-  ticket or story in full; `--stories` every story with a status derived from the tickets that
-  serve it; `scripts/sprint.sh add|remove|set` edits the Beads labels). The backlog file
-  carries only claims: `doing` while someone works a ticket, `blocked <reason>` when it needs
-  a decision. Clear the `doing` claim in the ticket's own commit and never write a done line.
-  Anything discovered while working goes in as a new ticket, not into the current one.
-- **Claims and hand-off.** Before work starts, `scripts/open-ticket-pr.sh <id> --claim` pushes
-  `ticket/<id>` to origin; `backlog-status.sh --next` passes over claimed ids, so several
-  agents can hold several tickets. After the commit, `scripts/open-ticket-pr.sh <id>` pushes
+- **Tickets.** The queue is Beads (`bd`), a hard dependency. A ticket is an issue whose id is
+  `<PREFIX>-<number>`: its `description` is the intent, its `acceptance_criteria` is the done
+  line naming the test, fixture, or measurable output that proves it, its `blocks` dependencies
+  are its blockers, and its `section:` and `story:` labels group it and name the story it
+  serves. Git is the record of done: a ticket is done when a commit whose subject starts with
+  its id is on the default branch, and `scripts/backlog-status.sh` derives every ticket's state
+  from the commits and the queue (`--next` names the first ready ticket, the `sprint_label`
+  tickets first by priority; `--sprint` their states; `--open` the tickets outside the sprint;
+  `--sprint-check` the label pairing; `--reconcile` git against Beads; `--show <id>` a ticket
+  or story in full; `--stories` every story with a status derived from the tickets that serve
+  it; `scripts/sprint.sh add|remove|set` edits the Beads labels). A ticket Beads says is
+  `closed` with no naming commit is a false close, and a landed commit naming a ticket Beads
+  still has open is an orphan; `--reconcile` fails both. Anything discovered while working goes
+  in as a new ticket (`bd create`), not into the current one.
+- **Claims and hand-off.** Before work starts, claim the ticket in Beads (`bd update <id>
+  --claim`) and push `ticket/<id>` to origin with `scripts/open-ticket-pr.sh <id> --claim`;
+  `backlog-status.sh --next` passes over claimed tickets, so several agents can hold several
+  tickets. After the commit, `scripts/open-ticket-pr.sh <id>` pushes
   the branch and opens the pull request; a green PR up to date with the default branch merges
   on its own, one that touches a review path is labelled `needs-review` and waits for the
   owner. Several agents can run at once: claims keep them on different tickets, and
@@ -55,7 +57,8 @@ below it are this project's own and are what the loop prompts mean when they say
 - **Isolation.** Prefer an isolated worktree per ticket. The check script knows how to run
   from one (see the project rules for what it resolves).
 - **Releases.** Tag them: `scripts/release-notes.sh <from> <to>` lists what shipped, and
-  `--archive <tag>` moves the shipped tickets out of the backlog into `CHANGELOG.md`.
+  `--archive <tag>` writes the release into `CHANGELOG.md` and closes its shipped tickets in
+  Beads.
 - **Decisions.** Architecture and product decisions live as records in the decisions
   directory (`decisions` in `.loop.toml`, `docs/decisions` by default), one numbered file each,
   never edited in place; a change is a new record that supersedes the old
@@ -114,9 +117,9 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
   that second context, and they are not interchangeable. `scripts/ruleset-check.sh` fails when
   either pair disagrees, so neither can drift; the review context is the one context it accepts
   without a job (decision 0006).
-- `BACKLOG.md` is this project's executable queue, `docs/PRODUCT_BACKLOG.md` its stories, and
-  `docs/decisions/` its records (index in its `README.md`; cite a record by number and never
-  restate one in a doc or a ticket).
+- The queue is this repository's Beads database (`.beads`), `docs/PRODUCT_BACKLOG.md` holds its
+  stories, and `docs/decisions/` its records (index in its `README.md`; cite a record by number
+  and never restate one in a doc or a ticket).
 
 ### Build, run, restart
 
@@ -129,9 +132,10 @@ until then `scripts/loop-kit-sync.sh --check` fails there, which is the intended
 `./check.sh` is the definition of done, and CI runs the same script. In order it runs every
 script's `--self-test`, then `scripts/prompt-check.sh` (a prompt may not lose a rule), then
 `scripts/decisions.sh --check` (the kit's records answer to the same sections and index a project's
-check demands of them), then `scripts/reference-check.sh` (every id the queue names is a ticket or
-a story here, every ticket carries its **Done when** line, no dependency cycle, and every decision
-it cites is a record), then the two checks that compare what is written down more than once,
+check demands of them), then `scripts/reference-check.sh` (every ticket carries acceptance
+criteria, every `blocks` dependency and `story:` label resolves, no dependency cycle, and every
+decision a ticket or a story cites is a record), then the two checks that compare what is written
+down more than once,
 `scripts/check-list.sh` and `scripts/ruleset-check.sh`, then `./install.sh --self-test`, which
 installs into a fresh repository and runs the installed scripts' self-tests there, then
 `scripts/backlog-status.sh --sprint-check` (the sprint here is every open ticket, so an omission is

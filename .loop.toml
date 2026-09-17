@@ -5,8 +5,6 @@
 [loop]
 # The branch pull requests target and done is judged on.
 default_branch = "main"
-# The ticket file.
-backlog = "BACKLOG.md"
 # The definition of done. The kit's check sits at the repository root on purpose, so
 # install.sh never copies it over a project's own scripts/check.sh.
 check = "./check.sh"

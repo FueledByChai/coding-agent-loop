@@ -28,7 +28,7 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | `scripts/check-list.sh` | fails when two places that run or describe the same checks disagree — the kit's `check.sh` and a project's `templates/check/common.sh`, or a prose section and the script it describes (`--section`) — naming the check only one of them has |
 | `scripts/ruleset-check.sh` | fails when a ruleset requires a status check the workflow it pairs with never reports |
 | `scripts/pr-readiness.sh` | the six facts a merge waits on for every open pull request — the project's check ran on the head, no review conversation is unresolved, no changes are requested, the agent review's status is success, the branch is current and clean, and the branch and subject name one claimed Beads ticket; `--pr <number>` judges one, `--ready` lists the ones that pass all six |
-| `scripts/reference-check.sh` | the queue's own references: every id named is a ticket or a story here, every ticket carries its **Done when** line, no dependency cycle, and every decision cited is a record; another project's ids quoted in prose are left alone |
+| `scripts/reference-check.sh` | the queue's own references: every ticket carries acceptance criteria, every `blocks` dependency and `story:` label resolves, no dependency cycle, and every decision cited is a record; another project's ids quoted in prose are left alone |
 | `scripts/with-test-postgres.sh` | runs a command against a disposable PostgreSQL: a uniquely named container, two ownership labels, the connection URL in the environment (`test_db_*` in `.loop.toml`), and a cleanup that removes only the container it created |
 | `scripts/compose-smoke.sh` | starts the project's Compose stack under a name of its own (`compose_files`), waits for it to be healthy, runs `compose_proof` against it with `COMPOSE_PROJECT_NAME` and `COMPOSE_FILE` exported, and takes that stack down with its volumes — printing its logs first when anything failed |
 | `templates/decision.md` | the decision record: Context, Decision, Alternatives, Consequences, what would show it was wrong |
@@ -56,13 +56,18 @@ skeletons' own stack steps separately, instead of running the whole suite once p
 
 ## How the loop works
 
-- **Tickets** live in a Markdown file (`BACKLOG.md` by default). A ticket is a heading
-  `### <ID> <title>`, a paragraph of intent, and a **Done when** line naming the test,
-  fixture, or measurable output that proves it. Ids are `<PREFIX>-<number>`.
+- **Tickets** live in Beads (`bd`), a hard dependency: an issue whose id is `<PREFIX>-<number>`,
+  with a paragraph of intent in `description`, a **Done when** line in `acceptance_criteria`
+  naming the test, fixture, or measurable output that proves it, blockers as `blocks`
+  dependencies, and `section:`/`story:` labels. The queue is the Dolt database in `.beads`,
+  synced through the `refs/dolt/data` ref (`bd dolt push`, `bd bootstrap` on a fresh clone, and
+  the CI workflow bootstraps it).
 - **Git is the record of done.** A ticket is done when a commit whose subject starts with its
-  id is on the default branch. The file carries only claims: `doing` and `blocked <reason>`.
-- **Claims** are `ticket/<id>` branches on origin. `--next` passes over claimed ids, so
-  several agents can hold several tickets.
+  id is on the default branch; a ticket Beads says is `closed` with no naming commit is a false
+  close, and a landed commit naming a ticket Beads still has open is an orphan, and
+  `scripts/backlog-status.sh --reconcile` fails both (0012).
+- **Claims** are `bd update <id> --claim`, with the `ticket/<id>` branch on origin beside them.
+  `--next` passes over claimed tickets, so several agents can hold several tickets.
 - **The sprint** is the Beads label named by `sprint_label` in `.loop.toml` (`sprint` by
   default), ordered by priority then id: `--next` takes the first ready labelled ticket before
   the rest, `--sprint` shows their states, and `scripts/sprint.sh add|remove|set|clear` edits the
@@ -71,10 +76,11 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   fault. This repository means the second, and runs `scripts/backlog-status.sh --sprint-check`
   from `./check.sh`, which fails naming an open ticket without the label (LK-15).
 - **Stories** live in the product backlog (`stories` in `.loop.toml`, `docs/PRODUCT_BACKLOG.md`
-  by default) as `### BT-nnn — <title>` with acceptance criteria; a ticket says which it
-  serves (`Serves BT-nnn`). `--stories` derives each story's status from git (done when every
-  serving ticket landed, open k/n, unticketed), `--open` is the pick list for the next sprint
-  where the sprint is a subset, and `--show <id>` prints a ticket or a story in full.
+  by default) as `### BT-nnn — <title>` with acceptance criteria; a ticket says which it serves
+  with a `story:BT-nnn` label. Stories are product intent, not tickets. `--stories` derives each
+  story's status from git (done when every serving ticket landed, open k/n, unticketed), `--open`
+  is the pick list for the next sprint where the sprint is a subset, and `--show <id>` prints a
+  ticket or a story in full.
 - **Hand-off** is a pull request from that branch. A green PR that is up to date with the
   default branch merges on its own; one that touches a `review_paths` entry is labelled
   `needs-review` and waits for a person. With several agents at once, each merge leaves the
@@ -152,7 +158,7 @@ On a new repository run `install.sh`, then the `grill-project` prompt. It interv
 five rounds, one area each (who and where; the data; runtime and deploy; the UI;
 non-negotiables), and each area ends in a decision record or a dated deferral, never a guess.
 Then it writes the Project rules section of `AGENTS.md`, the records, a product backlog with
-the first epics, the ticket file with a first ticket, `.loop.toml`, and `scripts/check.sh`
+the first epics, the Beads queue with a first ticket, `.loop.toml`, and `scripts/check.sh`
 from the skeleton for your stack under `templates/check/` (Rust, Python, Node or TypeScript,
 Java with Maven or Gradle, Go; anything else gets a skeleton of TODO lines). The skeletons run
 the loop's own checks first and skip the stack steps until the manifest exists, so the check

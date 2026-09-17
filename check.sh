@@ -17,8 +17,8 @@ done
 scripts/prompt-check.sh
 # The kit's records answer to the same sections and index a project's check demands of them.
 scripts/decisions.sh --check
-# The queue's own references: every id it names is defined, every ticket says how it is proved,
-# no ticket waits on itself, and every decision it cites is a record here.
+# The queue's own references: every ticket carries acceptance criteria, every dependency and
+# story label resolves, no ticket waits on itself, and every decision it cites is a record here.
 scripts/reference-check.sh
 # <<< loop checks
 # The block above and a project's are one list; this fails when they have drifted apart (LK-14).

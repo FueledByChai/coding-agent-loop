@@ -132,8 +132,8 @@ install_into() {
     done
     echo "installed: $skills/{$(cd "$KIT/prompts" && ls *.md | sed 's/\.md$//' | tr '\n' ',' | sed 's/,$//')}/SKILL.md pointers"
   fi
-  if [ ! -e "$target/$(basename "$(cd "$target" && "$target/scripts/loop-config.sh" backlog)")" ]; then
-    echo "note: the backlog file ($(cd "$target" && "$target/scripts/loop-config.sh" backlog)) does not exist yet; create it with a heading per section and a ticket per '### <ID> <title>'"
+  if [ ! -d "$target/.beads" ]; then
+    echo "note: no Beads queue yet; the loop's tickets live in bd, so create one with 'bd init --prefix <PREFIX>' and push it with 'bd dolt push'"
   fi
   cat <<EOF
 
@@ -155,6 +155,9 @@ Still to supply:
      .github/workflows/loop.yml - so a ruleset requiring a status the workflow never reports
      cannot land unnoticed.
   4. The Project rules section of AGENTS.md (grill-project writes it on a new project).
+  5. A Beads queue: run 'bd init --prefix <PREFIX>' when the repository has no .beads, and
+     'bd dolt push' so the refs/dolt/data ref CI bootstraps from carries the tickets. bd is a
+     hard dependency of the loop: the scripts read the queue with it.
 EOF
 }
 
@@ -234,6 +237,9 @@ self_test() {
     esac
   done
   [ -f "$dir/.agent/commands/grill-project.md" ] || { echo "self-test: the grill-project wrapper should be installed"; exit 1; }
+  # The queue is Beads, so the skeleton's loop checks need one; bd init comes after the install
+  # assertions above because it writes an AGENTS.md of its own, which install.sh must not touch.
+  (cd "$dir" && bd init --prefix AA --non-interactive >/dev/null 2>&1)
   # Every skeleton runs green on the empty repository. The loop checks each one sources from
   # loop/templates/check/common.sh are identical and are the bulk of the run, so they are proved
   # once, in full, through the first skeleton; the other five run with that file stubbed to a

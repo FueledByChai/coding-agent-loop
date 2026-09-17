@@ -16,3 +16,5 @@ the old one. Cite a decision by its number. `scripts/decisions.sh new "<title>"`
 - [0011](0011-the-stories-view-s-filters-narrow-the-rows-once-in-the-shell.md) The stories view's filters narrow the rows once, in the shell, not in the renderer — superseded by 0013
 - [0012](0012-beads-is-the-ticket-store-and-git-is-still-the-proof.md) Beads is the ticket store, and Git is still the proof — accepted
 - [0013](0013-the-terminal-ui-is-removed-and-the-prompts-with-their-skills.md) The terminal UI is removed and the prompts with their skills are the whole interface — accepted, supersedes 0002
+- [0014](0014-beads-is-a-hard-dependency-and-a-checkout-without-a-queue-is.md) Beads is a hard dependency, and a checkout without a queue is told so — accepted
+- [0015](0015-the-markdown-ticket-file-retires-and-the-stories-stay-a-docu.md) The markdown ticket file retires, and the stories stay a document — accepted

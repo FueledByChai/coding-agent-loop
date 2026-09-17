@@ -699,3 +699,21 @@ repository by `install.sh --self-test`, which runs the helper's own `--self-test
 `scripts/loop-kit-sync.sh --self-test` proves a `.py` file is copied, is identical after a
 sync, and is reported as drift when the project edits it; and `templates/check/java.sh` names
 the helper rather than repeating its one-liner.
+
+### LK-36 The readiness gate is a kit script, and it can judge one pull request
+A green build is not a merge-ready pull request: the check can pass on a branch that is behind
+with a review outstanding, an unresolved conversation, and a branch that names no ticket at
+all. rockbox-ghl wrote the six facts a person reads into `scripts/pr-readiness.sh`, and it is
+the one project-owned script every consumer of this kit needs: the criteria come from
+`.loop.toml` (`check`, `review_context`, `default_branch`) and from the branch and subject that
+`open-ticket-pr.sh` already names, so nothing in it is rockbox-shaped. Bring it up, and add
+what a queue report cannot do — `--pr <number>` judges one pull request, so the owner can ask
+about the one they are looking at without reading the whole queue. Two readings get fixed on
+the way: the check command is compared as the file it names (`./check.sh` in the kit's
+`.loop.toml` is the job `Check (check.sh)` its workflow reports), and a pull request that
+targets something other than the default branch is refused rather than judged.
+**Done when:** `./check.sh` passes with `scripts/pr-readiness.sh` installed into the fresh
+repository and its `--self-test` in the shared check block; the self-test shows each of the six
+criteria failing alone with a reason while the other five pass, `--pr 12` reading one pull
+request without listing the queue and reporting `#12 is ready`, a number that is not there
+exiting non-zero, and a pull request to another branch refused by name.

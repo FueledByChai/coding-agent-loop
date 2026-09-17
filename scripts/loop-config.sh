@@ -11,7 +11,6 @@
 #
 # Keys and defaults:
 #   default_branch    "main"                 the branch pull requests target and done is judged on
-#   backlog           "BACKLOG.md"           the ticket file, relative to the root
 #   check             "scripts/check.sh"     the full check, run before a commit
 #   check_fast        (the value of check)   the check to run while iterating
 #   review_paths      []                     globs (shell patterns, or path prefixes) whose change
@@ -82,12 +81,12 @@ read_config() {
   perl -e '
     use strict; use warnings;
     my ($file, $mode, $key) = @ARGV;
-    my @order = qw(default_branch backlog check check_fast review_paths trailer_required kit kit_ref
+    my @order = qw(default_branch check check_fast review_paths trailer_required kit kit_ref
                    code_paths proof_paths proof_pattern coverage coverage_floor coverage_slack review_context
                    decisions sprint_label stories
                    test_db_image test_db_name test_db_user test_db_env test_db_url
                    compose_files compose_env compose_proof);
-    my %default = (default_branch => "main", backlog => "BACKLOG.md", check => "scripts/check.sh",
+    my %default = (default_branch => "main", check => "scripts/check.sh",
                    check_fast => undef, review_paths => [], trailer_required => "true",
                    kit => "", kit_ref => "", code_paths => [], proof_paths => [], proof_pattern => "",
                    coverage => "", coverage_floor => "coverage-floor.txt", coverage_slack => "0",
@@ -146,7 +145,6 @@ self_test() {
   # A missing file: every key is its default.
   local got
   got="$(LOOP_ROOT="$dir" "$me" default_branch)"; [ "$got" = "main" ] || { echo "self-test: default_branch should default to main, got '$got'"; exit 1; }
-  got="$(LOOP_ROOT="$dir" "$me" backlog)"; [ "$got" = "BACKLOG.md" ] || { echo "self-test: backlog should default to BACKLOG.md, got '$got'"; exit 1; }
   got="$(LOOP_ROOT="$dir" "$me" check)"; [ "$got" = "scripts/check.sh" ] || { echo "self-test: check default wrong: '$got'"; exit 1; }
   got="$(LOOP_ROOT="$dir" "$me" check_fast)"; [ "$got" = "scripts/check.sh" ] || { echo "self-test: check_fast should fall back to check, got '$got'"; exit 1; }
   got="$(LOOP_ROOT="$dir" "$me" review_paths)"; [ -z "$got" ] || { echo "self-test: review_paths should default to nothing, got '$got'"; exit 1; }
@@ -166,7 +164,6 @@ trailer_required = false
 default_branch = "ignored"
 EOF
   got="$(LOOP_ROOT="$dir" "$me" default_branch)"; [ "$got" = "trunk" ] || { echo "self-test: default_branch should be trunk, got '$got'"; exit 1; }
-  got="$(LOOP_ROOT="$dir" "$me" backlog)"; [ "$got" = "BACKLOG.md" ] || { echo "self-test: a missing key keeps its default, got '$got'"; exit 1; }
   got="$(LOOP_ROOT="$dir" "$me" check)"; [ "$got" = "make check" ] || { echo "self-test: check should be 'make check', got '$got'"; exit 1; }
   got="$(LOOP_ROOT="$dir" "$me" check_fast)"; [ "$got" = "make check" ] || { echo "self-test: check_fast should follow check, got '$got'"; exit 1; }
   got="$(LOOP_ROOT="$dir" "$me" review_paths)"; [ "$got" = $'fixtures/expected/\ndocs/*.md' ] || { echo "self-test: review_paths should list two globs, got '$got'"; exit 1; }
@@ -175,7 +172,6 @@ EOF
   cat > "$dir/other.toml" <<'EOF'
 [loop]
 default_branch = "develop"
-backlog = "docs/QUEUE.md"
 check = "make test"
 check_fast = "make lint"
 review_paths = ["schema/\"quoted\".json"]
@@ -193,7 +189,6 @@ decisions = "adr"
 sprint_label = "current"
 stories = "docs/STORIES.md"
 EOF
-  got="$(LOOP_CONFIG="$dir/other.toml" "$me" backlog)"; [ "$got" = "docs/QUEUE.md" ] || { echo "self-test: backlog should be docs/QUEUE.md, got '$got'"; exit 1; }
   got="$(LOOP_CONFIG="$dir/other.toml" "$me" check_fast)"; [ "$got" = "make lint" ] || { echo "self-test: check_fast should be set, got '$got'"; exit 1; }
   got="$(LOOP_CONFIG="$dir/other.toml" "$me" review_paths)"; [ "$got" = 'schema/"quoted".json' ] || { echo "self-test: escaped quote lost: '$got'"; exit 1; }
   got="$(LOOP_CONFIG="$dir/other.toml" "$me" kit_ref)"; [ "$got" = "v1.2.3" ] || { echo "self-test: kit_ref should be v1.2.3, got '$got'"; exit 1; }
@@ -219,7 +214,7 @@ EOF
   got="$(LOOP_CONFIG="$dir/other.toml" "$me" compose_files)"; [ -z "$got" ] || { echo "self-test: compose_files should default to nothing, got '$got'"; exit 1; }
   got="$(LOOP_CONFIG="$dir/other.toml" "$me" compose_env)"; [ -z "$got" ] || { echo "self-test: compose_env should default to nothing, got '$got'"; exit 1; }
   got="$(LOOP_CONFIG="$dir/other.toml" "$me" compose_proof)"; [ -z "$got" ] || { echo "self-test: compose_proof should default to nothing, got '$got'"; exit 1; }
-  got="$(LOOP_CONFIG="$dir/other.toml" "$me" --all | grep -c '=')"; [ "$got" = 26 ] || { echo "self-test: --all should print twenty-six keys, got $got"; exit 1; }
+  got="$(LOOP_CONFIG="$dir/other.toml" "$me" --all | grep -c '=')"; [ "$got" = 25 ] || { echo "self-test: --all should print twenty-five keys, got $got"; exit 1; }
   # An unknown key is an error; an unknown key in the file is a warning, not a failure.
   if LOOP_ROOT="$dir" "$me" colour >/dev/null 2>&1; then echo "self-test: an unknown key must fail"; exit 1; fi
   printf '[loop]\nfoo = "bar"\n' > "$dir/.loop.toml"

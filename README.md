@@ -56,10 +56,12 @@ skeletons' own stack steps separately, instead of running the whole suite once p
 
 ## How the loop works
 
-- **Tickets** live in Beads (`bd`), a hard dependency: an issue whose id is `<PREFIX>-<number>`,
-  with a paragraph of intent in `description`, a **Done when** line in `acceptance_criteria`
-  naming the test, fixture, or measurable output that proves it, blockers as `blocks`
-  dependencies, and `section:`/`story:` labels. The queue is the Dolt database in `.beads`,
+- **Tickets** live in Beads (`bd`), a hard dependency: an issue whose id is `<PREFIX>-<suffix>`,
+  a number until the prefix's numeric space is spent and the alphanumeric id Beads mints after
+  that (`LK-1af`), with a paragraph of intent in `description`, a **Done when** line in
+  `acceptance_criteria` naming the test, fixture, or measurable output that proves it, blockers
+  as `blocks` dependencies, and `section:`/`story:` labels. The queue is the Dolt database in
+  `.beads`,
   synced through the `refs/dolt/data` ref (`bd dolt push`, `bd bootstrap` on a fresh clone, and
   the CI workflow bootstraps it).
 - **Git is the record of done.** A ticket is done when a commit whose subject starts with its

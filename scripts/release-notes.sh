@@ -82,7 +82,7 @@ my %want_prefix = map { $_ => 1 } grep { length } split /,/, ($ENV{RELEASE_NOTES
 my $keep = sub {
   my $id = shift;
   return 1 unless %want_prefix;
-  my ($p) = $id =~ /^([A-Z]+)-/;
+  my ($p) = $id =~ /^([A-Z][A-Z0-9]*)-/;
   return (defined $p && $want_prefix{$p}) ? 1 : 0;
 };
 
@@ -125,7 +125,7 @@ my $section_name = sub {
   return $prefix;
 };
 my %by_prefix;
-for my $id (@ids) { my ($prefix) = $id =~ /^([A-Z]+)-/; push @{ $by_prefix{$prefix} }, $id; }
+for my $id (@ids) { my ($prefix) = $id =~ /^([A-Z][A-Z0-9]*)-/; push @{ $by_prefix{$prefix} }, $id; }
 my $notes = "";
 for my $prefix (sort keys %by_prefix) {
   $notes .= "\n### " . $section_name->($prefix) . "\n\n";
@@ -224,6 +224,7 @@ case "$1" in
  {"id":"AA-02","title":"Second thing","description":"Why AA-02 exists.","acceptance_criteria":"AA-02 is proved","status":"open","priority":2,"issue_type":"task","labels":["section:Alpha","sprint"]},
  {"id":"BB-01","title":"Other prefix","description":"Why BB-01 exists.","acceptance_criteria":"BB-01 is proved","status":"open","priority":2,"issue_type":"task","labels":["section:Beta","sprint"]},
  {"id":"AA-1a","title":"Generated id","description":"Why AA-1a exists.","acceptance_criteria":"AA-1a is proved","status":"open","priority":2,"issue_type":"task","labels":["section:Alpha","sprint"]},
+ {"id":"A1-01","title":"Digit prefix","description":"Why A1-01 exists.","acceptance_criteria":"A1-01 is proved","status":"open","priority":2,"issue_type":"task","labels":["section:Alpha","sprint"]},
  {"id":"AA-03","title":"Already closed","description":"Why AA-03 exists.","acceptance_criteria":"AA-03 is proved","status":"closed","priority":2,"issue_type":"task","labels":["section:Alpha","sprint"]}
 ]
 JSON
@@ -245,6 +246,7 @@ EOF
     git commit -q --allow-empty -m "AA-02: second thing"
     git commit -q --allow-empty -m "BB-01: other prefix"
     git commit -q --allow-empty -m "AA-1a: generated id"
+    git commit -q --allow-empty -m "A1-01: digit prefix"
     git commit -q --allow-empty -m "AA-03: already closed"
   )
   printf '[loop]\ndefault_branch = "main"\n' > "$dir/.loop.toml"
@@ -255,8 +257,17 @@ EOF
   # Beads mints an alphanumeric id once a prefix's numeric space is spent, and both the ship
   # list and the git subject have to read it: before the shape was widened, AA-1a was neither.
   echo "$out" | grep -q 'AA-1a.*Generated id' || { echo "self-test: notes should name a generated Beads id:"; echo "$out"; exit 1; }
+  # An id whose prefix carries a digit is the same shape, and the two places that read the
+  # prefix back out - the --prefix filter and the group heading - have to agree with it. Both
+  # read `^([A-Z]+)-` before this, so the id reached the notes and then rendered a blank
+  # heading, or was filtered out entirely.
+  echo "$out" | grep -q '^### Alpha (A1)$' || { echo "self-test: a digit-bearing prefix should name its section heading:"; echo "$out"; exit 1; }
+  if printf '%s\n' "$out" | grep -q '^### *$'; then echo "self-test: no section heading should render blank:"; echo "$out"; exit 1; fi
+  out="$("$me" --prefix A1 v0.0.0 HEAD 2>&1)" || { echo "self-test: --prefix should pass:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q 'A1-01' || { echo "self-test: --prefix A1 should keep its own ticket:"; echo "$out"; exit 1; }
+  if printf '%s\n' "$out" | grep -q 'AA-01'; then echo "self-test: --prefix A1 should drop another prefix:"; echo "$out"; exit 1; fi
   out="$("$me" --archive v0.1.0 v0.0.0 HEAD 2>&1)" || { echo "self-test: archive should pass:"; echo "$out"; exit 1; }
-  echo "$out" | grep -q 'archived 5 ticket(s) under v0.1.0' || { echo "self-test: archive should count five tickets:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q 'archived 6 ticket(s) under v0.1.0' || { echo "self-test: archive should count six tickets:"; echo "$out"; exit 1; }
   grep -q '^## v0.1.0 ' "$dir/CHANGELOG.md" || { echo "self-test: the changelog should gain the release:"; cat "$dir/CHANGELOG.md"; exit 1; }
   grep -q '^#### AA-01 First thing ' "$dir/CHANGELOG.md" || { echo "self-test: the changelog should carry the ticket text:"; cat "$dir/CHANGELOG.md"; exit 1; }
   grep -q 'AA-01 is proved' "$dir/CHANGELOG.md" || { echo "self-test: the changelog should carry the acceptance criteria:"; exit 1; }
@@ -264,6 +275,7 @@ EOF
   grep -q '^close AA-02 ' "$dir/bd.log" || { echo "self-test: AA-02 should be closed in Beads:"; exit 1; }
   grep -q '^close BB-01 ' "$dir/bd.log" || { echo "self-test: BB-01 should be closed in Beads:"; exit 1; }
   grep -q '^close AA-1a --reason archived under v0.1.0$' "$dir/bd.log" || { echo "self-test: AA-1a should be closed in Beads:"; cat "$dir/bd.log"; exit 1; }
+  grep -q '^close A1-01 --reason archived under v0.1.0$' "$dir/bd.log" || { echo "self-test: A1-01 should be closed in Beads:"; cat "$dir/bd.log"; exit 1; }
   if grep -q '^close AA-03 ' "$dir/bd.log"; then echo "self-test: an already-closed ticket must not be closed again"; exit 1; fi
   echo "$out" | grep -q 'already closed: AA-03' || { echo "self-test: AA-03 should be reported already closed:"; echo "$out"; exit 1; }
   # A prefix filter archives only its own tickets, and nothing when it matches nothing.

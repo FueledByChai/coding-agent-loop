@@ -1,318 +1,292 @@
 #!/usr/bin/env bash
-# Release notes from commits, and a changelog archive (HK-06). A commit whose subject starts
-# with a ticket id (`WB-02: ...`) is that ticket shipping; the notes are those commits between
-# two refs, grouped by ticket prefix under the BACKLOG.md section the ticket sits in.
+# Release notes from commits, and a changelog archive (HK-06). A commit whose subject starts with
+# a ticket id (`LK-02: ...`) is that ticket shipping; the notes are those commits between two refs,
+# grouped by the ticket's `section:` label, with the ticket's text read from Beads. `--archive`
+# writes the release into CHANGELOG.md and closes each shipped ticket in Beads (0012): the
+# changelog is the human record, Beads carries the state, and git stays the proof.
 #
 #   scripts/release-notes.sh <from-ref> [<to-ref>]     Markdown notes for from..to (to: the
 #                                                      default branch from .loop.toml)
 #   scripts/release-notes.sh --archive <tag> <from> [<to>]
-#                                                      the notes, plus: every listed ticket
-#                                                      still in BACKLOG.md moves, body and all,
-#                                                      into CHANGELOG.md under a `## <tag>`
-#                                                      heading (newest first), so the queue
-#                                                      holds only open work
-#   --backlog <file> / --changelog <file>              other files (default: the repo's)
+#                                                      the notes, plus a `## <tag>` entry in
+#                                                      CHANGELOG.md (newest first) and a
+#                                                      `bd close` for every shipped ticket still
+#                                                      open in Beads
+#   --changelog <file>                                 another changelog (default: the repo's)
 #   --prefix <P>                                       only the tickets whose id carries that
 #                                                      prefix (repeatable, or comma-separated);
-#                                                      it filters the notes and the archive
-#                                                      alike, so one prefix's work can leave a
-#                                                      backlog without touching the rest. When
-#                                                      nothing matches, nothing moves and the
-#                                                      exit status is still 0. A --prefix that
+#                                                      it filters the notes and the archive alike.
+#                                                      When nothing matches, nothing is written and
+#                                                      the exit status is still 0. A --prefix that
 #                                                      names no prefix at all is refused, since
-#                                                      read as "no filter" it would archive
-#                                                      every prefix's tickets.
-#   --self-test                                        a fixture repo proves both modes
+#                                                      read as "no filter" it would archive every
+#                                                      prefix's tickets.
+#   --self-test                                        a fixture repo and a stub bd prove both modes
 #
-# Tag releases; the notes for a release are the diff between its tag and the previous one.
+# Settings come from .loop.toml through scripts/loop-config.sh: `default_branch`. Needs `bd` with
+# this repository's database: the ticket text comes from Beads, and --archive closes there.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BACKLOG="$ROOT/$("$ROOT/scripts/loop-config.sh" backlog)"
+SCRIPT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="${LOOP_ROOT:-$SCRIPT_ROOT}"
+CONFIG="$SCRIPT_ROOT/scripts/loop-config.sh"
 CHANGELOG="$ROOT/CHANGELOG.md"
 ARCHIVE=""
 MODE=notes
 REFS=()
 PREFIXES=""
 PREFIX_GIVEN=0
-# --prefix accumulates, splitting on commas, so `--prefix AA --prefix BB` and `--prefix AA,BB`
-# mean the same thing. An empty component is dropped: it names no prefix, and dropping it cannot
-# widen the filter.
-add_prefix() {
-  local list="$1" p
-  local IFS=','
-  for p in $list; do
-    [ -n "$p" ] || continue
-    PREFIXES="${PREFIXES:+$PREFIXES,}$p"
-  done
-}
 while [ $# -gt 0 ]; do
   case "$1" in
-    --archive) ARCHIVE="$2"; shift ;;
-    --backlog) BACKLOG="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift ;;
+    --archive) ARCHIVE="$2"; MODE=archive; shift ;;
     --changelog) CHANGELOG="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift ;;
-    --prefix) PREFIX_GIVEN=1; add_prefix "$2"; shift ;;
+    --prefix) PREFIX_GIVEN=1
+      for p in $(printf '%s' "$2" | tr ',' ' '); do
+        [ -n "$p" ] || continue
+        PREFIXES="${PREFIXES:+$PREFIXES,}$p"
+      done
+      shift ;;
     --self-test) MODE=selftest ;;
     --*) echo "unknown flag: $1" >&2; exit 2 ;;
     *) REFS+=("$1") ;;
   esac
   shift
 done
-# A --prefix that was asked for and named nothing is a mistake, not an omission. Read as "no
-# filter" it would archive every prefix's tickets, which is the opposite of what it asked for, so
-# it is refused before either file is touched.
 if [ "$PREFIX_GIVEN" = 1 ] && [ -z "$PREFIXES" ]; then
   echo "usage: --prefix needs at least one prefix; an empty list is not the same as leaving the flag off" >&2
   exit 2
 fi
-# The filter reaches the renderer through the environment: the perl block below is a black box
-# that already takes its inputs positionally, and the sibling TUI script passes its width the
-# same way.
 RELEASE_NOTES_PREFIXES="$PREFIXES"
 export RELEASE_NOTES_PREFIXES
 
 # The commits from..to that carry a ticket id, oldest first, as `sha<TAB>date<TAB>id<TAB>summary`.
 shipped() {
   local from="$1" to="$2"
-  git log --reverse --date=short --format='%h%x09%ad%x09%s' "$from..$to" -- 2>/dev/null \
+  git -C "$ROOT" log --reverse --date=short --format='%h%x09%ad%x09%s' "$from..$to" -- 2>/dev/null \
     | perl -ne 'chomp; my ($sha, $date, $subject) = split /\t/, $_, 3; next unless $subject =~ /^([A-Z]+-\d+):\s*(.*)$/; print "$sha\t$date\t$1\t$2\n";'
 }
 
-# Notes (mode notes) or the archive (mode archive with a tag): reads the shipped list on STDIN.
+# The changelog and the list of ids to close. Reads the shipped list on STDIN, the Beads queue
+# from a JSON file; writes the changelog when archiving and the close list to <closelist>.
 render() {
-  local mode="$1" tag="$2" from="$3" to="$4" backlog="$5" changelog="$6"
-  perl -e '
-    use strict; use warnings;
-    my ($mode, $tag, $from, $to, $backlog, $changelog) = @ARGV;
-    # --prefix narrows the run to the tickets whose id carries one of these prefixes. An empty
-    # list means no filter, which is what a flag-less invocation passes.
-    my %want_prefix = map { $_ => 1 } grep { length } split /,/, ($ENV{RELEASE_NOTES_PREFIXES} // "");
-    my $keep = sub {
-      my $id = shift;
-      return 1 unless %want_prefix;
-      my ($p) = $id =~ /^([A-Z]+)-/;
-      return (defined $p && $want_prefix{$p}) ? 1 : 0;
-    };
-    my @shipped;
-    while (my $line = <STDIN>) { chomp $line; my @f = split /\t/, $line, 4; push @shipped, { sha => $f[0], date => $f[1], id => $f[2], summary => $f[3] } if @f == 4; }
-    # The backlog: every ticket block (heading through the line before the next heading) and
-    # the section it sits in.
-    my (@lines, %block, %section, %order);
-    if (open my $fh, "<", $backlog) { @lines = <$fh>; close $fh; }
-    my ($current_section, $current_id) = ("", "");
-    for my $i (0 .. $#lines) {
-      my $line = $lines[$i];
-      if ($line =~ /^## (.*)$/) { $current_section = $1; $current_id = ""; next; }
-      if ($line =~ /^### (\S+) /) { $current_id = $1; $section{$current_id} = $current_section; $block{$current_id} = [$i, $i]; $order{$current_id} = $i; next; }
-      $block{$current_id}[1] = $i if $current_id ne "";
-    }
-    # The filter is applied once, here, so the notes, the archive, and the "already archived"
-    # line all see the same tickets.
-    my @ships = grep { $keep->($_->{id}) } @shipped;
-    my %seen;
-    my @ids = grep { !$seen{$_}++ } map { $_->{id} } @ships;
-    my %first; for my $s (@ships) { $first{ $s->{id} } //= $s; }
-    my %by_prefix;
-    for my $id (@ids) { my ($prefix) = $id =~ /^([A-Z]+)-/; push @{ $by_prefix{$prefix} }, $id; }
-    my $section_name = sub { my $prefix = shift; for my $id (@{ $by_prefix{$prefix} }) { return "$section{$id} ($prefix)" if ($section{$id} // "") ne ""; } return $prefix; };
-    my $title = sub { my $id = shift; return "" unless $block{$id}; my $h = $lines[ $block{$id}[0] ]; $h =~ s/^### \S+ //; $h =~ s/ — .*$//; chomp $h; return $h; };
-    my $notes = "";
-    for my $prefix (sort keys %by_prefix) {
-      $notes .= "\n### " . $section_name->($prefix) . "\n\n";
-      for my $id (@{ $by_prefix{$prefix} }) {
-        my $f = $first{$id};
-        my $t = $title->($id);
-        $notes .= "- **$id** " . ($t ne "" ? "$t" : $f->{summary}) . " — $f->{date} · $f->{sha}" . ($t ne "" && lc($t) ne lc($f->{summary}) ? " ($f->{summary})" : "") . "\n";
-      }
-    }
-    my $scope = %want_prefix ? " matching " . join(", ", sort keys %want_prefix) : "";
-    if ($mode eq "notes") {
-      print "# Release notes $from..$to\n";
-      print @ids ? $notes : "\nNo ticket commits in $from..$to$scope.\n";
-      exit 0;
-    }
-    # A filter that matches nothing leaves both files exactly as they were, and is not an error:
-    # the prefix may simply have had no work in this range.
-    if (%want_prefix && !@ids) {
-      print "nothing in $from..$to$scope; nothing archived\n";
-      exit 0;
-    }
-    # Archive: the tickets still in the backlog move into the changelog under the tag.
-    my $existing = "";
-    if (open my $ch, "<", $changelog) { local $/; $existing = <$ch>; close $ch; }
-    my @moved = grep { $block{$_} && $existing !~ /^#### \Q$_\E /m } @ids;
-    my $date = @ships ? $ships[-1]{date} : "";
-    my $entry = "## $tag — $date ($from..$to)\n" . $notes;
-    for my $prefix (sort keys %by_prefix) {
-      my @here = grep { $block{$_} } @{ $by_prefix{$prefix} };
-      next unless @here;
-      $entry .= "\n### " . $section_name->($prefix) . ": archived tickets\n";
-      for my $id (@here) {
-        my ($start, $end) = @{ $block{$id} };
-        my @body = @lines[$start .. $end];
-        $body[0] =~ s{^### \S+ (.*?)(?: — `[^`]*`)?( — Blocked by .*)?$}{"#### $id $1 — $first{$id}{date} · $first{$id}{sha}" . (defined $2 ? $2 : "")}e;
-        pop @body while @body > 1 && $body[-1] =~ /^\s*$/;
-        $entry .= "\n" . join("", @body);
-      }
-    }
-    $entry .= "\n";
-    my $header = "# Changelog\n\nWhat shipped, by release: the commits that carry a ticket id between two tags, with the\nticket text as it stood when it left BACKLOG.md (scripts/release-notes.sh --archive).\n\n";
-    if ($existing =~ /^## \Q$tag\E /m) {
-      print "changelog already has a $tag entry; leaving it as it is\n";
-    } else {
-      my $out;
-      if ($existing =~ /^(# Changelog\n(?:.*\n)*?)(?=^## |\z)/m) { my $head = $1; my $rest = substr $existing, length $head; $out = $head . $entry . $rest; }
-      else { $out = $header . $entry . $existing; }
-      open my $wc, ">", $changelog or die "cannot write $changelog: $!"; print $wc $out; close $wc;
-    }
-    # Drop the moved blocks (and the blank lines that trailed them) from the backlog.
-    my %drop;
-    for my $id (@moved) { my ($start, $end) = @{ $block{$id} }; $drop{$_} = 1 for $start .. $end; }
-    my @kept;
-    for my $i (0 .. $#lines) { push @kept, $lines[$i] unless $drop{$i}; }
-    my $text = join "", @kept; $text =~ s/\n{3,}/\n\n/g;
-    open my $wb, ">", $backlog or die "cannot write $backlog: $!"; print $wb $text; close $wb;
-    print "archived " . scalar(@moved) . " ticket(s) under $tag: " . join(", ", @moved) . "\n";
-    my @already = grep { !$block{$_} } @ids; print "already archived or never in the backlog: " . join(", ", @already) . "\n" if @already;
-  ' "$mode" "$tag" "$from" "$to" "$backlog" "$changelog"
+  local mode="$1" tag="$2" from="$3" to="$4" changelog="$5" bdjson="$6" closelist="$7" shiplist="$8"
+  perl - "$mode" "$tag" "$from" "$to" "$changelog" "$bdjson" "$closelist" "$shiplist" <<'PERL'
+use strict;
+use warnings;
+use JSON::PP;
+
+my ($mode, $tag, $from, $to, $changelog, $bdjson, $closelist, $shiplist) = @ARGV;
+binmode(STDOUT, ":encoding(UTF-8)");
+binmode(STDERR, ":encoding(UTF-8)");
+
+my %want_prefix = map { $_ => 1 } grep { length } split /,/, ($ENV{RELEASE_NOTES_PREFIXES} // "");
+my $keep = sub {
+  my $id = shift;
+  return 1 unless %want_prefix;
+  my ($p) = $id =~ /^([A-Z]+)-/;
+  return (defined $p && $want_prefix{$p}) ? 1 : 0;
+};
+
+my @shipped;
+if (open my $sh, "<", $shiplist) {
+  while (my $line = <$sh>) {
+    chomp $line;
+    my @f = split /\t/, $line, 4;
+    push @shipped, { sha => $f[0], date => $f[1], id => $f[2], summary => $f[3] } if @f == 4;
+  }
+  close $sh;
+}
+my @ships = grep { $keep->($_->{id}) } @shipped;
+my %seen;
+my @ids = grep { !$seen{$_}++ } map { $_->{id} } @ships;
+my %first; for my $s (@ships) { $first{ $s->{id} } //= $s; }
+
+# The Beads queue, keyed by id: title, description, acceptance criteria, section label, state.
+my (%ticket, %in_bd);
+{
+  my $raw = "";
+  if (open my $fh, "<", $bdjson) { local $/; $raw = <$fh>; close $fh; }
+  my $rows = eval { JSON::PP->new->utf8->decode($raw) };
+  for my $r (@{ (ref $rows eq "ARRAY" ? $rows : []) }) {
+    my $id = $r->{id} // "";
+    next unless $id =~ /^[A-Z][A-Z0-9]*-[0-9]+$/;
+    next if ($r->{issue_type} // "") =~ /^(epic|milestone|decision)$/;
+    my $section = "";
+    for my $l (@{ $r->{labels} // [] }) { $section = $1 if $l =~ /^section:(.*)$/; }
+    $ticket{$id} = { title => $r->{title} // "", description => $r->{description} // "",
+                     acceptance => $r->{acceptance_criteria} // "", section => $section,
+                     status => $r->{status} // "open" };
+    $in_bd{$id} = 1;
+  }
+}
+my $title = sub { my $id = shift; my $t = $ticket{$id}; return $t && $t->{title} ne "" ? $t->{title} : ""; };
+my $section_name = sub {
+  my $prefix = shift;
+  for my $id (@ids) { next unless ($id =~ /^$prefix-/); my $t = $ticket{$id}; return "$t->{section} ($prefix)" if $t && $t->{section} ne ""; }
+  return $prefix;
+};
+my %by_prefix;
+for my $id (@ids) { my ($prefix) = $id =~ /^([A-Z]+)-/; push @{ $by_prefix{$prefix} }, $id; }
+my $notes = "";
+for my $prefix (sort keys %by_prefix) {
+  $notes .= "\n### " . $section_name->($prefix) . "\n\n";
+  for my $id (@{ $by_prefix{$prefix} }) {
+    my $f = $first{$id}; my $t = $title->($id);
+    $notes .= "- **$id** " . ($t ne "" ? "$t" : $f->{summary}) . " \x{2014} $f->{date} \x{00b7} $f->{sha}"
+            . ($t ne "" && lc($t) ne lc($f->{summary}) ? " ($f->{summary})" : "") . "\n";
+  }
+}
+my $scope = %want_prefix ? " matching " . join(", ", sort keys %want_prefix) : "";
+if ($mode eq "notes") {
+  print "# Release notes $from..$to\n";
+  print @ids ? $notes : "\nNo ticket commits in $from..$to$scope.\n";
+  exit 0;
+}
+if (%want_prefix && !@ids) {
+  print "nothing in $from..$to$scope; nothing archived\n";
+  exit 0;
+}
+
+# Archive: the changelog entry, with each ticket's text from Beads.
+my $existing = "";
+if (open my $ch, "<:encoding(UTF-8)", $changelog) { local $/; $existing = <$ch>; close $ch; }
+my $date = @ships ? $ships[-1]{date} : "";
+my $entry = "## $tag \x{2014} $date ($from..$to)\n" . $notes;
+for my $prefix (sort keys %by_prefix) {
+  my @here = grep { $ticket{$_} } @{ $by_prefix{$prefix} };
+  next unless @here;
+  $entry .= "\n### " . $section_name->($prefix) . ": archived tickets\n";
+  for my $id (@here) {
+    my $f = $first{$id}; my $t = $ticket{$id};
+    $entry .= "\n#### $id " . ($t->{title} ne "" ? $t->{title} : $f->{summary}) . " \x{2014} $f->{date} \x{00b7} $f->{sha}\n\n";
+    $entry .= $t->{description} . "\n\n" if $t->{description} ne "";
+    $entry .= "**Done when:** $t->{acceptance}\n" if $t->{acceptance} ne "";
+  }
+}
+$entry .= "\n";
+my $header = "# Changelog\n\nWhat shipped, by release: the commits that carry a ticket id between two tags, with the\nticket text read from Beads (scripts/release-notes.sh --archive).\n\n";
+if ($existing =~ /^## \Q$tag\E /m) {
+  print "changelog already has a $tag entry; leaving it as it is\n";
+} else {
+  my $out;
+  if ($existing =~ /^(# Changelog\n(?:.*\n)*?)(?=^## |\z)/m) { my $head = $1; my $rest = substr $existing, length $head; $out = $head . $entry . $rest; }
+  else { $out = $header . $entry . $existing; }
+  open my $wc, ">:encoding(UTF-8)", $changelog or die "cannot write $changelog: $!";
+  print $wc $out; close $wc;
+}
+# The ids to close: shipped, in Beads, and not already closed; the rest is reported.
+my (@close, @already, @absent);
+for my $id (@ids) {
+  if (!$in_bd{$id}) { push @absent, $id; next; }
+  if (($ticket{$id}{status} // "open") eq "closed") { push @already, $id; next; }
+  push @close, $id;
+}
+open my $cl, ">", $closelist or die "cannot write $closelist: $!";
+print $cl join("\n", @close), (@close ? "\n" : "");
+close $cl;
+print "archived " . scalar(@ids) . " ticket(s) under $tag: " . join(", ", @ids) . "\n";
+print "already closed: " . join(", ", @already) . "\n" if @already;
+print "not in the Beads queue: " . join(", ", @absent) . "\n" if @absent;
+PERL
+}
+
+archive() {
+  local tag="$1" from="$2" to="$3" json closelist shiplist id
+  command -v bd >/dev/null || { echo "release-notes: bd is required for --archive" >&2; exit 1; }
+  json="$(mktemp "${TMPDIR:-/tmp}/release-bd.XXXXXX")"
+  closelist="$(mktemp "${TMPDIR:-/tmp}/release-close.XXXXXX")"
+  shiplist="$(mktemp "${TMPDIR:-/tmp}/release-ship.XXXXXX")"
+  trap 'rm -f "${json:-}" "${closelist:-}" "${shiplist:-}"' EXIT
+  ( cd "$ROOT" && bd list --all --json -n 0 ) >"$json" 2>"$json.err" \
+    || { echo "release-notes: no Beads queue could be read from $ROOT" >&2; sed 's/^/  /' "$json.err" >&2 || true; rm -f "$json" "$json.err" "$closelist" "$shiplist"; exit 1; }
+  rm -f "$json.err"
+  shipped "$from" "$to" > "$shiplist"
+  render archive "$tag" "$from" "$to" "$CHANGELOG" "$json" "$closelist" "$shiplist"
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    ( cd "$ROOT" && bd close "$id" --reason "archived under $tag" ) >/dev/null
+  done < "$closelist"
+  rm -f "$json" "$closelist" "$shiplist"
 }
 
 self_test() {
   SELF_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/release-notes.XXXXXX")"
   trap 'rm -rf "$SELF_TEST_DIR"' EXIT
-  local dir="$SELF_TEST_DIR"
+  local dir="$SELF_TEST_DIR" me="$SCRIPT_ROOT/scripts/release-notes.sh" out
+  mkdir -p "$dir/bin"
+  cat > "$dir/bin/bd" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >> "$BD_LOG"
+case "$1" in
+  list)
+    cat <<'JSON'
+[
+ {"id":"AA-01","title":"First thing","description":"Why AA-01 exists.","acceptance_criteria":"AA-01 is proved","status":"open","priority":2,"issue_type":"task","labels":["section:Alpha","sprint"]},
+ {"id":"AA-02","title":"Second thing","description":"Why AA-02 exists.","acceptance_criteria":"AA-02 is proved","status":"open","priority":2,"issue_type":"task","labels":["section:Alpha","sprint"]},
+ {"id":"BB-01","title":"Other prefix","description":"Why BB-01 exists.","acceptance_criteria":"BB-01 is proved","status":"open","priority":2,"issue_type":"task","labels":["section:Beta","sprint"]},
+ {"id":"AA-03","title":"Already closed","description":"Why AA-03 exists.","acceptance_criteria":"AA-03 is proved","status":"closed","priority":2,"issue_type":"task","labels":["section:Alpha","sprint"]}
+]
+JSON
+    ;;
+esac
+EOF
+  chmod +x "$dir/bin/bd"
   (
     cd "$dir"
     git init -q
-    git config user.email "self-test@example.com"
-    git config user.name "self-test"
-    cat > BACKLOG.md <<'EOF'
-# Fixture queue
-
-## Alpha
-
-### AA-01 First thing — `doing`
-Why the first thing matters.
-**Done when:** it lands.
-
-### AA-02 Second thing — `todo` — Blocked by AA-01
-Body of the second thing.
-
-## Beta
-
-### BB-01 Other thing
-Body of the other thing.
-**Done when:** it ships.
-
-## Gamma
-
-### CC-01 Third thing
-Body of the third thing.
-EOF
-    git add BACKLOG.md
-    git commit -q -m "Scaffold the fixture queue"
+    git config user.email t@example.com
+    git config user.name t
+    git checkout -q -b main
+    printf 'scaffold\n' > README.md
+    git add -A
+    git commit -q -m "Scaffold"
     git tag v0.0.0
-    git commit -q --allow-empty -m "AA-01: first thing landed"
-    git commit -q --allow-empty -m "Unrelated tidy-up"
-    git commit -q --allow-empty -m "CC-01: third thing shipped"
-    git commit -q --allow-empty -m "BB-01: other thing shipped"
-    git commit -q --allow-empty -m "AA-01: a follow-up fix"
-    notes="$("$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md v0.0.0 HEAD)"
-    echo "$notes" | grep -q '^### Alpha (AA)$' || { echo "self-test: notes lack the Alpha section:"; echo "$notes"; exit 1; }
-    echo "$notes" | grep -q '^- \*\*AA-01\*\* First thing — [0-9-]* · [0-9a-f]* (first thing landed)$' || { echo "self-test: AA-01 line wrong:"; echo "$notes"; exit 1; }
-    echo "$notes" | grep -q '^### Beta (BB)$' || { echo "self-test: notes lack the Beta section:"; echo "$notes"; exit 1; }
-    echo "$notes" | grep -q '^- \*\*BB-01\*\* Other thing' || { echo "self-test: BB-01 missing:"; echo "$notes"; exit 1; }
-    echo "$notes" | grep -q 'AA-02' && { echo "self-test: AA-02 has not shipped and must not be listed:"; echo "$notes"; exit 1; }
-    [ "$(echo "$notes" | grep -c 'AA-01')" = 1 ] || { echo "self-test: AA-01 must be listed once (first commit):"; echo "$notes"; exit 1; }
-    echo "$notes" | grep -q 'Unrelated' && { echo "self-test: a commit without a ticket id leaked in"; exit 1; }
-    # --prefix narrows the notes to one prefix, and three prefixes interleave in this range, so
-    # the two it does not name must be absent from both the list and the section headings.
-    notes_aa="$("$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --prefix AA v0.0.0 HEAD)"
-    echo "$notes_aa" | grep -q '^- \*\*AA-01\*\*' || { echo "self-test: --prefix AA dropped AA-01:"; echo "$notes_aa"; exit 1; }
-    echo "$notes_aa" | grep -qE 'BB-01|CC-01' && { echo "self-test: --prefix AA leaked another prefix:"; echo "$notes_aa"; exit 1; }
-    echo "$notes_aa" | grep -q '^### Alpha (AA)$' || { echo "self-test: --prefix AA lost its own section:"; echo "$notes_aa"; exit 1; }
-    echo "$notes_aa" | grep -qE '^### (Beta|Gamma)' && { echo "self-test: --prefix AA kept another prefix's section:"; echo "$notes_aa"; exit 1; }
-    notes_bb="$("$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --prefix BB v0.0.0 HEAD)"
-    echo "$notes_bb" | grep -q '^- \*\*BB-01\*\*' || { echo "self-test: --prefix BB dropped BB-01:"; echo "$notes_bb"; exit 1; }
-    echo "$notes_bb" | grep -qE 'AA-01|CC-01' && { echo "self-test: --prefix BB leaked another prefix:"; echo "$notes_bb"; exit 1; }
-    # Both spellings of the flag mean the same thing, and together they mean no filter at all.
-    [ "$("$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --prefix AA,BB,CC v0.0.0 HEAD)" = "$notes" ] \
-      || { echo "self-test: a comma-separated --prefix list must equal no filter"; exit 1; }
-    [ "$("$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --prefix AA --prefix BB --prefix CC v0.0.0 HEAD)" = "$notes" ] \
-      || { echo "self-test: a repeated --prefix must equal no filter"; exit 1; }
-    # The archive moves exactly the prefix it was given, says how many it moved, and leaves the
-    # other prefixes' tickets where they were.
-    archive_out="$("$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --changelog CHANGELOG.md --prefix AA --archive v0.1.0 v0.0.0 HEAD)"
-    [ "$archive_out" = "archived 1 ticket(s) under v0.1.0: AA-01" ] || { echo "self-test: --prefix AA must move one ticket and print the count:"; echo "$archive_out"; exit 1; }
-    grep -q '^#### AA-01 First thing' CHANGELOG.md || { echo "self-test: --prefix AA did not archive AA-01:"; cat CHANGELOG.md; exit 1; }
-    grep -qE 'BB-01|CC-01' CHANGELOG.md && { echo "self-test: --prefix AA archived another prefix:"; cat CHANGELOG.md; exit 1; }
-    grep -q '^### AA-01 ' BACKLOG.md && { echo "self-test: AA-01 still in the backlog after the prefix archive"; exit 1; }
-    grep -q '^### BB-01 Other thing$' BACKLOG.md || { echo "self-test: --prefix AA removed BB-01:"; cat BACKLOG.md; exit 1; }
-    grep -q '^### CC-01 Third thing$' BACKLOG.md || { echo "self-test: --prefix AA removed CC-01:"; cat BACKLOG.md; exit 1; }
-    # A prefix with nothing in the range moves nothing, changes nothing, and is not an error.
-    changelog_before="$(cat CHANGELOG.md)"
-    backlog_before="$(cat BACKLOG.md)"
-    # A --prefix that names no prefix is refused rather than read as "no filter". Read as no
-    # filter it would archive every prefix's tickets, which is the opposite of what it asked for.
-    for empty in "" ","; do
-      if "$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --changelog CHANGELOG.md --prefix "$empty" --archive v0.1.0 v0.0.0 HEAD >empty.out 2>&1; then
-        echo "self-test: --prefix '$empty' must be refused, not read as no filter:"; cat empty.out; exit 1
-      fi
-      grep -q 'at least one prefix' empty.out || { echo "self-test: the refusal should say what is wrong:"; cat empty.out; exit 1; }
-      [ "$changelog_before" = "$(cat CHANGELOG.md)" ] || { echo "self-test: a refused --prefix rewrote the changelog"; exit 1; }
-      [ "$backlog_before" = "$(cat BACKLOG.md)" ] || { echo "self-test: a refused --prefix rewrote the backlog"; exit 1; }
-    done
-    if ! "$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --changelog CHANGELOG.md --prefix ZZ --archive v0.1.0 v0.0.0 HEAD >zz.out 2>&1; then
-      echo "self-test: a prefix matching nothing must still exit 0:"; cat zz.out; exit 1
-    fi
-    grep -q 'nothing archived' zz.out || { echo "self-test: a prefix matching nothing said nothing:"; cat zz.out; exit 1; }
-    [ "$changelog_before" = "$(cat CHANGELOG.md)" ] || { echo "self-test: a prefix matching nothing rewrote the changelog"; exit 1; }
-    [ "$backlog_before" = "$(cat BACKLOG.md)" ] || { echo "self-test: a prefix matching nothing rewrote the backlog"; exit 1; }
-    # Put the fixture back the way the rest of the test expects it, then prove the flag-less run
-    # still behaves exactly as it did before.
-    rm -f CHANGELOG.md zz.out empty.out
-    git checkout -- BACKLOG.md
-    "$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --changelog CHANGELOG.md --archive v0.1.0 v0.0.0 HEAD >/dev/null
-    grep -q '^# Changelog' CHANGELOG.md || { echo "self-test: no changelog header"; cat CHANGELOG.md; exit 1; }
-    grep -q '^## v0.1.0 — [0-9-]* (v0.0.0..HEAD)$' CHANGELOG.md || { echo "self-test: no tag heading:"; cat CHANGELOG.md; exit 1; }
-    grep -q '^#### AA-01 First thing — [0-9-]* · [0-9a-f]*$' CHANGELOG.md || { echo "self-test: AA-01 block not archived:"; cat CHANGELOG.md; exit 1; }
-    grep -q '^Why the first thing matters.$' CHANGELOG.md || { echo "self-test: AA-01 body not archived"; exit 1; }
-    grep -q '^#### BB-01 Other thing' CHANGELOG.md || { echo "self-test: BB-01 block not archived"; exit 1; }
-    grep -q '^### AA-01 ' BACKLOG.md && { echo "self-test: AA-01 still in the backlog:"; cat BACKLOG.md; exit 1; }
-    grep -q '^### AA-02 Second thing — `todo` — Blocked by AA-01$' BACKLOG.md || { echo "self-test: AA-02 lost from the backlog:"; cat BACKLOG.md; exit 1; }
-    grep -q '^## Beta$' BACKLOG.md || { echo "self-test: the Beta section heading must stay"; exit 1; }
-    # A second release: only what shipped since the last tag, prepended above it.
-    git tag v0.1.0
+    git commit -q --allow-empty -m "AA-01: first thing"
     git commit -q --allow-empty -m "AA-02: second thing"
-    "$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --changelog CHANGELOG.md --archive v0.2.0 v0.1.0 HEAD >/dev/null
-    [ "$(grep -n '^## v0' CHANGELOG.md | head -1)" != "" ] || exit 1
-    first_tag="$(grep '^## v0' CHANGELOG.md | head -1)"
-    case "$first_tag" in "## v0.2.0"*) ;; *) echo "self-test: newest release must come first: $first_tag"; exit 1 ;; esac
-    grep -q '^#### AA-02 Second thing' CHANGELOG.md || { echo "self-test: AA-02 not archived in the second release"; exit 1; }
-    [ "$(grep -c '^#### AA-01 ' CHANGELOG.md)" = 1 ] || { echo "self-test: AA-01 archived twice"; exit 1; }
-    grep -q '^### ' BACKLOG.md && { echo "self-test: the backlog should hold no tickets now:"; cat BACKLOG.md; exit 1; }
-    # Archiving again with nothing new changes nothing.
-    before="$(cat CHANGELOG.md)"
-    "$ROOT/scripts/release-notes.sh" --backlog BACKLOG.md --changelog CHANGELOG.md --archive v0.2.0 v0.1.0 HEAD >/dev/null
-    [ "$before" = "$(cat CHANGELOG.md)" ] || { echo "self-test: a repeated archive must not change the changelog"; exit 1; }
+    git commit -q --allow-empty -m "BB-01: other prefix"
+    git commit -q --allow-empty -m "AA-03: already closed"
   )
+  printf '[loop]\ndefault_branch = "main"\n' > "$dir/.loop.toml"
+  export PATH="$dir/bin:$PATH" BD_LOG="$dir/bd.log" LOOP_ROOT="$dir"
+  out="$("$me" v0.0.0 HEAD 2>&1)" || { echo "self-test: notes should pass:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q 'AA-01.*First thing' || { echo "self-test: notes should name AA-01 from Beads:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q 'BB-01' || { echo "self-test: notes should name every prefix:"; echo "$out"; exit 1; }
+  out="$("$me" --archive v0.1.0 v0.0.0 HEAD 2>&1)" || { echo "self-test: archive should pass:"; echo "$out"; exit 1; }
+  echo "$out" | grep -q 'archived 4 ticket(s) under v0.1.0' || { echo "self-test: archive should count four tickets:"; echo "$out"; exit 1; }
+  grep -q '^## v0.1.0 ' "$dir/CHANGELOG.md" || { echo "self-test: the changelog should gain the release:"; cat "$dir/CHANGELOG.md"; exit 1; }
+  grep -q '^#### AA-01 First thing ' "$dir/CHANGELOG.md" || { echo "self-test: the changelog should carry the ticket text:"; cat "$dir/CHANGELOG.md"; exit 1; }
+  grep -q 'AA-01 is proved' "$dir/CHANGELOG.md" || { echo "self-test: the changelog should carry the acceptance criteria:"; exit 1; }
+  grep -q '^close AA-01 --reason archived under v0.1.0$' "$dir/bd.log" || { echo "self-test: AA-01 should be closed in Beads:"; cat "$dir/bd.log"; exit 1; }
+  grep -q '^close AA-02 ' "$dir/bd.log" || { echo "self-test: AA-02 should be closed in Beads:"; exit 1; }
+  grep -q '^close BB-01 ' "$dir/bd.log" || { echo "self-test: BB-01 should be closed in Beads:"; exit 1; }
+  if grep -q '^close AA-03 ' "$dir/bd.log"; then echo "self-test: an already-closed ticket must not be closed again"; exit 1; fi
+  echo "$out" | grep -q 'already closed: AA-03' || { echo "self-test: AA-03 should be reported already closed:"; echo "$out"; exit 1; }
+  # A prefix filter archives only its own tickets, and nothing when it matches nothing.
+  : > "$dir/bd.log"
+  out="$("$me" --prefix CC --archive v0.2.0 v0.0.0 HEAD 2>&1)"
+  echo "$out" | grep -q 'nothing archived' || { echo "self-test: a prefix with no work should archive nothing:"; echo "$out"; exit 1; }
+  if grep -q '^close ' "$dir/bd.log"; then echo "self-test: a prefix with no work should close nothing:"; cat "$dir/bd.log"; exit 1; fi
+  unset LOOP_ROOT BD_LOG
   echo "release-notes self-test passed"
 }
 
 case "$MODE" in
   selftest) self_test ;;
-  *)
-    [ "${#REFS[@]}" -ge 1 ] || { echo "usage: scripts/release-notes.sh [--archive <tag>] <from-ref> [<to-ref>]" >&2; exit 2; }
-    FROM="${REFS[0]}"
-    TO="${REFS[1]:-$("$ROOT/scripts/loop-config.sh" default_branch)}"
-    # The backlog's own repository answers; a copy outside any repository (a scratch archive)
-    # is judged by this repository's history.
-    REPO="$(dirname "$BACKLOG")"
-    git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 || REPO="$ROOT"
-    cd "$REPO"
-    if [ -n "$ARCHIVE" ]; then
-      shipped "$FROM" "$TO" | render archive "$ARCHIVE" "$FROM" "$TO" "$BACKLOG" "$CHANGELOG"
-    else
-      shipped "$FROM" "$TO" | render notes "" "$FROM" "$TO" "$BACKLOG" "$CHANGELOG"
-    fi
-    ;;
+  notes)
+    from="${REFS[0]:-}"; to="${REFS[1]:-$("$CONFIG" default_branch)}"
+    [ -n "$from" ] || { echo "usage: scripts/release-notes.sh <from-ref> [<to-ref>] | --archive <tag> <from> [<to>] | --self-test" >&2; exit 2; }
+    command -v bd >/dev/null || { echo "release-notes: bd is required to read the ticket text" >&2; exit 1; }
+    json="$(mktemp "${TMPDIR:-/tmp}/release-bd.XXXXXX")"
+    shiplist="$(mktemp "${TMPDIR:-/tmp}/release-ship.XXXXXX")"
+    trap 'rm -f "${json:-}" "${shiplist:-}"' EXIT
+    ( cd "$ROOT" && bd list --all --json -n 0 ) >"$json" 2>"$json.err" \
+      || { echo "release-notes: no Beads queue could be read from $ROOT" >&2; sed 's/^/  /' "$json.err" >&2 || true; rm -f "$json" "$json.err" "$shiplist"; exit 1; }
+    rm -f "$json.err"
+    shipped "$from" "$to" > "$shiplist"
+    render notes "" "$from" "$to" "" "$json" /dev/null "$shiplist"
+    rm -f "$json" "$shiplist" ;;
+  archive)
+    from="${REFS[0]:-}"; to="${REFS[1]:-$("$CONFIG" default_branch)}"
+    [ -n "$ARCHIVE" ] && [ -n "$from" ] || { echo "usage: scripts/release-notes.sh --archive <tag> <from> [<to>]" >&2; exit 2; }
+    archive "$ARCHIVE" "$from" "$to" ;;
+  *) echo "usage: scripts/release-notes.sh <from-ref> [<to-ref>] | --archive <tag> <from> [<to>] | --self-test" >&2; exit 2 ;;
 esac

@@ -150,7 +150,7 @@ apart again (LK-16).
   written into a temporary directory by the test itself.
 - **Nothing here writes to a project's default branch, and nothing here commits.** The scripts
   print and the agent or the owner commits: `scripts/open-ticket-pr.sh` pushes a `ticket/<id>`
-  branch, and `scripts/sprint.sh` and the terminal UI edit the working tree only (decision 0003).
+  branch, and `scripts/sprint.sh` edits the working tree only (decision 0013).
 - **`--self-test` is the proof.** A change with no fixture behind it has not met its done line;
   the exception is a commit body line `No new test: <reason>`.
 - **A prompt changes with its phrases.** Editing a rule out of a prompt fails

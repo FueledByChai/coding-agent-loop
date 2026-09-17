@@ -32,9 +32,11 @@
 #                                             or unticketed
 #   scripts/backlog-status.sh --plain         with --stories or --open: tab-separated fields, one
 #                                             row per line, and no column padding, so a renderer
-#                                             gets the fields uncut and decides its own widths
-#                                             (scripts/loop-tui.sh's views, LK-02). The summary
-#                                             line is unchanged.
+#                                             gets the fields uncut and decides its own widths.
+#                                             The summary line is unchanged. Its only caller was
+#                                             scripts/loop-tui.sh, which 0013 removed, so nothing
+#                                             reads it now: LK-33 is the ticket that either removes
+#                                             the mode or names its reader.
 #   scripts/backlog-status.sh --ref <ref>     commits reachable from <ref> (default: the
 #                                             default branch as origin has it, after a fetch,
 #                                             so a checkout that has not pulled yet never

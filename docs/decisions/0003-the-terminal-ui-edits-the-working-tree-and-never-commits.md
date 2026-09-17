@@ -1,6 +1,6 @@
 # 0003 — The terminal UI edits the working tree and never commits
 
-Status: accepted
+Status: superseded by 0013
 Date: 2026-09-13
 
 ## Context

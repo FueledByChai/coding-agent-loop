@@ -1,6 +1,6 @@
 # 0011 — The stories view's filters narrow the rows once, in the shell, not in the renderer
 
-Status: accepted
+Status: superseded by 0013
 Date: 2026-09-15
 
 ## Context

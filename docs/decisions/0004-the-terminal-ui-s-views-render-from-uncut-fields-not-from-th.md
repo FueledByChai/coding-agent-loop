@@ -1,6 +1,6 @@
 # 0004 — The terminal UI's views render from uncut fields, not from the padded tables
 
-Status: accepted
+Status: superseded by 0013
 Date: 2026-09-14
 
 ## Context

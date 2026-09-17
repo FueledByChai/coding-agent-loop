@@ -7,7 +7,7 @@ loop_checks() {
   # it. What sits outside the markers is deliberately one-sided - the proof gate below is a
   # project's, while the kit's check proves ./install.sh instead.
   # >>> loop checks: shared with check.sh (scripts/check-list.sh compares this block)
-  for s in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint loop-tui check-list ruleset-check; do
+  for s in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint check-list ruleset-check; do
     [ -x "scripts/$s.sh" ] && "scripts/$s.sh" --self-test
   done
   # The prompts carry their rules: a phrase that states a rule may not be edited away.

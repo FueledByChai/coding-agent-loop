@@ -1,6 +1,6 @@
 # 0002 — The terminal UI is bash with tput and stty, and the kit ships only scripts
 
-Status: accepted
+Status: superseded by 0013
 Date: 2026-09-13
 
 ## Context

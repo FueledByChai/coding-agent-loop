@@ -19,7 +19,7 @@ from here on live here.
 
 ### LS-01 — The loop's state is one screen in the terminal
 
-**Status:** Proposed
+**Status:** Withdrawn — the terminal UI is removed (0013)
 **User story:** As the owner, I want the queue, the sprint, and the stories on one terminal
 screen with the command for the next action beside them, so that I stop having to remember
 which of the loop's scripts to run and which flags it takes.
@@ -102,7 +102,7 @@ OPEN  0 tickets outside the sprint (the sprint holds every open ticket)
 
 ### LS-02 — The loop is driven from the terminal
 
-**Status:** Proposed
+**Status:** Withdrawn — the terminal UI is removed (0013)
 **User story:** As the owner, I want to move through the sprint, open a ticket in full, and add
 or remove tickets without editing `.loop.toml` by hand, so that choosing what to work on next is
 one screen rather than a script and its flags.

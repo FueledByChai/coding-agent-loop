@@ -22,4 +22,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Beads is a hard dependency of the loop: the ticket queue lives in the Dolt database
+      # behind refs/dolt/data, not in the working tree, so every project's runner installs the
+      # pinned release and bootstraps the queue before its check. A project whose queue is not
+      # published (bd dolt push) fails here, which is the point: the check reads the queue.
+      - name: Install Beads
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL "https://github.com/gastownhall/beads/releases/download/v1.3.0/beads_1.3.0_linux_amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/bin" ./bd
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bin/bd" version
+      - name: Bootstrap the Beads queue
+        run: bd bootstrap --yes
       - run: scripts/check.sh

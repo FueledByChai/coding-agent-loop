@@ -3,11 +3,11 @@ as the commit status the branch rules require. Follow the standing instructions 
 `AGENTS.md` (the loop section and the Project rules). This is a review, not a rework: you
 change nothing in the code, and you post one status per head commit.
 
-Settings come from `.loop.toml`: `scripts/loop-config.sh backlog` names the ticket file,
-`check` the full check, `review_context` the name of the status you post (default
-"Agent review"). `scripts/review-status.sh --pending` lists the pull requests whose head
-commit has no such status: `<number> <sha> <branch> <title>`, one per line. If it lists
-nothing, report that and stop.
+The queue is Beads (`bd`), a hard dependency. Settings come from `.loop.toml`:
+`scripts/loop-config.sh` names `check` (the full check) and `review_context` (the name of the
+status you post, default "Agent review"). `scripts/review-status.sh --pending` lists the pull
+requests whose head commit has no such status: `<number> <sha> <branch> <title>`, one per line.
+If it lists nothing, report that and stop.
 
 Before reviewing, run `scripts/open-ticket-pr.sh --update-all`: it rebases every open pull
 request that is behind the default branch (with several agents working at once, each merge
@@ -18,20 +18,19 @@ again, and do not post a status on the head it just left.
 For each pending pull request, in order:
 
 1. **Read what it claims.** `gh pr view <number>` for the body, and `gh pr diff <number>`
-   for the change. If the title starts with a ticket id (`AB-12: ...`), find that ticket's
-   block in the backlog as the PR's head commit has it (`git show <sha>:<backlog file>`, or
-   the commit body when the ticket has left the file): its intent and its **Done when**
-   line. A PR without a ticket id (a `backlog/` branch, a release) is judged against the
-   backlog's own format instead: every new ticket has a heading `### <ID> <title>`, a
-   paragraph of intent, and a Done when line naming a test, fixture, or measurable output.
+   for the change. If the title starts with a ticket id (`AB-12: ...`), read that ticket from
+   Beads with `bd show <ID> --json` - its intent in `description`, its done line in
+   `acceptance_criteria`, its blockers and labels. A PR without a ticket id (a `backlog/`
+   branch, a release) is judged against the Project rules and the product backlog instead,
+   since stories stay a document while tickets live in Beads.
 2. **Read what governs it.** The Project rules in `AGENTS.md`: what must never be touched,
    the conventions the change must follow, the docs that must stay current.
 3. **Judge it against four questions, and only these decide the verdict:**
-   - **Proof.** Does the change include the test, fixture, self-test, or check that the done
-     line names, or that the commit body says proves it? A `No new test: <reason>` line in
-     the body is an answer to weigh, not a pass.
-   - **Done line.** Reading the diff, is the done line actually met, or only claimed? Look
-     for the specific file, function, output, or fixture the line names.
+   - **Proof.** Does the change include the test, fixture, self-test, or check that the
+     acceptance criteria names, or that the commit body says proves it? A `No new test:
+     <reason>` line in the body is an answer to weigh, not a pass.
+   - **Done line.** Reading the diff, is the acceptance criteria actually met, or only
+     claimed? Look for the specific file, function, output, or fixture the done line names.
    - **Rules.** Does the change breach a Project rule (a path that must not change, data or
      artifacts touched, private material copied in, a convention broken, a required trailer
      missing)?

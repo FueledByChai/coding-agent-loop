@@ -29,6 +29,7 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | `scripts/ruleset-check.sh` | fails when a ruleset requires a status check the workflow it pairs with never reports |
 | `scripts/pr-readiness.sh` | the six facts a merge waits on for every open pull request — the project's check ran on the head, no review conversation is unresolved, no changes are requested, the agent review's status is success, the branch is current and clean, and the branch and subject name one claimed Beads ticket; `--pr <number>` judges one, `--ready` lists the ones that pass all six |
 | `scripts/reference-check.sh` | the queue's own references: every id named is a ticket or a story here, every ticket carries its **Done when** line, no dependency cycle, and every decision cited is a record; another project's ids quoted in prose are left alone |
+| `scripts/with-test-postgres.sh` | runs a command against a disposable PostgreSQL: a uniquely named container, two ownership labels, the connection URL in the environment (`test_db_*` in `.loop.toml`), and a cleanup that removes only the container it created |
 | `templates/decision.md` | the decision record: Context, Decision, Alternatives, Consequences, what would show it was wrong |
 | `prompts/review-prs.md` | the prompt that reviews pending pull requests against their ticket and the Project rules |
 | `prompts/next-ticket.md` | the prompt that takes the next ticket to done |

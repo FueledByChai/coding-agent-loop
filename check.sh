@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 # here or there alone fails naming it. What sits outside the markers is deliberately one-sided -
 # ./install.sh --self-test proves the install, which only the kit has.
 # >>> loop checks: shared with templates/check/common.sh (scripts/check-list.sh compares this block)
-for script in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint check-list ruleset-check pr-readiness; do
+for script in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint check-list ruleset-check pr-readiness with-test-postgres; do
   "scripts/$script.sh" --self-test
 done
 # The prompts carry their rules: a phrase that states a rule may not be edited away.

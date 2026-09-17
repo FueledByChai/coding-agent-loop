@@ -44,6 +44,15 @@
 #                                            criteria); backlog-status.sh --stories derives each
 #                                            story's status from the tickets that serve it; ""
 #                                            when the project keeps none
+#   test_db_image     "postgres:17-bookworm" the server image a disposable database runs
+#                                            (scripts/with-test-postgres.sh)
+#   test_db_name      "test"                 the database created inside that container
+#   test_db_user      "test"                 the role its URL names
+#   test_db_env       "TEST_DATABASE_URL"    the variable the wrapped command reads the URL
+#                                            from; "" exports none
+#   test_db_url       "postgres://{user}:{password}@{host}:{port}/{name}"
+#                                            the URL the command is given, with {host} {port}
+#                                            {name} {user} {password} filled in
 #
 # LOOP_ROOT overrides the root (the fixture repos of the self-tests); LOOP_CONFIG names another
 # file outright. TOML is only the config format: it says nothing about the project's language.
@@ -69,12 +78,17 @@ read_config() {
     my ($file, $mode, $key) = @ARGV;
     my @order = qw(default_branch backlog check check_fast review_paths trailer_required kit kit_ref
                    code_paths proof_paths proof_pattern coverage coverage_floor coverage_slack review_context
-                   decisions sprint stories);
+                   decisions sprint stories
+                   test_db_image test_db_name test_db_user test_db_env test_db_url);
     my %default = (default_branch => "main", backlog => "BACKLOG.md", check => "scripts/check.sh",
                    check_fast => undef, review_paths => [], trailer_required => "true",
                    kit => "", kit_ref => "", code_paths => [], proof_paths => [], proof_pattern => "",
                    coverage => "", coverage_floor => "coverage-floor.txt", coverage_slack => "0",
-                   review_context => "Agent review", decisions => "docs/decisions", sprint => [], stories => "docs/PRODUCT_BACKLOG.md");
+                   review_context => "Agent review", decisions => "docs/decisions", sprint => [], stories => "docs/PRODUCT_BACKLOG.md",
+                   test_db_image => "postgres:17-bookworm", test_db_name => "test", test_db_user => "test",
+                   # The @ in the URL template is escaped because this is a Perl double-quoted
+                   # string, where @{host} would interpolate an array named @host.
+                   test_db_env => "TEST_DATABASE_URL", test_db_url => "postgres://{user}:{password}\@{host}:{port}/{name}");
     my %value;
     if (open my $fh, "<", $file) {
       my $table = "";
@@ -190,7 +204,11 @@ EOF
   got="$(LOOP_ROOT="$dir" "$me" sprint)"; [ -z "$got" ] || { echo "self-test: sprint should default to empty, got '$got'"; exit 1; }
   got="$(LOOP_CONFIG="$dir/other.toml" "$me" stories)"; [ "$got" = "docs/STORIES.md" ] || { echo "self-test: stories should be set, got '$got'"; exit 1; }
   got="$(LOOP_ROOT="$dir" "$me" stories)"; [ "$got" = "docs/PRODUCT_BACKLOG.md" ] || { echo "self-test: stories should default, got '$got'"; exit 1; }
-  got="$(LOOP_CONFIG="$dir/other.toml" "$me" --all | grep -c '=')"; [ "$got" = 18 ] || { echo "self-test: --all should print eighteen keys, got $got"; exit 1; }
+  got="$(LOOP_CONFIG="$dir/other.toml" "$me" test_db_image)"; [ "$got" = "postgres:17-bookworm" ] || { echo "self-test: test_db_image should default, got '$got'"; exit 1; }
+  got="$(LOOP_CONFIG="$dir/other.toml" "$me" test_db_url)"; [ "$got" = 'postgres://{user}:{password}@{host}:{port}/{name}' ] || { echo "self-test: test_db_url should default, got '$got'"; exit 1; }
+  got="$(LOOP_CONFIG="$dir/other.toml" "$me" test_db_name)"; [ "$got" = "test" ] || { echo "self-test: test_db_name should default, got '$got'"; exit 1; }
+  got="$(LOOP_ROOT="$dir" "$me" test_db_env)"; [ "$got" = "TEST_DATABASE_URL" ] || { echo "self-test: test_db_env should default, got '$got'"; exit 1; }
+  got="$(LOOP_CONFIG="$dir/other.toml" "$me" --all | grep -c '=')"; [ "$got" = 23 ] || { echo "self-test: --all should print twenty-three keys, got $got"; exit 1; }
   # An unknown key is an error; an unknown key in the file is a warning, not a failure.
   if LOOP_ROOT="$dir" "$me" colour >/dev/null 2>&1; then echo "self-test: an unknown key must fail"; exit 1; fi
   printf '[loop]\nfoo = "bar"\n' > "$dir/.loop.toml"

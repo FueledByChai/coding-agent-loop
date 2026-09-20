@@ -1,6 +1,6 @@
 # The ticket loop
 
-A small kit that lets coding agents work a backlog of tickets to done, one commit per ticket,
+A small kit that lets coding agents work a backlog of tickets to done, one initial commit per ticket,
 handed off through pull requests that merge on their own when CI is green. It is written for
 no particular model or harness: the instructions live in `AGENTS.md`, the prompts are plain
 Markdown, and every project-specific value sits in one settings file, `.loop.toml`.
@@ -159,6 +159,12 @@ or grant itself a passing review status. Decision 0017 records this handoff. The
 dispatch, independent acceptance workers and automated enforcement remain separate work under
 LS-03. Existing CI triggers and protection are unchanged.
 
+The kit keeps one initial implementation commit per ticket and appends review-fix commits with
+the same ticket id after publication (0017). Existing consumers keep their own `AGENTS.md`;
+installing the prompt does not silently relax a consumer's stricter commit policy. A consumer
+requiring exactly one commit must adopt a documented repair strategy before author automation
+can push review fixes there.
+
 When the review is wrong, the owner overrides it with a reason, which is recorded in the
 status and its history:
 
@@ -194,7 +200,7 @@ git clone https://github.com/FueledByChai/coding-agent-loop /tmp/loop-kit
 `loop.toml.example` to the root, writes `AGENTS.md` and `.loop.toml` when they do not exist (it
 never overwrites either), puts the workflow skeleton at `.github/workflows/loop.yml` and the
 ruleset that pairs with it at `ci/ruleset.json` when neither is there, and, with
-`--commands <dir>`, writes the four wrappers into the harness's command directory. With
+`--commands <dir>`, writes one wrapper per prompt into the harness's command directory. With
 `--skills <dir>` it writes one `SKILL.md` per prompt
 into the harness's skill directory, each in its own folder. A skill is the same pointer a wrapper
 is — frontmatter, then the sentence naming `loop/prompts/<name>.md` — so a prompt edit leaves no

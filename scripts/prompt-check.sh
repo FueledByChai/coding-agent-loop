@@ -22,6 +22,8 @@ respond-to-review.md	full head SHA
 respond-to-review.md	all pages
 respond-to-review.md	fix, dispute, or separate ticket
 respond-to-review.md	fixing commit and test evidence
+respond-to-review.md	if the project permits append-only review fixes
+respond-to-review.md	report the policy conflict
 respond-to-review.md	filing a ticket does not clear a blocker
 respond-to-review.md	the author must not resolve a disputed finding
 respond-to-review.md	do not assume a push triggers review
@@ -46,6 +48,7 @@ grill-me.md	this repository, a new one, or a sibling
 review-prs.md	four questions
 review-prs.md	one status per head commit
 review-prs.md	--update-all
+review-prs.md	respond-to-review.md
 grill-project.md	in a sentence
 grill-project.md	Who and where
 grill-project.md	The data
@@ -101,7 +104,7 @@ self_test() {
   local file phrase
   while IFS=$'\t' read -r file phrase; do
     case "$file:$phrase" in
-      respond-to-review.md:*|next-ticket.md:respond-to-review.md) ;;
+      respond-to-review.md:*|next-ticket.md:respond-to-review.md|review-prs.md:respond-to-review.md) ;;
       *) continue ;;
     esac
     # Remove this phrase independent of capitalization or line wrapping.

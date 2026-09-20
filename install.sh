@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Installs the loop kit into a checkout (HK-16): the scripts into scripts/, the prompts into
 # loop/prompts/, loop.toml.example at the root as the current settings documentation, AGENTS.md
-# and .loop.toml when absent, the workflow skeleton when there is no workflow, and the four
-# wrappers and four skill pointers when their directories are given. Then it says what the
-# project still has to supply.
+# and .loop.toml when absent, the workflow skeleton when there is no workflow, and the
+# wrappers and skill pointers for each prompt when their directories are given. Then it says
+# what the project still has to supply.
 #
 # .loop.toml is written from the example once and is the project's own file afterwards; the example
 # beside it is the kit's and is refreshed by every install and by scripts/loop-kit-sync.sh, so the

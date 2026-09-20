@@ -44,7 +44,9 @@ below it are this project's own and are what the loop prompts mean when they say
   six): the project's check ran on the head, no review conversation is unresolved, no changes
   are requested, the agent review's status is success, the branch is current and clean, and the
   branch and the head commit subject name one claimed Beads ticket.
-- **Commits.** One commit per ticket. The subject starts with the ticket id (`AB-12: ...`); the
+- **Commits.** One initial implementation commit per ticket. After publication, append review-fix
+  commits on that ticket's branch with the same ticket id rather than rewriting published history.
+  Keep unrelated work in another ticket. Every commit's subject starts with the ticket id (`AB-12: ...`); the
   body says what changed and how the done line is proven; the message ends with a
   `Co-Authored-By: <agent> <email>` trailer naming the agent and model that did the work when
   `trailer_required` is on (the PR script refuses a commit without one).

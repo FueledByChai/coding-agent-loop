@@ -9,6 +9,8 @@ LK-sm4 records a gap between opening a PR and the independent review: no reusabl
 the author how to handle findings. LS-03 needs that contract before durable repair workers can
 use it. Resolving a thread without a repair, filing a follow-up without deciding whether it
 blocks, and treating a push as a completed Codex review all produce false readiness.
+The old one-commit rule also conflicts with repairing a published ticket without rewriting
+history under rebase merges; the author needs an explicit compliant publication strategy.
 
 ## Decision
 
@@ -19,11 +21,18 @@ accepts the disposition. A substantiated published fix may be resolved by the au
 project policy allows, but author responses never supply independent acceptance or a passing
 review status. Require completed review of the resulting commit before handing it forward.
 
+In the kit, keep one initial implementation commit and append review-fix commits carrying the
+same ticket id once the branch is published. Never rewrite published history to hide a review
+fix. Existing consumers retain their own rules: where exactly one commit and no history rewrite
+are both required, the author reports a policy conflict until a repair strategy is documented.
+
 ## Alternatives
 
 - Have the reviewer repair its own findings: loses the independent assessment and risks two
   workers editing the same worktree.
 - Mark all replied-to threads resolved: a reply may dispute or defer a defect without fixing it.
+- Amend and force-push to keep exactly one commit: violates the published-history rule and
+  discards the simple audit trail from a finding to its repair.
 - Depend on implicit review after a push: the Codex app may need a new review request for a
   changed head; a queued request and a shortened commit string alone are not completion evidence.
 

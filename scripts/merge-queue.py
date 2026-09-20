@@ -307,12 +307,27 @@ class Store:
             self.event(repo, base, "released", {"token": token, "owner": owner, "reason": reason})
 
 
-def review_evidence(reviews, head):
+def review_evidence(reviews, head, comments=(), resolve=None):
+    # A completed bot summary is evidence only after provider resolution of its commit.
+    # A newer in-progress review for this head holds readiness even if an old review exists.
+    for c in reversed(comments):
+        if c.get("user", {}).get("login") != REVIEWER or not resolve:
+            continue
+        body = c.get("body") or ""
+        if not body.startswith("<!-- codex-pull-request-review-summary -->\n"):
+            continue
+        for row in body.splitlines():
+            cells = row.split("|")
+            if len(cells) != 6 or "**Code Review**" not in cells[1]:
+                continue
+            match = re.fullmatch(r"\s*`([0-9a-f]{7,64})`\s*", cells[3])
+            if match and resolve(match[1]) == head:
+                return "comment:" + str(c["id"]) if "**Completed**" in cells[2] else None
     for r in reversed(reviews):
         if (r["user"]["login"] == REVIEWER and r.get("commit_id") == head and
                 r.get("submitted_at") and r["state"] in ("COMMENTED", "APPROVED", "CHANGES_REQUESTED")):
             return "review:" + str(r["id"])
-    # A shortened SHA in a mutable summary is deliberately not treated as full-head proof.
+    # Without a provider resolver, shortened summaries still fail closed.
     return None
 
 

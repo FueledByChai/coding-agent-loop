@@ -20,3 +20,4 @@ the old one. Cite a decision by its number. `scripts/decisions.sh new "<title>"`
 - [0015](0015-the-markdown-ticket-file-retires-and-the-stories-stay-a-docu.md) The markdown ticket file retires, and the stories stay a document — accepted
 - [0016](0016-persist-merge-admission-in-a-fenced-shadow-queue-before-enab.md) Persist merge admission in a fenced shadow queue before enabling live adapters — accepted
 - [0017](0017-require-author-evidence-and-completed-head-review-before-acc.md) Require author evidence and completed head review before acceptance handoff — accepted
+- [0018](0018-keep-review-worker-jobs-durable-and-separate-from-merge-auth.md) Keep review worker jobs durable and separate from merge authority — accepted

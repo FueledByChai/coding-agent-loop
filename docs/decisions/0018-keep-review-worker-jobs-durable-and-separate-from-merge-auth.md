@@ -21,7 +21,10 @@ requests reuse the job. Acceptance uses a separate detached tree and fresh revie
 
 Before starting an adapter, a guardian registers its process group durably. An inherited lock
 covers the launcher-to-guardian gap. A stopped/failed job releases only when that lock is free
-and the group is absent; uncertainty holds the slot. Retries require a reason and budget.
+and no executing group members remain; Linux zombie-only groups need two matching complete
+task inventories, including nonleader threads. Uncertainty holds the slot. After verified stop,
+remove the runtime-owned detached reviewer tree and Git registration while retaining journal
+evidence; cleanup failure retains ownership. Author trees remain. Retries require a reason and budget.
 This local mode supports trusted foreground POSIX adapters whose descendants stay in that group.
 Detached/remote agent execution requires a different stop-proof adapter before unattended use.
 

@@ -397,9 +397,14 @@ one journal. A registration in the Git common directory prevents linked worktree
 silently switching journals; moving it is an operator migration after all jobs are verified
 stopped. Independent clones must also be configured to use that same journal. `status`, `show JOB_ID` and `reconcile JOB_ID` take
 `--state` (and `--root` when used outside that project). Reconcile requires the guardian/launcher
-lock to be free **and** the recorded process group to be absent. It never kills an unknown or
+lock to be free **and** the recorded process group to have no executing members. Linux groups
+containing only zombies count as stopped after two matching `/proc` task inventories; live
+threads, changing inventories or unreadable process data retain the slot. It never kills an unknown or
 reused PID. Starting without a recorded group is recoverable only after the inherited lock is
 free: the guardian records its group before starting an adapter. No lease timeout steals a slot.
+After verified stop, reconciliation removes the runtime-owned detached reviewer checkout and
+its Git registration, including failed/dirty reviewer trees; journal receipts and log artifacts
+remain available. Cleanup failure retains ownership for retry. Author checkouts are retained.
 A failed/blocked stopped job needs `--retry "reason"` on prepare/advance, subject to the configured
 attempt budget. `run`/`advance` exit nonzero on blocked/failed work; `acceptance` exits nonzero
 without current passing evidence. Historical `show` output is not current readiness.
@@ -407,7 +412,7 @@ without current passing evidence. Historical `show` output is not current readin
 This local runner supports **trusted foreground POSIX adapters** on macOS/Linux. Adapters must
 keep all descendants in the inherited process group and must not daemonize or submit detached
 remote work. A live descendant retains the slot even after its parent exits. Timeout/output
-limits terminate the job's group; release still needs verified absence. A harness that creates
+limits terminate the job's group; release still needs verified stop. A harness that creates
 independent sessions, remote jobs or detached tool processes needs a container/provider stop
 adapter before unattended use; do not claim a process-group check proves those workers stopped.
 The controlled real-model proof in the PR is a bounded fixture run, not production qualification

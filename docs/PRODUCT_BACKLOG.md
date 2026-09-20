@@ -28,3 +28,16 @@ it.
 ### LS-02 — Withdrawn
 
 Withdrawn with LS-01 (0013); the id is kept for the same reason.
+
+
+### LS-03 — Serialize reviewed changes through final validation
+
+**In progress.** As a project owner, I want agents to complete code and acceptance review before
+one selected PR is refreshed and tested, so waiting PRs do not pay repeated CI costs each time
+another change lands.
+
+Acceptance: durable queue state survives restarts; only one candidate can hold the promotion
+slot; changed commit, base or evidence invalidates prior readiness; author workers handle
+review findings; waiting candidates receive no queue-driven rebase or CI; a trusted required
+GitHub check enforces final validation before merge. Decision 0016 starts with a shadow-only
+foundation; its existence alone does not establish the live acceptance criteria.

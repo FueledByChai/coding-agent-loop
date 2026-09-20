@@ -328,6 +328,30 @@ def bind_state(root, state):
 
 
 class Observer(q.GitHub):
+    def feedback(self, endpoint, path, number, node_id):
+        reviews = self.pages(path+'/reviews?per_page=100')
+        issue_comments = self.pages(endpoint+'/issues/'+str(number)+'/comments?per_page=100')
+        comments = self.pages(path+'/comments?per_page=100')
+        threads, cursor, seen = [], None, set()
+        for _ in range(100):
+            query = '''query($id:ID!,$after:String){node(id:$id){... on PullRequest{
+                reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor}
+                nodes{id isResolved comments(first:1){nodes{databaseId}}}}}}}'''
+            args=['api','graphql','-f','query='+query,'-f','id='+node_id]
+            if cursor: args += ['-f','after='+cursor]
+            page = self.command(args)['data']['node']['reviewThreads']
+            for t in page['nodes']:
+                q.require(type(t['isResolved']) is bool and len(t['comments']['nodes'])==1, 'incomplete thread inventory')
+                first=t['comments']['nodes'][0]['databaseId']
+                q.require(any(c['id']==first for c in comments), 'thread root missing from complete REST comments')
+                threads.append(dict(id=t['id'],resolved=t['isResolved'],root=first))
+            if not page['pageInfo']['hasNextPage']: break
+            cursor=page['pageInfo']['endCursor']
+            q.require(nonempty(cursor) and cursor not in seen,'invalid thread pagination')
+            seen.add(cursor)
+        else: raise q.QueueError('thread page limit exceeded')
+        return reviews, issue_comments, comments, threads
+
     def snapshot(self, repo, number):
         actual = self.command(['repo','view','--json','nameWithOwner'])['nameWithOwner']
         q.require(actual.lower() == repo.lower(), 'observer repository mismatch')
@@ -348,34 +372,19 @@ class Observer(q.GitHub):
         base = pr['base']['ref']
         base_path = endpoint+'/commits/'+q.quote(base,safe='')
         base_sha = self.get(base_path)['sha']
-        reviews = self.pages(path+'/reviews?per_page=100')
-        issue_comments = self.pages(endpoint+'/issues/'+str(number)+'/comments?per_page=100')
-        comments = self.pages(path+'/comments?per_page=100')
-        threads, cursor, seen = [], None, set()
-        for _ in range(100):
-            query = '''query($id:ID!,$after:String){node(id:$id){... on PullRequest{
-                reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor}
-                nodes{id isResolved comments(first:1){nodes{databaseId}}}}}}}'''
-            args=['api','graphql','-f','query='+query,'-f','id='+pr['node_id']]
-            if cursor: args += ['-f','after='+cursor]
-            page = self.command(args)['data']['node']['reviewThreads']
-            for t in page['nodes']:
-                q.require(type(t['isResolved']) is bool and len(t['comments']['nodes'])==1, 'incomplete thread inventory')
-                first=t['comments']['nodes'][0]['databaseId']
-                q.require(any(c['id']==first for c in comments), 'thread root missing from complete REST comments')
-                threads.append(dict(id=t['id'],resolved=t['isResolved'],root=first))
-            if not page['pageInfo']['hasNextPage']: break
-            cursor=page['pageInfo']['endCursor']
-            q.require(nonempty(cursor) and cursor not in seen,'invalid thread pagination')
-            seen.add(cursor)
-        else: raise q.QueueError('thread page limit exceeded')
+        feedback = self.feedback(endpoint,path,number,pr['node_id'])
+        reviews, issue_comments, comments, threads = feedback
         evidence=q.review_evidence(reviews,head,issue_comments,lambda ref:self.get(endpoint+'/commits/'+ref)['sha'])
-        final=self.get(path)
-        again=q.read_ticket(self.root,match[1])
-        q.require((final['head']['sha'],final['base']['ref'],final['state'],final['draft'],final.get('body')) ==
-                  (head,base,'open',False,pr.get('body')) and self.get(base_path)['sha']==base_sha and
-                  (again.get('acceptance_criteria'),again.get('description'),again.get('status'),again.get('assignee')) ==
-                  (criteria,ticket.get('description'),ticket['status'],ticket['assignee']), 'source changed during observation')
+        def verify_source():
+            final=self.get(path)
+            again=q.read_ticket(self.root,match[1])
+            q.require((final['head']['sha'],final['base']['ref'],final['state'],final['draft'],final.get('body')) ==
+                      (head,base,'open',False,pr.get('body')) and self.get(base_path)['sha']==base_sha and
+                      (again.get('acceptance_criteria'),again.get('description'),again.get('status'),again.get('assignee')) ==
+                      (criteria,ticket.get('description'),ticket['status'],ticket['assignee']), 'source changed during observation')
+        verify_source()
+        q.require(self.feedback(endpoint,path,number,pr['node_id']) == feedback, 'feedback changed during observation')
+        verify_source()
         # Save only fields relevant to evidence, excluding mutable API reaction counters.
         slim=lambda c:{k:c[k] for k in ('id','body','html_url','user','in_reply_to_id') if k in c}
         all_comments=[slim(c) for c in comments+issue_comments]
@@ -458,7 +467,7 @@ def execute_guardian(db, jid, policy_path, root, lock_fd):
                 time.sleep(0.05)
             code=child.wait()
         q.require(code==0,'worker exited unsuccessfully; inspect private stderr artifact')
-        q.require(out.stat().st_size <= 1024*1024,'worker result exceeds 1 MiB')
+        q.require(max(out.stat().st_size,err.stat().st_size) <= 1024*1024,'worker output exceeds 1 MiB')
         response=json.loads(out.read_text())
         fresh=Observer(root).snapshot(job['repo'],job['number'])
         q.require(policy_hash(load_policy(policy_path,root))==job['policy_hash'],'policy changed during work')

@@ -37,6 +37,7 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | `templates/decision.md` | the decision record: Context, Decision, Alternatives, Consequences, what would show it was wrong |
 | `prompts/review-prs.md` | the prompt that reviews pending pull requests against their ticket and the Project rules |
 | `prompts/next-ticket.md` | the prompt that takes the next ticket to done |
+| `prompts/respond-to-review.md` | the author's repair, evidence reply and fresh-review handoff for an existing PR |
 | `prompts/grill-me.md` | the prompt that turns a loose idea into stories and tickets, with a text wireframe for every story that touches a screen |
 | `prompts/grill-project.md` | the first-day interview: Project rules, decision records, first epics, and a check skeleton |
 | `templates/check/*.sh` | check skeletons per stack (Rust, Python, Node, Java, Go, other) that pass on an empty repository |
@@ -146,6 +147,17 @@ Add the context to the branch ruleset's required status checks and auto-merge wa
 Run the prompt from a schedule on a machine with the owner's agent subscription (every ten
 minutes is plenty): each head is reviewed once, a new push gets a fresh review, and no API
 key has to live on GitHub.
+
+The author continues with `prompts/respond-to-review.md` after opening the PR. It covers fixes,
+supported disputes and separate tickets, keeps unresolved blockers visible, and verifies a
+completed review for the resulting full commit. A push alone is not evidence of a Codex review:
+the author checks for an existing request/completion and asks with `@codex review` when needed
+([official review guidance](https://learn.chatgpt.com/docs/third-party/github)).
+An author may resolve a proven fix where project policy permits, but cannot clear its own dispute
+or grant itself a passing review status. Decision 0017 records this handoff. The installed
+`respond-to-review` command and skill point to the same prompt. This is agent guidance; durable
+dispatch, independent acceptance workers and automated enforcement remain separate work under
+LS-03. Existing CI triggers and protection are unchanged.
 
 When the review is wrong, the owner overrides it with a reason, which is recorded in the
 status and its history:

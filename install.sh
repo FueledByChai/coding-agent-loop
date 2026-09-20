@@ -113,7 +113,7 @@ install_into() {
   if [ -n "$commands" ]; then
     mkdir -p "$target/$commands"
     for f in "$KIT"/commands/*.md; do cp "$f" "$target/$commands/"; done
-    echo "installed: $commands/{next-ticket,grill-me,review-prs,grill-project}.md wrappers"
+    echo "installed: $commands/{$(cd "$KIT/commands" && ls *.md | tr '\n' ',' | sed 's/,$//')} wrappers"
   fi
   # One skill per prompt, checked before it is copied, so a fresh install cannot reproduce the
   # drift the hand-copied skills had (LK-18). The second loop is the other direction: a skill with
@@ -181,6 +181,8 @@ self_test() {
   # the assertion a restatement fails, whichever way it got in (LK-18).
   for p in "$dir"/loop/prompts/*.md; do
     n="$(basename "$p" .md)"
+    cmp "$KIT/commands/$n.md" "$dir/.agent/commands/$n.md" \
+      || { echo "self-test: the installed $n command should match the kit wrapper"; exit 1; }
     check_skill "$n" "$dir/.agent/skills/$n/SKILL.md" "$p" \
       || { echo "self-test: the installed $n skill should be a pointer at loop/prompts/$n.md"; exit 1; }
   done

@@ -34,9 +34,15 @@ Steps:
    (`bd close <id> --reason ...`) - `scripts/backlog-status.sh --reconcile` fails while a landed
    commit names a ticket Beads still has open. `scripts/release-notes.sh --archive` closes a
    release's shipped tickets too.
-6. Finish with a short report: ticket id, the pull request URL, what was built, how it was
+6. Continue the author handoff with `loop/prompts/respond-to-review.md` (in the kit itself,
+   `prompts/respond-to-review.md`) for this PR. Opening it is not the end of the author's work:
+   read the review findings, fix or answer them with evidence, and obtain completed review of
+   the resulting head. Keep the ticket claimed through this handoff. Waiting for an independent
+   reviewer or queue admission is a named handoff, not permission to declare the PR ready.
+7. Finish with a short report: ticket id, the pull request URL, what was built, how it was
    verified, any new tickets added, anything the owner should look at. A green PR that is up to
-   date with the default branch merges on its own; one that is not is the owner's.
+   date with the default branch merges only after the project's required gates pass; otherwise
+   name the next responsible actor and blocker.
 
 Rules: the Project rules in `AGENTS.md` apply throughout (what never to touch, when not to
 restart anything, which baselines not to refresh unless the ticket itself changes results, and

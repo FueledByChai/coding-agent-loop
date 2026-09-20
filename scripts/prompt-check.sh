@@ -17,6 +17,18 @@ RULES='next-ticket.md	Done when
 next-ticket.md	--claim
 next-ticket.md	Never push the default branch
 next-ticket.md	sprint
+next-ticket.md	respond-to-review.md
+respond-to-review.md	full head SHA
+respond-to-review.md	all pages
+respond-to-review.md	fix, dispute, or separate ticket
+respond-to-review.md	fixing commit and test evidence
+respond-to-review.md	filing a ticket does not clear a blocker
+respond-to-review.md	the author must not resolve a disputed finding
+respond-to-review.md	do not assume a push triggers review
+respond-to-review.md	completed review
+respond-to-review.md	never post a passing review status
+respond-to-review.md	waiting PRs do not rebase or request CI
+respond-to-review.md	verified stopped
 grill-me.md	at least three rounds
 grill-me.md	proofs and edge cases
 grill-me.md	docs/decisions
@@ -84,6 +96,31 @@ self_test() {
   cp "$src/grill-me.md" "$dir/loop/prompts/grill-me.md"; rm "$dir/loop/prompts/review-prs.md"
   rc=0; out="$("$me" 2>&1)" || rc=$?
   [ "$rc" = 1 ] && echo "$out" | grep -q 'review-prs.md is missing' || { echo "self-test: a missing prompt should fail (rc $rc):"; echo "$out"; exit 1; }
+  cp "$src/review-prs.md" "$dir/loop/prompts/review-prs.md"
+  # The author handoff and its safety rules must be present in fresh installations too.
+  local file phrase
+  while IFS=$'\t' read -r file phrase; do
+    case "$file:$phrase" in
+      respond-to-review.md:*|next-ticket.md:respond-to-review.md) ;;
+      *) continue ;;
+    esac
+    # Remove this phrase independent of capitalization or line wrapping.
+    tr -s '[:space:]' ' ' < "$src/$file" > "$dir/loop/prompts/$file"
+    PHRASE="$phrase" python3 - "$dir/loop/prompts/$file" <<'PY'
+import os, pathlib, re, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+rule = re.compile(re.escape(os.environ['PHRASE']), re.IGNORECASE)
+assert rule.search(s)
+p.write_text(rule.sub('removed rule', s))
+PY
+    rc=0; out="$("$me" 2>&1)" || rc=$?
+    [ "$rc" = 1 ] && echo "$out" | grep -qF "$file no longer says \"$phrase\"" || { echo "self-test: missing author rule should fail: $phrase (rc $rc):"; echo "$out"; exit 1; }
+    cp "$src/$file" "$dir/loop/prompts/$file"
+  done <<< "$RULES"
+  rm "$dir/loop/prompts/respond-to-review.md"
+  rc=0; out="$("$me" 2>&1)" || rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q 'respond-to-review.md is missing' || { echo "self-test: missing author prompt should fail (rc $rc):"; echo "$out"; exit 1; }
   unset LOOP_ROOT
   echo "prompt-check self-test passed"
 }

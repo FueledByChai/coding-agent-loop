@@ -30,6 +30,9 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | `scripts/merge-queue.sh` | shadow merge queue: observe, scan GitHub read-only, enqueue, plan, and simulate fenced worker leases; never runs CI or merges |
 | `scripts/merge-queue.py` | Python 3.9+ standard-library SQLite execution journal and read-only GitHub adapter |
 | `scripts/merge-queue-tests.py` | synthetic race, persistence, invalidation, and CLI fixtures, run by `merge-queue.sh --self-test` |
+| `scripts/review-workers.sh` | opt-in durable author/acceptance jobs, fresh evidence validation and crash reconciliation; no merge authority |
+| `scripts/review-workers.py` | isolated command environments, local process guardian and worker receipt validation |
+| `scripts/review-workers-tests.py` | offline concurrency, process crash, timeout, freshness and reply-evidence fixtures |
 | `scripts/pr-readiness.sh` | the six facts a merge waits on for every open pull request — the project's check ran on the head, no review conversation is unresolved, no changes are requested, the agent review's status is success, the branch is current and clean, and the branch and subject name one claimed Beads ticket; `--pr <number>` judges one, `--ready` lists the ones that pass all six |
 | `scripts/reference-check.sh` | the queue's own references: every ticket carries acceptance criteria, every `blocks` dependency and `story:` label resolves, no dependency cycle, and every decision cited is a record; another project's ids quoted in prose are left alone |
 | `scripts/with-test-postgres.sh` | runs a command against a disposable PostgreSQL: a uniquely named container, two ownership labels, the connection URL in the environment (`test_db_*` in `.loop.toml`), and a cleanup that removes only the container it created |
@@ -317,3 +320,103 @@ current token without freeing its slot. Lease expiry does not imply the old work
 expired attempts need explicit reconciliation and release, even after restarting the process.
 Duplicate and older observations cannot roll state back. Queue state is operational data;
 Beads remains the durable task tracker. Neither the journal nor a label is a merge credential.
+
+## Review workers (opt-in, before CI)
+
+`scripts/review-workers.sh` supplies LK-3pg's author and acceptance execution layer (0018).
+It uses a separate private SQLite journal; shadow observations cannot launch workers. `advance`
+reads the actual GitHub PR and claimed Beads ticket, selects author work while code review is
+pending/has unresolved threads, or independent acceptance after completed code review, and
+runs at most one job. It does not select a PR for merge, refresh branches, request CI, post a
+required status or merge. Those adapters and unattended service supervision remain LK-e9y.
+
+Provision an operator-owned policy file **outside the checkout**, a private state directory
+(mode 0700), and two foreground adapter commands. Example policy (replace these paths):
+
+```json
+{
+  "revision": "review-workers-v1",
+  "timeout": 900,
+  "max_attempts": 3,
+  "roles": {
+    "author": {
+      "identity": "author-worker",
+      "github_login": "your-author-bot",
+      "command": ["/opt/loop/author-adapter"],
+      "env": {"HOME": "/var/lib/loop/author", "PATH": "/usr/local/bin:/usr/bin:/bin"}
+    },
+    "acceptance": {
+      "identity": "acceptance-worker",
+      "command": ["/opt/loop/acceptance-adapter"],
+      "env": {"HOME": "/var/lib/loop/reviewer", "PATH": "/usr/local/bin:/usr/bin:/bin"}
+    }
+  }
+}
+```
+
+Adapters read one JSON packet from stdin and emit one JSON receipt on stdout; diagnostics go
+to stderr. `show <job-id>` exposes the snapshot and identity; the private `<job-id>.request.json`
+artifact contains role instructions and the exact receipt shape. Author jobs follow the
+installed `respond-to-review` prompt. Receipts include the durable job ID, resulting full head,
+criteria hash and policy hash. Each open thread needs a disposition and a reply verified through
+GitHub against the configured author login and thread root. Fixes must name a published commit
+in both the receipt and reply, with proof; disputes and deferrals retain a blocker. Summary-only
+findings remain visible in the packet and must also be assessed by the author/reviewer; this
+controller does not claim to extract all natural-language defects automatically.
+
+Acceptance runs in a separate detached worktree and a fresh reviewer session, with no author
+conversation history. Configure its adapter to enforce read-only execution; the controller also
+rejects a changed head or dirty reviewer worktree. Each nonblank line of the ticket criteria has
+a stable `cN` identity in the packet, and every line needs concrete evidence covering **all** its
+clauses. Structural coverage is checked in code; the independent reviewer judges whether that
+evidence proves the requirements. Missing evidence, unclear review, changed head/base/criteria,
+new feedback, changed assignee, policy/config changes or implementation changes invalidate a pass.
+An author's `handled` receipt is never an acceptance pass.
+
+```bash
+scripts/review-workers.sh --root /path/to/project \
+  --state /private/loop-workers --policy /private/worker-policy.json \
+  advance --repo OWNER/REPO --pr 123 --worktree /path/to/assigned-author-worktree
+
+# Inspect without executing, then resume a queued job explicitly:
+scripts/review-workers.sh --root /path/to/project \
+  --state /private/loop-workers --policy /private/worker-policy.json \
+  prepare --repo OWNER/REPO --pr 123 --role author --worktree /path/to/assigned-author-worktree
+scripts/review-workers.sh --root /path/to/project \
+  --state /private/loop-workers --policy /private/worker-policy.json run JOB_ID
+
+# Fresh provider reads are mandatory before exposing acceptance evidence:
+scripts/review-workers.sh --root /path/to/project \
+  --state /private/loop-workers --policy /private/worker-policy.json \
+  acceptance --repo OWNER/REPO --pr 123
+```
+
+Duplicate prepare/advance requests reuse the durable job; they do not launch another editor.
+One active job owns both its PR and worktree. All controllers for a repository must share
+one journal. A registration in the Git common directory prevents linked worktrees from
+silently switching journals; moving it is an operator migration after all jobs are verified
+stopped. Independent clones must also be configured to use that same journal. `status`, `show JOB_ID` and `reconcile JOB_ID` take
+`--state` (and `--root` when used outside that project). Reconcile requires the guardian/launcher
+lock to be free **and** the recorded process group to be absent. It never kills an unknown or
+reused PID. Starting without a recorded group is recoverable only after the inherited lock is
+free: the guardian records its group before starting an adapter. No lease timeout steals a slot.
+A failed/blocked stopped job needs `--retry "reason"` on prepare/advance, subject to the configured
+attempt budget. `run`/`advance` exit nonzero on blocked/failed work; `acceptance` exits nonzero
+without current passing evidence. Historical `show` output is not current readiness.
+
+This local runner supports **trusted foreground POSIX adapters** on macOS/Linux. Adapters must
+keep all descendants in the inherited process group and must not daemonize or submit detached
+remote work. A live descendant retains the slot even after its parent exits. Timeout/output
+limits terminate the job's group; release still needs verified absence. A harness that creates
+independent sessions, remote jobs or detached tool processes needs a container/provider stop
+adapter before unattended use; do not claim a process-group check proves those workers stopped.
+The controlled real-model proof in the PR is a bounded fixture run, not production qualification
+of an arbitrary agent CLI under crashes.
+
+Only explicitly configured environment variables reach adapters; the controller's environment
+is not inherited. Distinct identities/homes describe the intended roles, not an OS security
+boundary. The journal and config are trusted operator state, and adapters must not mutate them.
+Do not store the future GitHub App merge credential on this worker account or filesystem. Live
+merge enforcement needs separate service/OS credentials and a trusted publisher (LK-e9y); no
+worker receipt, including imported or manually edited local data, is itself merge authorization.
+No global model, login, credential or agent settings are changed by installation.

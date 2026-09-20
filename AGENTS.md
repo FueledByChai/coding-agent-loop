@@ -128,7 +128,9 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
 ### Build, run, restart
 
 Nothing is compiled and no service is installed by the kit. The merge queue is currently a
-shadow-only journal and read-only observer (0016); it cannot alter GitHub or run candidate code. `./check.sh` is both the build and the test. A change to
+shadow-only journal and read-only observer (0016). Separately, `scripts/review-workers.sh`
+runs explicitly configured author/acceptance adapters with durable PR/worktree ownership (0018).
+It has no CI, status-publication or merge adapter; installation does not start workers. `./check.sh` is both the build and the test. A change to
 `scripts/*.sh` reaches a project only when it is tagged and that project's `kit_ref` moves;
 until then `scripts/loop-kit-sync.sh --check` fails there, which is the intended signal.
 

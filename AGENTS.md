@@ -95,7 +95,7 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
   `scripts/loop-config.sh` reads `.loop.toml`; every other script takes its project-specific
   values from it and names no branch, path, or build command of a project.
 - `prompts/*.md` are what an agent follows: `next-ticket`, `grill-me`, `grill-project`,
-  `review-prs`. A prompt carries its rules as phrases, and `scripts/prompt-check.sh` fails when
+  `review-prs`, `respond-to-review`. A prompt carries its rules as phrases, and `scripts/prompt-check.sh` fails when
   one loses a phrase that states a rule.
 - `templates/` is what a project receives: `decision.md` and the per-stack check and CI
   skeletons (`templates/check/*.sh`, `templates/ci/*.yml`). `commands/*.md` are the wrappers a
@@ -174,6 +174,11 @@ apart again (LK-16).
   request.
 
 ### Docs to keep current
+
+After opening a ticket PR, the author follows `prompts/respond-to-review.md` (installed as
+`loop/prompts/respond-to-review.md`) through evidence-backed responses and completed review of
+the resulting head (0017). Waiting PRs do not rebase or request CI. The author does not post its
+own passing review status; independent acceptance review and final admission remain separate.
 
 `README.md` — the kit's inventory, whose table names every script — and this file, when the
 loop's rules change.

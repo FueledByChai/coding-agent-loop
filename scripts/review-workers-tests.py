@@ -46,6 +46,15 @@ def result(job, **changes):
 
 
 class WorkersTest(unittest.TestCase):
+    def test_linux_zombies_live_threads_and_uncertain_inventory(self):
+        zombies={12:('Z','100')}
+        with mock.patch.object(w.sys,'platform','linux'), mock.patch.object(w.os,'killpg'):
+            for observations, expected in (([zombies,zombies],False),
+                ([{12:('Z','100'),13:('S','100')}],True), ([None],True),
+                ([{}],True), ([zombies,{12:('Z','100'),14:('Z','101')}],True)):
+                with self.subTest(observations=observations), mock.patch.object(w,'linux_group_tasks',side_effect=observations):
+                    self.assertEqual(expected,w.group_alive(12))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='review-workers-')
         self.root = Path(self.temp.name)
@@ -311,10 +320,19 @@ print(json.dumps(r))
         self.assertEqual(0,evidence.returncode,evidence.stderr)
         self.assertFalse(json.loads(evidence.stdout)['merge_authorization'])
         self.assertNotEqual(str(self.repo),j['worktree'])
+        self.assertFalse(Path(j['worktree']).exists())
+        self.assertNotIn(j['worktree'],self.git('worktree','list','--porcelain'))
         self.assertFalse(json.loads(self.call('show',j['id']).stdout)['active'])
         repeat=self.prepare()
         self.assertEqual(j['id'],repeat['id'])
         self.assertNotEqual(0,self.call('run',j['id']).returncode)
+
+    def test_repository_case_alias_reuses_finished_acceptance(self):
+        j=self.prepare()
+        self.assertEqual(0,self.call('run',j['id']).returncode)
+        p=self.call('advance','--repo','FIXTURE/PROJECT','--pr','1','--worktree',str(self.repo))
+        self.assertEqual(0,p.returncode,p.stderr)
+        self.assertEqual(j['id'],json.loads(p.stdout)['id'])
 
     def test_incomplete_dirty_and_changed_source_never_pass(self):
         for mode in ('invalid','dirty','source-change'):
@@ -325,7 +343,7 @@ print(json.dumps(r))
                 self.assertEqual('failed',json.loads(p.stdout)['state'])
                 self.assertNotEqual(0,self.call('acceptance','--repo','fixture/project','--pr','1').returncode)
                 # Each mode gets a fresh detached tree and key after cleanup of this synthetic one.
-                subprocess.run(['git','-C',str(self.repo),'worktree','remove','--force',j['worktree']],check=True)
+                self.assertFalse(Path(j['worktree']).exists())
 
     def test_timeout_stops_group_before_releasing(self):
         self.configure('sleep',1)

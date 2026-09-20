@@ -195,12 +195,37 @@ def job_lock(state, jid):
     finally: os.close(fd)
 
 
+def linux_group_tasks(pgid, proc=Path('/proc')):
+    # Include nonleader threads: a zombie leader can still have executing threads.
+    members = {}
+    try:
+        for process in proc.iterdir():
+            if not process.name.isdigit(): continue
+            try:
+                fields = (process/'stat').read_text().rsplit(')',1)[1].split()
+                if int(fields[2]) != pgid: continue
+                for task in (process/'task').iterdir():
+                    try:
+                        fields = (task/'stat').read_text().rsplit(')',1)[1].split()
+                        members[int(task.name)] = (fields[0], fields[19])  # state, start time
+                    except FileNotFoundError: continue  # exited during enumeration
+            except FileNotFoundError: continue
+    except (OSError,ValueError,IndexError): return None  # uncertain visibility retains ownership
+    return members
+
+
 def group_alive(pgid):
     if pgid is None: return False
     q.require(type(pgid) is int and pgid > 1, 'invalid process group')
     try: os.killpg(pgid, 0)
     except ProcessLookupError: return False
     except PermissionError: return True
+    if sys.platform.startswith('linux'):
+        first = linux_group_tasks(pgid)
+        if first and all(state == 'Z' for state, _ in first.values()):
+            # Zombies cannot execute/fork. Confirm a stable complete inventory before release.
+            second = linux_group_tasks(pgid)
+            if second == first: return False
     return True
 
 
@@ -211,7 +236,12 @@ def reconcile(db, jid):
         q.require(not group_alive(j['pgid']), 'worker process group still alive; slot retained')
         if j['state'] not in ('finished','blocked','failed'):
             db.record(jid,'failed',{'error':'worker stopped without a valid completion; explicit retry required'})
-        db.release(jid,'guardian lock free and process group absent')
+        tree = Path(j['worktree'])
+        if j['role']=='acceptance' and tree.parent==db.state and tree.name.startswith('review-') and tree.exists():
+            # Disposable reviewer trees only, after verified stop. Evidence stays in the journal.
+            subprocess.run(['git','-C',str(common_dir(tree)),'worktree','remove','--force',str(tree)],
+                           check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        db.release(jid,'guardian lock free and no executing process-group members')
         return db.get(jid)
 
 
@@ -507,7 +537,7 @@ def main():
             tree=args.worktree.resolve()
             q.require(common_dir(tree)==common_dir(root) and git(tree,'rev-parse','HEAD')==snapshot['head'], 'assigned author worktree must belong to repository and match PR head')
             if role=='acceptance':
-                tree=db.state/('review-'+q.digest([args.repo,args.pr,snapshot['head']])[:24])
+                tree=db.state/('review-'+q.digest([snapshot['repository'],snapshot['number'],snapshot['head']])[:24])
             job=db.prepare(snapshot,role,tree,policy,args.retry)
             if args.command=='advance' and job['state']=='queued': job=run_job(db,job['id'],args.policy.resolve(),root)
             print(q.encoded(job))

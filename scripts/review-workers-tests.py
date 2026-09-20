@@ -242,6 +242,11 @@ from pathlib import Path
 s=json.loads(Path(os.environ['FIXTURE_DATA']).read_text())
 a=sys.argv[1:]
 if Path(sys.argv[0]).name=='bd':
+ if s.get('feedback_race'):
+  counter=Path(os.environ['FIXTURE_DATA']+'.reads');n=int(counter.read_text())+1 if counter.exists() else 1;counter.write_text(str(n))
+  if n==2:
+   s['issue_comments'].append(dict(id=99,body='new finding during observation',user={'login':'reviewer'}))
+   Path(os.environ['FIXTURE_DATA']).write_text(json.dumps(s))
  print(json.dumps([dict(id='AA-1',status='in_progress',assignee='owner',acceptance_criteria=s['criteria'])]));sys.exit()
 if a[0]=='repo':print(json.dumps({'nameWithOwner':'fixture/project'}));sys.exit()
 if a[:2]==['api','graphql']:
@@ -272,6 +277,7 @@ if mode=='sleep':
  Path(os.environ['MARKER']).write_text(str(os.getpid()))
  time.sleep(30)
 if mode=='invalid':print('{}');sys.exit()
+if mode=='stderr-large':sys.stderr.write('x'*(1024*1024+1))
 if mode=='dirty':Path('unexpected.txt').write_text('changed by reviewer')
 if mode=='descendant':
  import subprocess
@@ -408,6 +414,20 @@ print(json.dumps(r))
         p=self.call('acceptance','--repo','fixture/project','--pr','1')
         self.assertNotEqual(0,p.returncode)
         self.assertNotIn('"outcome":"pass"',p.stdout)
+
+    def test_feedback_race_blocks_prior_acceptance(self):
+        j=self.prepare();self.assertEqual(0,self.call('run',j['id']).returncode)
+        data=json.loads(self.data.read_text());data['feedback_race']=True
+        self.data.write_text(json.dumps(data))
+        p=self.call('acceptance','--repo','fixture/project','--pr','1')
+        self.assertNotEqual(0,p.returncode,p.stdout)
+        self.assertIn('feedback changed during observation',p.stderr)
+
+    def test_stderr_limit_after_fast_exit(self):
+        self.configure('stderr-large')
+        j=self.prepare();p=self.call('run',j['id'])
+        self.assertEqual(1,p.returncode,p.stdout)
+        self.assertEqual('failed',json.loads(p.stdout)['state'])
 
     def test_clean_summary_is_resolved_via_provider(self):
         s=json.loads(self.data.read_text());s['reviews']=[]

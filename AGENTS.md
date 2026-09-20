@@ -125,7 +125,8 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
 
 ### Build, run, restart
 
-Nothing is built and no service runs. `./check.sh` is both the build and the test. A change to
+Nothing is compiled and no service is installed by the kit. The merge queue is currently a
+shadow-only journal and read-only observer (0016); it cannot alter GitHub or run candidate code. `./check.sh` is both the build and the test. A change to
 `scripts/*.sh` reaches a project only when it is tagged and that project's `kit_ref` moves;
 until then `scripts/loop-kit-sync.sh --check` fails there, which is the intended signal.
 

@@ -27,6 +27,9 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | `scripts/prompt-check.sh` | fails when a prompt no longer carries a phrase that states one of its rules |
 | `scripts/check-list.sh` | fails when two places that run or describe the same checks disagree — the kit's `check.sh` and a project's `templates/check/common.sh`, or a prose section and the script it describes (`--section`) — naming the check only one of them has |
 | `scripts/ruleset-check.sh` | fails when a ruleset requires a status check the workflow it pairs with never reports |
+| `scripts/merge-queue.sh` | shadow merge queue: observe, scan GitHub read-only, enqueue, plan, and simulate fenced worker leases; never runs CI or merges |
+| `scripts/merge-queue.py` | Python 3.9+ standard-library SQLite execution journal and read-only GitHub adapter |
+| `scripts/merge-queue-tests.py` | synthetic race, persistence, invalidation, and CLI fixtures, run by `merge-queue.sh --self-test` |
 | `scripts/pr-readiness.sh` | the six facts a merge waits on for every open pull request — the project's check ran on the head, no review conversation is unresolved, no changes are requested, the agent review's status is success, the branch is current and clean, and the branch and subject name one claimed Beads ticket; `--pr <number>` judges one, `--ready` lists the ones that pass all six |
 | `scripts/reference-check.sh` | the queue's own references: every ticket carries acceptance criteria, every `blocks` dependency and `story:` label resolves, no dependency cycle, and every decision cited is a record; another project's ids quoted in prose are left alone |
 | `scripts/with-test-postgres.sh` | runs a command against a disposable PostgreSQL: a uniquely named container, two ownership labels, the connection URL in the environment (`test_db_*` in `.loop.toml`), and a cleanup that removes only the container it created |
@@ -239,3 +242,57 @@ stories, acceptance criteria, and tickets for the owner to confirm.
 ## Licence
 
 Use it under the licence of the repository it ships in.
+
+## Merge queue (shadow)
+
+Decision 0016 introduces the queue foundation. It is **shadow-only**: no command rebases a
+branch, asks for review, starts CI, posts a status, resolves a conversation, or merges a PR.
+Existing merge policy and workflows remain in force. A successful simulation is not GitHub
+merge authorization. GitHub App gating, author/acceptance workers, CI dispatch, queue-aware
+prompts, and service supervision are subsequent work; installing this script does not enable them.
+
+Use Python 3.9 or later, `gh` with read access, and the checkout's Beads database. Keep the
+SQLite journal outside Git. Every output identifies itself as `mode: shadow` (the event log
+contains only shadow journal events). The same journal can hold several repositories/bases.
+`LOOP_ROOT` selects the checkout whose `.loop.toml` and Beads database are read; its configured
+`default_branch` supplies the base unless `--base` is explicit. Scan verifies the GitHub
+repository matches that checkout before reading its tickets.
+
+```bash
+scripts/merge-queue.sh --db "$HOME/.local/state/coding-agent-loop/shadow.sqlite" scan
+scripts/merge-queue.sh --db "$HOME/.local/state/coding-agent-loop/shadow.sqlite" \
+  --repo OWNER/REPO enqueue 123 --head FULL_HEAD_SHA
+scripts/merge-queue.sh --db "$HOME/.local/state/coding-agent-loop/shadow.sqlite" \
+  --repo OWNER/REPO plan
+scripts/merge-queue.sh --self-test
+```
+
+`scan` makes paginated GET requests plus a read-only GraphQL query for every review-thread
+page. It rechecks each head and the base before recording a complete observation. It records
+missing reviews and unknown mergeability as blockers. It reads completed review objects from
+the exact Codex bot on the full head SHA; clean-summary-only reviews currently remain
+unverified. It deliberately does **not** infer acceptance from the legacy `Agent review`
+status, populate dependency approvals, or manufacture acceptance evidence. Consequently live
+PRs stay blocked until the trusted acceptance/dependency adapters exist. API failures hold the
+queue; observations expire after 120 seconds. `scan` is one pass, not a background service.
+
+For offline simulation, `observe snapshot.json` imports a complete observation, using the
+schema shown by `snapshot()` and `candidate()` in `scripts/merge-queue-tests.py`. Imported
+observations are explicitly untrusted simulation input. Never feed this journal to a live
+merge gate. `enqueue` requires the observed full head; repeated requests preserve the original
+FIFO position. Eligible entries are considered in that order, skipping blocked entries.
+Dependencies must be observed as `MERGED`; absent or merely closed PRs cannot unblock them.
+
+`claim --owner WORKER [--ttl SECONDS]` acquires one shadow promotion slot per repository/base.
+`renew --owner WORKER --token TOKEN` keeps a still-valid attempt alive. `release --owner WORKER
+--token TOKEN --reason RECONCILIATION` records that an attempt is stopped and reconciled before
+another can be selected. `status`/`plan` expose the active token and blockers; `events` gives the
+audit history. These operations affect only the local shadow journal.
+
+Claims use a database transaction and unique active-slot index. Every attempt gets a new,
+monotonically increasing token; old workers cannot renew or release a newer attempt. Changed
+head/review/acceptance data, a different base, or a failed scan permanently invalidates the
+current token without freeing its slot. Lease expiry does not imply the old worker stopped:
+expired attempts need explicit reconciliation and release, even after restarting the process.
+Duplicate and older observations cannot roll state back. Queue state is operational data;
+Beads remains the durable task tracker. Neither the journal nor a label is a merge credential.

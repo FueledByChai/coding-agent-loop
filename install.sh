@@ -214,8 +214,11 @@ self_test() {
     echo "self-test: a prompt with no skill beside it must be refused"; exit 1
   fi
   echo "$out" | grep -q '(present)' || { echo "self-test: the stub check should be reported present:"; echo "$out"; exit 1; }
-  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint check-list ruleset-check pr-readiness reference-check with-test-postgres compose-smoke; do
+  for f in loop-config backlog-status open-ticket-pr release-notes loop-kit-sync proof-gate coverage-ratchet review-status decisions prompt-check sprint check-list ruleset-check pr-readiness reference-check with-test-postgres compose-smoke merge-queue; do
     [ -x "$dir/scripts/$f.sh" ] || { echo "self-test: scripts/$f.sh missing or not executable"; exit 1; }
+  done
+  for f in merge-queue.py merge-queue-tests.py; do
+    [ -x "$dir/scripts/$f" ] || { echo "self-test: scripts/$f missing or not executable"; exit 1; }
   done
   [ -x "$dir/scripts/coverage-percent.py" ] || { echo "self-test: scripts/coverage-percent.py missing or not executable"; exit 1; }
   [ -f "$dir/loop/templates/decision.md" ] || { echo "self-test: the decision template should be installed"; exit 1; }
@@ -291,6 +294,8 @@ self_test() {
   (cd "$dir" && scripts/ruleset-check.sh --self-test | grep -q 'self-test passed') || { echo "self-test: installed ruleset-check self-test failed"; exit 1; }
   (cd "$dir" && python3 scripts/coverage-percent.py --self-test | grep -q 'coverage-percent self-test passed') \
     || { echo "self-test: the installed coverage helper's self-test failed"; exit 1; }
+  (cd "$dir" && scripts/merge-queue.sh --self-test | grep -q 'merge-queue self-test passed') \
+    || { echo "self-test: installed merge queue self-test failed"; exit 1; }
   # Installing again keeps what exists, and refreshes what is the kit's. The pair to prove is
   # .loop.toml against loop.toml.example: both are edited here, and only the example comes back
   # (LK-19).

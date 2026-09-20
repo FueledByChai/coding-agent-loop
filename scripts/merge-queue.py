@@ -430,7 +430,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--db", type=Path, help="explicit shadow SQLite journal outside the checkout")
-    parser.add_argument("--repo", help="owner/name; scan verifies it against the checkout")
+    parser.add_argument("--repo", help="owner/name, required except for observe/self-test; scan verifies the checkout")
     parser.add_argument("--base", help="defaults to default_branch in .loop.toml")
     subs = parser.add_subparsers(dest="command")
     observe = subs.add_parser("observe", help="import a complete synthetic observation; cannot authorize live work")
@@ -467,23 +467,24 @@ def main():
                                                env=dict(os.environ, LOOP_ROOT=str(root)), text=True).strip()
             api = GitHub(root)
             repo = args.repo
-            if args.command == "scan":
-                actual = api.command(["repo", "view", "--json", "nameWithOwner"])["nameWithOwner"]
-                require(repo is None or repo.lower() == actual.lower(), "scan repository must match the checkout and Beads database")
-                repo = actual
-            require(repo is not None, "--repo is required for local queue commands")
+            require(repo is not None, "--repo is required so failed discovery can hold the identified queue")
             identity(repo, base)
             if args.command == "scan":
                 started = time.time()
                 try:
+                    actual = api.command(["repo", "view", "--json", "nameWithOwner"])["nameWithOwner"]
+                    require(repo.lower() == actual.lower(), "scan repository must match the checkout and Beads database")
                     store.observe(api.scan(repo, base, store.tracked(repo, base), lambda t: read_ticket(root, t)))
                 except (QueueError, KeyError, TypeError) as exc:
+                    # Discovery itself is a provider read. --repo identifies the lane to hold
+                    # even when authentication or connectivity prevents verifying the checkout.
                     store.scan_failed(repo, base, started, str(exc))
                     raise QueueError("scan failed; queue held: " + str(exc)) from exc
-            elif args.command == "enqueue": store.enqueue(repo, base, args.number, args.head)
-            elif args.command == "claim": store.claim(repo, base, args.owner, args.ttl)
-            elif args.command == "renew": store.renew(repo, base, args.owner, args.token, args.ttl)
-            elif args.command == "release": store.release(repo, base, args.owner, args.token, args.reason)
+            else:
+                if args.command == "enqueue": store.enqueue(repo, base, args.number, args.head)
+                elif args.command == "claim": store.claim(repo, base, args.owner, args.ttl)
+                elif args.command == "renew": store.renew(repo, base, args.owner, args.token, args.ttl)
+                elif args.command == "release": store.release(repo, base, args.owner, args.token, args.reason)
         result = store.events(repo, base) if args.command == "events" else store.plan(repo, base)
         print(json.dumps(result, indent=2))
     finally:

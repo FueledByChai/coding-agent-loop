@@ -255,11 +255,14 @@ Use Python 3.9 or later, `gh` with read access, and the checkout's Beads databas
 SQLite journal outside Git. Every output identifies itself as `mode: shadow` (the event log
 contains only shadow journal events). The same journal can hold several repositories/bases.
 `LOOP_ROOT` selects the checkout whose `.loop.toml` and Beads database are read; its configured
-`default_branch` supplies the base unless `--base` is explicit. Scan verifies the GitHub
-repository matches that checkout before reading its tickets.
+`default_branch` supplies the base unless `--base` is explicit. `--repo` is required for scan
+and local queue commands, so even a failed provider lookup identifies the queue to hold. Scan
+verifies the GitHub repository matches that checkout before reading its tickets. Use the same
+repository spelling consistently for the shadow journal's keys.
 
 ```bash
-scripts/merge-queue.sh --db "$HOME/.local/state/coding-agent-loop/shadow.sqlite" scan
+scripts/merge-queue.sh --db "$HOME/.local/state/coding-agent-loop/shadow.sqlite" \
+  --repo OWNER/REPO scan
 scripts/merge-queue.sh --db "$HOME/.local/state/coding-agent-loop/shadow.sqlite" \
   --repo OWNER/REPO enqueue 123 --head FULL_HEAD_SHA
 scripts/merge-queue.sh --db "$HOME/.local/state/coding-agent-loop/shadow.sqlite" \

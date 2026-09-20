@@ -4,11 +4,15 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
 import unittest
 
+# importlib otherwise leaves bytecode beside the shipping helper in consumer checkouts.
+sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("merge_queue", Path(__file__).with_name("merge-queue.py"))
 mq = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mq)
@@ -323,6 +327,39 @@ print(json.dumps(result))
         self.assertEqual(sum("repos/fixture/project/pulls/1" in call for call in calls), 2)
         self.assertTrue(all(call[:3] == ["api", "--method", "GET"] or
                             (call[:2] == ["api", "graphql"] and "mutation" not in " ".join(call)) for call in calls))
+
+    def test_repository_lookup_failure_invalidates_existing_lease(self):
+        self.responses[json.dumps(["repo", "view", "--json", "nameWithOwner"])] = "ERROR"
+        self.flush()
+        with tempfile.TemporaryDirectory(prefix="merge-queue-state-") as state:
+            db = Path(state) / "shadow.sqlite"
+            queue = mq.Store(db)
+            queue.observe(snapshot(candidate(1), observed_at=mq.time.time()))
+            queue.enqueue(REPO, BASE, 1, "1" * 40)
+            lease = queue.claim(REPO, BASE, "worker", 60)
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name("merge-queue.py")),
+                                     "--db", str(db), "--repo", REPO, "--base", BASE, "scan"],
+                                    env=dict(self.env, LOOP_ROOT=str(self.root)), capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            plan = queue.plan(REPO, BASE)
+            self.assertIn("scan failed", plan["source_problem"])
+            self.assertFalse(plan["active"]["valid"])
+            with self.assertRaises(mq.QueueError):
+                queue.renew(REPO, BASE, "worker", lease["token"])
+            queue.close()
+
+    def test_import_does_not_create_bytecode_in_shipping_directory(self):
+        # Import the actual installed-style test module without executing its suite recursively.
+        for name in ("merge-queue.py", "merge-queue-tests.py"):
+            shutil.copyfile(Path(__file__).with_name(name), self.root / name)
+        env = dict(os.environ)
+        env.pop("PYTHONDONTWRITEBYTECODE", None)
+        result = subprocess.run([sys.executable, "-c",
+            "import sys, runpy; sys.pycache_prefix=None; runpy.run_path('merge-queue-tests.py', run_name='fixture')"],
+            cwd=self.root, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(list(self.root.rglob("*.pyc")))
+        self.assertFalse((self.root / "__pycache__").exists())
 
 
 if __name__ == "__main__":

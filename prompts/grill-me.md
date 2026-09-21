@@ -122,7 +122,8 @@ where that comment states the subset reading, because under the other one a tick
 leave unlabelled is a ticket the full check fails on. The write step labels them in the same
 session.
 
-**The merge order.** Alongside the day's selected tickets, propose an explicit merge order
+**The merge order.** Refresh shared Beads state with `bd dolt pull` before reading coordination.
+Alongside the day's selected tickets, propose an explicit merge order
 (ticket ids, then PR numbers as they exist), predecessors and a single coordinator responsible
 for selection and handoff. Record the confirmed order and later changes with `bd update
 <coordinating-ticket> --append-notes "<order, rationale, coordinator, selected candidate or none>"`;
@@ -132,7 +133,8 @@ available, otherwise use `bd create "Merge coordination: <scope>" --type epic --
 of executable ticket selection and ticket-proof checks; do not create a default task without
 acceptance criteria. Label reused coordination records `loop:coordination` too, and include
 repository/base scope so standalone tickets and review runs can discover the same record.
-No parallel Markdown ticket list.
+Publish coordination creation, links and confirmed order changes with `bd dolt push` before
+handoff; failed synchronization blocks admission until reconciled. No parallel Markdown ticket list.
 Ordering preferences are not implementation dependencies: use `bd dep` only for real blockers.
 
 The coordinator verifies predecessors have merged into the configured default branch and their

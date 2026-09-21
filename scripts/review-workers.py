@@ -189,11 +189,11 @@ class Journal:
                                (snapshot['repository'],snapshot['number']))
         for row in rows:
             j = self.get(row['id'])
-            if j['policy_hash'] == policy_hash(policy) and binding(j['snapshot']) == binding(snapshot):
-                try:
+            try:
+                if j['policy_hash'] == policy_hash(policy) and binding(j['snapshot']) == binding(snapshot):
                     r = validate_result(j,j['result'],snapshot)
                     if r['outcome'] == 'pass': return r
-                except (q.QueueError,TypeError,KeyError): pass
+            except (q.QueueError,TypeError,KeyError): pass  # legacy/incomplete receipts are stale
         return None
 
 

@@ -154,6 +154,17 @@ class WorkersTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(w.q.QueueError):
                 w.ticket_metadata(value)
 
+    def test_legacy_receipts_missing_metadata_are_stale(self):
+        j=self.job()
+        self.db.record(j['id'],'finished',result(j))
+        self.db.release(j['id'],'fixture verified stopped')
+        legacy=dict(j['snapshot']);del legacy['ticket_metadata']
+        self.db.db.execute('UPDATE jobs SET snapshot=? WHERE id=?',(w.q.encoded(legacy),j['id']))
+        # Tolerate legacy shape independently of policy invalidation; never infer empty metadata.
+        self.assertIsNone(self.db.acceptance(snapshot(),policy()))
+        self.db.db.execute('UPDATE jobs SET policy_hash=? WHERE id=?',('pre-upgrade-policy',j['id']))
+        self.assertIsNone(self.db.acceptance(snapshot(),policy()))
+
     def test_author_receipt_is_also_invalidated_by_metadata_change(self):
         j=self.job(role='author')
         fresh=snapshot(ticket_metadata={'labels':['new-scope'], 'dependencies':[]})

@@ -46,6 +46,15 @@ def result(job, **changes):
 
 
 class WorkersTest(unittest.TestCase):
+    def test_author_packet_asks_for_resulting_head(self):
+        j=self.job(role='author')
+        example=w.packet(j)['result_schema']
+        self.assertNotEqual(j['snapshot']['head'],example['head'])
+        self.assertIn('resulting',example['head'])
+        fresh=snapshot(head='c'*40)
+        receipt=result(j,head=fresh['head'],outcome='handled',dispositions=[])
+        self.assertEqual('handled',w.validate_result(j,receipt,fresh)['outcome'])
+
     def test_linux_zombies_live_threads_and_uncertain_inventory(self):
         zombies={12:('Z','100')}
         with mock.patch.object(w.sys,'platform','linux'), mock.patch.object(w.os,'killpg'):
@@ -428,6 +437,19 @@ print(json.dumps(r))
         j=self.prepare();p=self.call('run',j['id'])
         self.assertEqual(1,p.returncode,p.stdout)
         self.assertEqual('failed',json.loads(p.stdout)['state'])
+
+    def test_missing_reviewer_directory_is_unregistered_before_retry(self):
+        import shutil
+        j=self.prepare()
+        self.git('worktree','add','--detach',j['worktree'],j['snapshot']['head'])
+        shutil.rmtree(j['worktree'])
+        self.assertIn(j['worktree'],self.git('worktree','list','--porcelain'))
+        p=self.call('reconcile',j['id'])
+        self.assertEqual(0,p.returncode,p.stderr)
+        self.assertNotIn(j['worktree'],self.git('worktree','list','--porcelain'))
+        p=self.call('advance','--repo','fixture/project','--pr','1','--worktree',str(self.repo),'--retry','verified stopped and cleaned')
+        self.assertEqual(0,p.returncode,p.stderr)
+        self.assertEqual('finished',json.loads(p.stdout)['state'])
 
     def test_clean_summary_is_resolved_via_provider(self):
         s=json.loads(self.data.read_text());s['reviews']=[]

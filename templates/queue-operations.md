@@ -13,8 +13,11 @@ observation mirror with Beads under the controller identity; never execute PR co
 Launch the shell wrapper directly (its fixed privileged-mode Bash ignores startup hooks),
 or use `/usr/bin/python3 -I` as in the service unit below. Do not invoke it through an
 ambient `bash`/`python3` search or drop Python isolated mode at the privileged boundary.
-The wrapper fixes PATH and removes shell/Python startup overrides before using the fixed
-system interpreter; custom observation tools still use the validated private `read_path`.
+The wrapper starts the fixed interpreter with an empty environment plus the system PATH.
+The direct Python entry also clears its environment before importing TLS or helper modules.
+Caller proxy, certificate, OpenSSL, token and HOME overrides are discarded; configure the
+controller account's registered home directory itself. Custom observation tools still use
+the validated private `read_path`, and receipt reads use the configured reviewer HOME below.
 Run the existing author/acceptance guardian under its configured service boundary. Author
 fixes and completed Codex review still precede independent acceptance (0017–0018).
 
@@ -164,6 +167,8 @@ Dispatch discovery uses the persisted dispatch time (with a small clock-skew all
 base SHA, so old workflow history cannot bury the current attempt. Missing legacy dispatch
 timestamps fail closed for reconciliation. Dependency lookup stops as soon as every required
 naming commit is found. Pagination has no fixed history ceiling and rejects repeated pages.
+The workflow admission check also reads to the end of its inventory, rejecting duplicate
+matches even on late pages before any PR checkout or full check runs.
 
 A blocked attempt retains the lane. `retry` retires it only after actual CI stop is verified
 (or no dispatch/uncertain refresh ever occurred); it retries the same PR with a new identity.

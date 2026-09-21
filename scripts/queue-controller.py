@@ -4,6 +4,12 @@
 No imported shadow snapshots. App credentials remain in this process. Commands configured
 by the operator run with explicit environments and must cross the documented OS boundary.
 """
+import os
+if __name__=='__main__':
+    # Sanitize the direct Python entry before loading TLS or any helper modules.
+    # Credentials, network trust and HOME come from the account/protected policy.
+    os.environ.clear()
+    os.environ['PATH']='/usr/bin:/bin'
 import argparse
 import base64
 from contextlib import contextmanager
@@ -11,7 +17,6 @@ from datetime import datetime, timezone
 import fcntl
 import importlib.util
 import json
-import os
 from pathlib import Path
 import sqlite3
 import shutil

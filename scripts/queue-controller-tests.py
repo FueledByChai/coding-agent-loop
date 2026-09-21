@@ -328,6 +328,33 @@ class ControllerTests(unittest.TestCase):
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_privileged_entries_discard_network_trust_and_home_overrides(self):
+        import os,shutil,subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            source=Path(__file__).parent
+            for name in ('queue-controller.sh','queue-controller.py','review-workers.py','merge-queue.py'):
+                shutil.copy2(source/name,root/name)
+            ca=root/'attacker-ca.pem';ca.write_text('fixture trust override')
+            probe=('import json,os,ssl,urllib.request\n'
+                   'print(json.dumps({"env":dict(os.environ),"proxies":urllib.request.getproxies(),'
+                   '"cafile":ssl.get_default_verify_paths().cafile}))\n')
+            (root/'queue-controller-tests.py').write_text(probe)
+            poison=dict(HTTPS_PROXY='http://attacker.invalid:8080',https_proxy='http://attacker.invalid:8080',
+                        ALL_PROXY='http://attacker.invalid:8080',SSL_CERT_FILE=str(ca),SSL_CERT_DIR=str(root),
+                        OPENSSL_CONF=str(root/'openssl.cnf'),OPENSSL_MODULES=str(root),
+                        SSLKEYLOGFILE=str(root/'keys'),HOME=str(root/'caller-home'),GH_TOKEN='fixture-untrusted')
+            env=dict(poison,PATH='/usr/bin:/bin')
+            for entry in ('queue-controller.sh','queue-controller.py'):
+                with self.subTest(entry=entry):
+                    result=subprocess.run([str(root/entry),'--self-test'],env=env,text=True,capture_output=True,timeout=10)
+                    self.assertEqual(0,result.returncode,result.stderr)
+                    data=json.loads(result.stdout.splitlines()[0])
+                    self.assertFalse(set(poison)&set(data['env']),data['env'])
+                    self.assertEqual('/usr/bin:/bin',data['env']['PATH'])
+                    self.assertNotIn('attacker.invalid',json.dumps(data['proxies']))
+                    self.assertNotEqual(str(ca),data['cafile'])
+
     def test_privileged_launch_ignores_path_and_interpreter_startup_injection(self):
         import os,subprocess
         with tempfile.TemporaryDirectory() as directory:
@@ -506,6 +533,23 @@ class ProtocolTests(unittest.TestCase):
                     with self.assertRaises((AssertionError,SystemExit)):exec(code,{})
             check['status']='completed';check['conclusion']='success'
             with mock.patch.dict(os.environ,env,clear=True),self.assertRaises(SystemExit):exec(code,{})
+
+        check['status']='in_progress';check.pop('conclusion')
+        for scenario in ('early','late','duplicate','repeated'):
+            pages=[]
+            def history(request,**kwargs):
+                page=int(request.full_url.rsplit('=',1)[1]);pages.append(page)
+                rows=[{'id':page*100+i} for i in range(100)] if page<=101 else []
+                if scenario=='repeated':rows=[{'id':i} for i in range(100)]
+                if page==1 and scenario in ('early','duplicate'):rows[0]=dict(check,id=1)
+                if page==101 and scenario in ('late','duplicate'):rows[0]=dict(check,id=10100)
+                return io.StringIO(json.dumps({'check_runs':rows}))
+            with self.subTest(scenario=scenario),mock.patch.dict(os.environ,env,clear=True),\
+                 mock.patch('urllib.request.urlopen',side_effect=history),mock.patch('time.sleep'):
+                if scenario in ('early','late'):exec(code,{})
+                else:
+                    with self.assertRaises((AssertionError,SystemExit)):exec(code,{})
+                self.assertEqual(2 if scenario=='repeated' else 102,pages[-1])
 
     def test_live_check_reconciles_lost_create_response(self):
         p=c.Provider.__new__(c.Provider);p.policy={'app_id':10};p.journal=mock.Mock()

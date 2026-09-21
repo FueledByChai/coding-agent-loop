@@ -606,9 +606,10 @@ class WorkerReceiptTests(unittest.TestCase):
         self.repo=self.root/'mirror';self.repo.mkdir()
         c.subprocess.run(['/usr/bin/git','init','-q',str(self.repo)],check=True)
         self.bin=self.root/'tools';self.bin.mkdir()
+        self.tool_alias=self.root/'tool-alias';self.tool_alias.symlink_to(self.bin,target_is_directory=True)
         self.log=self.root/'tools.jsonl'
         self.policy=dict(revision='receipt-test',timeout=30,max_attempts=1,
-                         read_path=str(self.bin)+':/usr/bin:/bin',
+                         read_path=str(self.tool_alias)+':/usr/bin:/bin',
                          roles={role:dict(identity=role,github_login='author',command=['/usr/bin/true'],
                                 env={'HOME':str(self.root/role)}) for role in ('author','acceptance')})
         for role in self.policy['roles']: (self.root/role).mkdir()
@@ -672,9 +673,11 @@ class WorkerReceiptTests(unittest.TestCase):
                 self.assertEqual(['dolt','pull'],bd[0]['args'])
                 self.assertEqual(6,len([call for call in bd if call['args'][0]=='show']))
                 self.assertEqual(2,len([call for call in calls if call['args'][0]=='repo']))
+                expected_path=c.os.pathsep.join(str(Path(p).resolve()) for p in
+                                               self.policy['read_path'].split(c.os.pathsep))
                 for call in calls:
                     self.assertEqual(str(self.root/'acceptance'),call['env']['HOME'])
-                    self.assertEqual(self.policy['read_path'],call['env']['PATH'])
+                    self.assertEqual(expected_path,call['env']['PATH'])
                     for name in ('GH_TOKEN','GITHUB_TOKEN','PYTHONPATH'):
                         self.assertNotIn(name,call['env'])
 

@@ -70,6 +70,29 @@ class ControllerTests(unittest.TestCase):
         self.fail('not dispatched')
     def through_admission(self):
         self.through_dispatch(); return self.step()
+    def test_retired_request_can_be_explicitly_requeued_at_the_tail(self):
+        self.db.retire_request(1,'draft while waiting')
+        self.db.enqueue(1)
+        self.assertEqual([2,3,1],[r['number'] for r in self.db.requests()])
+        self.db.enqueue(2)
+        self.assertEqual([2,3,1],[r['number'] for r in self.db.requests()])
+
+    def test_invalid_waiting_request_can_be_retired_without_touching_an_active_one(self):
+        original=self.p.observe
+        def observe(n):
+            if n==1:raise c.q.QueueError('PR closed while waiting')
+            return original(n)
+        self.p.observe=observe
+        with self.assertRaises(c.q.QueueError):self.step()
+        self.assertIsNone(self.db.active())
+        self.db.retire_request(1,'PR closed while waiting')
+        a=self.step()
+        self.assertEqual(2,a['number'])
+        with self.assertRaises(c.q.QueueError):self.db.retire_request(2,'must not steal active work')
+        self.assertEqual(2,self.db.active()['number'])
+        self.assertFalse(any(x[:2] in (('dispatch',1),('refresh',1)) for x in self.p.calls))
+        self.assertTrue(any('retire-request' in row[0] for row in self.db.db.execute('SELECT detail FROM events')))
+
     def test_unknown_mergeability_waits_without_refresh_or_dispatch(self):
         self.p.ready=lambda s:None
         for _ in range(3):self.step()
@@ -256,6 +279,44 @@ class ProtocolTests(unittest.TestCase):
         p.api.reset_mock();p.pages.return_value=[]
         p.check(a,c.ADMISSION,'completed','failure')
         p.api.assert_not_called()
+
+    def test_dependency_proof_stops_once_all_commits_are_found(self):
+        p=c.Provider.__new__(c.Provider)
+        s=snapshot();s['ticket_metadata']['dependencies']=[{'id':'AA-0','dependency_type':'blocks','status':'closed'}]
+        calls=[]
+        def api(method,path):
+            calls.append(path)
+            if path.startswith('/pulls/'):
+                return dict(auto_merge=None,head={'sha':s['head']},base={'ref':s['base']},mergeable=True)
+            if path.startswith('/compare/'):
+                return {'merge_base_commit':{'sha':s['base_sha']}}
+            # A large repository; the naming commit is already on its first page.
+            return [{'sha':str(len(calls))+'-'+str(n),'commit':{'message':('AA-0: shipped' if n==0 else '' if n==1 else 'older')}} for n in range(100)]
+        p.api=api
+        self.assertTrue(p.ready(s))
+        self.assertEqual(1,len([path for path in calls if path.startswith('/commits?')]))
+
+    def test_pagination_reads_beyond_old_ceiling_and_detects_cycles(self):
+        p=c.Provider.__new__(c.Provider)
+        count=[0]
+        def api(method,path):
+            count[0]+=1
+            return [{'id':count[0]*100+n} for n in range(100)] if count[0]<=101 else []
+        p.api=api
+        self.assertEqual(10100,len(p.pages('/inventory')))
+        p.api=lambda *args:[{'id':n} for n in range(100)]
+        with self.assertRaises(c.q.QueueError):p.pages('/inventory')
+
+    def test_run_discovery_is_bounded_by_attempt_time_and_base(self):
+        p=c.Provider.__new__(c.Provider)
+        p.policy={'workflow_id':17,'base':'trunk','app_actor_id':20}
+        a=dict(id='nonce',snapshot=snapshot(),dispatch_started_at=1800000000)
+        p.pages=mock.Mock(return_value=[])
+        self.assertEqual([],p.find_runs(a))
+        query=p.pages.call_args.args[0]
+        self.assertIn('created=',query)
+        self.assertIn('head_sha='+a['snapshot']['base_sha'],query)
+        self.assertIn(c.quote('>='+c.dispatch_boundary(a),safe=''),query)
 
     def test_provider_distinguishes_unknown_from_proven_stale(self):
         p=c.Provider.__new__(c.Provider)

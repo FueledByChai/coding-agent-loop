@@ -117,10 +117,23 @@ A macOS installation needs an equivalent launchd service under the dedicated acc
 protected paths and process-group stop proof. Installing the kit does not install either service.
 
 Use the same `--root`, `--state`, `--policy` prefix for `preflight`, `enqueue <PR>`, `status`,
-`tick`, `serve`, and `retry --reason <reason>`. Enqueue order is durable; only its first PR can
+`tick`, `serve`, `retry --reason <reason>`, and `retire-request <PR> --reason <reason>`. Enqueue order is durable; only its first PR can
 refresh or dispatch. The lock spans every observation/mutation within a tick, including network
 calls. It has no timeout-based takeover. Polls are 15 seconds. Supervisors may restart the
 process, but saved mutation intent prevents duplicate dispatch/refresh/merge.
+
+`status` reports the active attempt and ordered pending requests. If an unadmitted queued PR
+is closed, made draft, or becomes unobservable, the service retains its request rather than
+assuming a provider failure means it was merged. The operator may use `retire-request` with a
+reason to retire that request and unblock later candidates. This command performs no remote
+mutation and refuses any request with an active attempt, even a blocked one; it cannot release
+a running worker or CI slot. The retirement is recorded in the audit journal. After restoring the PR, an explicit `enqueue`
+request adds it back at the tail; duplicate requests for a still-pending PR retain their position.
+
+Dispatch discovery uses the persisted dispatch time (with a small clock-skew allowance) and
+base SHA, so old workflow history cannot bury the current attempt. Missing legacy dispatch
+timestamps fail closed for reconciliation. Dependency lookup stops as soon as every required
+naming commit is found. Pagination has no fixed history ceiling and rejects repeated pages.
 
 A blocked attempt retains the lane. `retry` retires it only after actual CI stop is verified
 (or no dispatch/uncertain refresh ever occurred); it retries the same PR with a new identity.

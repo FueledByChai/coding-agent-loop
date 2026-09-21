@@ -256,6 +256,60 @@ class ControllerTests(unittest.TestCase):
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_observation_rejects_unprotected_path_before_token_or_tools(self):
+        p=c.Provider.__new__(c.Provider)
+        p.policy={'read_path':'/trusted/bin:/foreign/bin','repo':'fixture/project','base':'trunk'}
+        p.root=Path('/trusted/mirror');p.app=mock.Mock()
+        def protect(path):
+            if str(path)=='/foreign/bin':raise c.q.QueueError('foreign owner')
+            return Path(path)
+        with mock.patch.object(c,'protected_path',side_effect=protect),\
+             mock.patch.object(c.subprocess,'run') as run,\
+             mock.patch.object(c.w,'Observer') as observer:
+            observer.return_value.snapshot.return_value=snapshot()
+            with self.assertRaises(c.q.QueueError):p.observe(1)
+            p.app.token.assert_not_called();run.assert_not_called();observer.assert_not_called()
+
+    def test_observation_rejects_empty_relative_and_foreign_symlink_tools(self):
+        p=c.Provider.__new__(c.Provider)
+        p.root=Path('/trusted/mirror');p.app=mock.Mock()
+        for value in ('/trusted/bin:',':/trusted/bin','bin:/trusted/bin','/trusted/bin'):
+            p.policy={'read_path':value,'repo':'fixture/project','base':'trunk'}
+            def protect(path):
+                if Path(path).name in ('gh','bd'):raise c.q.QueueError('binary symlink target has foreign owner')
+                return Path(path)
+            with self.subTest(value=value),mock.patch.object(c,'protected_path',side_effect=protect),\
+                 mock.patch.object(c.subprocess,'run') as run,mock.patch.object(c.w,'Observer') as observer,\
+                 mock.patch('shutil.which',side_effect=lambda name,**kw:'/trusted/bin/'+name):
+                observer.return_value.snapshot.return_value=snapshot()
+                with self.assertRaises(c.q.QueueError):p.observe(1)
+                p.app.token.assert_not_called();run.assert_not_called();observer.assert_not_called()
+
+    def test_protected_observation_uses_canonical_path_and_bd_binary(self):
+        p=c.Provider.__new__(c.Provider)
+        p.root=Path('/trusted/mirror');p.app=mock.Mock()
+        p.app.token.return_value='test-token'
+        p.policy={'read_path':'/trusted/bin','repo':'fixture/project','base':'trunk'}
+        paths=[]
+        def protect(path):
+            paths.append(str(path))
+            return Path(str(path).replace('/trusted/','/canonical/'))
+        with mock.patch.object(c,'protected_path',side_effect=protect),\
+             mock.patch.object(c.subprocess,'run') as run,mock.patch.object(c.w,'Observer') as observer,\
+             mock.patch('shutil.which',side_effect=lambda name,**kw:'/canonical/bin/'+name):
+            observer.return_value.snapshot.return_value=snapshot()
+            self.assertEqual(snapshot(),p.observe(1))
+            self.assertIn('/canonical/bin/gh',paths);self.assertIn('/canonical/bin/bd',paths)
+            self.assertEqual('/canonical/bin/bd',run.call_args.args[0][0])
+            self.assertEqual('/canonical/bin',observer.call_args.args[1]['PATH'])
+            self.assertNotIn('GH_TOKEN',run.call_args.kwargs['env'])
+            reader=observer.call_args.kwargs['ticket_reader']
+            run.return_value.stdout=json.dumps([{'id':'AA-1'}])
+            self.assertEqual({'id':'AA-1'},reader('AA-1'))
+            self.assertEqual(['/canonical/bin/bd','show','AA-1','--json','--readonly'],run.call_args.args[0])
+            self.assertEqual('/canonical/bin',run.call_args.kwargs['env']['PATH'])
+            self.assertNotIn('GH_TOKEN',run.call_args.kwargs['env'])
+
     def test_private_configuration_rejects_foreign_owned_ancestors(self):
         path=Path('/protected/foreign/policy.json')
         def stat(p,**kw):

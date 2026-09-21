@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import shutil
 import subprocess
 import sys
 import time
@@ -281,6 +282,21 @@ def secure_file(path):
     return path
 
 
+def protected_tools(read_path):
+    q.require(isinstance(read_path,str) and bool(read_path),'protected read_path required')
+    directories=[]
+    for entry in read_path.split(os.pathsep):
+        q.require(bool(entry) and Path(entry).is_absolute(),'read_path entries must be absolute and nonempty')
+        directories.append(str(protected_path(entry)))
+    canonical=os.pathsep.join(directories)
+    binaries={}
+    for name in ('gh','bd'):
+        path=shutil.which(name,path=canonical)
+        q.require(path is not None,'trusted read tool missing: '+name)
+        binaries[name]=str(protected_path(path))
+    return canonical,binaries
+
+
 def request(method,path,token,data=None):
     q.require(path.startswith('/') and not path.startswith('//'),'relative GitHub API path required')
     req=Request('https://api.github.com'+path,method=method,
@@ -332,13 +348,16 @@ class Provider:
             if len(rows)<100 or (until and until(result)):return result
             page+=1
     def observe(self,n):
+        # Validate every search directory and resolved binary before requesting credentials.
+        read_path,binaries=protected_tools(self.policy['read_path'])
         # Only gh receives the short-lived App token. Configured worker commands never do.
         env={'PATH':os.defpath,'HOME':str(Path.home()),'GH_TOKEN':self.app.token(),'GH_PROMPT_DISABLED':'1'}
-        # Explicit gh path can be configured for service installations outside the system PATH.
-        env['PATH']=self.policy['read_path']
-        subprocess.run(['bd','dolt','pull'],cwd=self.root,env={'PATH':self.policy['read_path'],'HOME':str(Path.home())},
+        env['PATH']=read_path
+        subprocess.run([binaries['bd'],'dolt','pull'],cwd=self.root,env={'PATH':read_path,'HOME':str(Path.home())},
                        stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=True)
-        s=w.Observer(self.root,env).snapshot(self.policy['repo'],n)
+        read_env={'PATH':read_path,'HOME':str(Path.home())}
+        ticket_reader=lambda ticket:q.read_ticket(self.root,ticket,env=read_env,executable=binaries['bd'])
+        s=w.Observer(self.root,env,ticket_reader=ticket_reader).snapshot(self.policy['repo'],n)
         q.require(s['base']==self.policy['base'],'PR targets another lane')
         return s
     def ready(self,s):

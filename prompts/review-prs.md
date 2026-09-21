@@ -18,6 +18,42 @@ never refresh branches. Only the coordinator can admit one candidate after prede
 are verified. A shadow plan or ticket claim cannot admit it. Missing or ambiguous selection
 leaves the final status unposted. Local proof and independent acceptance can still proceed.
 
+**Legacy bootstrap coordination when needed.** Outside worker mode, for legacy or standalone
+PRs without a linked record,
+search `bd list --label loop:coordination --limit 0 --json` for this repository/base. Reuse its
+record, or create a scoped coordination epic with `--type epic --labels loop:coordination` and
+link the PR/ticket. Propose dependency-respecting PR creation order, with PR number as tie-breaker,
+without replacing an existing explicit order. If the record designates the next independent
+review-prs run as coordinator and no owner already holds it, claim the coordination epic with
+`bd update <id> --claim`, then record this run's identity, order and selected candidate or none.
+Verify the recorded owner before acting. An independently designated reviewer can therefore
+bootstrap a one-PR queue; an author cannot use this path to self-accept or self-admit. Honor an
+existing coordinator; conflicting owners/records require reconciliation before selection.
+Beads notes/claims are not the live controller's atomic admission fence: use this only with a
+single serialized reviewer invocation, otherwise stop admission and report the conflict.
+
+**Reuse unchanged assessments and skip duplicate feedback.** In worker mode, the trusted worker
+journal owns receipt reuse. In the legacy path, keep an assessment record in the coordinating
+Beads issue's notes: repository/PR, reviewer identity, binding digest, verdict, proof and existing
+findings URL. Before posting anything, compare the current binding with the last verified
+independent assessment. Do not trust an author's claimed verdict as independent evidence.
+Build the binding from full head and base SHAs, ticket intent and criteria, PR body, assignee,
+governing policy content, completed-review evidence, and all pages of comments, reviews and
+threads (ids, actors, bodies, states, commit ids and resolutions). Normalize arrays by stable id;
+use SHA-256 of canonical JSON (Python's `json.dumps(binding, sort_keys=True, separators=(",", ":"))`
+encoded as UTF-8). Exclude observation time, CI progress and the coordination notes themselves.
+Store the normalized binding with its digest so a later run can reproduce it; missing fields,
+incomplete reads or an unverifiable record require reassessment, never a guessed match.
+
+In legacy mode, an unchanged binding reuses the recorded verdict and skips steps 1–5, including any new review
+comment; still perform fresh final-readiness checks in step 6. CI changes alone do not require
+another acceptance comment. A changed binding requires reassessment, but post feedback only for
+new/changed findings or a changed verdict; do not repeat identical feedback just to restate it.
+After any feedback you do post, re-read all evidence and save the post-comment binding. If other
+evidence changed during that read, reassess it before recording acceptance. A later unchanged
+run must compare against that post-comment binding, not the pre-comment snapshot, so the
+reviewer's own comment does not generate an endless reassessment loop.
+
 For each pull request needing assessment, following the recorded order:
 
 1. **Read what it claims.** `gh pr view <number>` for the body, and `gh pr diff <number>`
@@ -43,7 +79,8 @@ For each pull request needing assessment, following the recorded order:
    Anything else you notice (style, naming, a better structure, something you would have
    done differently) is a comment, never a reason to fail.
 4. **Record the findings.** In worker mode, return them in the prescribed receipt without
-   posting feedback or statuses. Otherwise post them as one review comment on the pull
+   posting feedback or statuses. Otherwise, only when the reuse rules above require new
+   feedback, post it as one review comment on the pull
    request (`gh pr review <number>
    --comment --body-file <file>`): a verdict line first, then each finding with its file and
    line, then the comments. Keep it short; name the four questions only where they found
@@ -52,7 +89,8 @@ For each pull request needing assessment, following the recorded order:
 5. **Separate acceptance from the final gate.** Record the verdict against the full head SHA,
    current base, criteria and review evidence. After posting findings, re-read the resulting
    evidence before binding an acceptance receipt; posting feedback can invalidate older
-   receipts. Reassess any changed binding, including same-head evidence changes. In worker mode,
+   receipts. In legacy mode, persist the normalized post-comment binding, verdict and evidence URL in the
+   coordinating record. Reassess any changed binding, including same-head evidence changes. In worker mode,
    return the prescribed receipt and stop here; it never authorizes a status or a merge.
 6. **Legacy coordinator relay only.** Outside worker mode, a substantive failure of one of the
    four questions may be posted with `scripts/review-status.sh <sha> fail "<question and defect>"

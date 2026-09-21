@@ -97,7 +97,10 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   author fixes, Codex review and independent acceptance may proceed. Only the selected candidate
   gets a sanctioned refresh, renewed head review/acceptance, then CI. Never batch-refresh from
   a review pass. Selection and final gates are described in `prompts/review-prs.md` and 0019.
-  Planning preferences do not become false implementation dependencies. Five independent PRs
+  Standalone and first-project tickets bootstrap a discoverable `loop:coordination` Beads epic;
+  the next independent review run claims coordination and selects the candidate, so a missing
+  interview plan does not strand the PR. Planning preferences do not become false implementation
+  dependencies. Five independent PRs
   prebuilt and repeatedly refreshed can cost 15 full runs. With the shipped automatic PR triggers,
   draft openings still cost five runs and selected refreshes cost four: nine runs, saving six.
   After the separate CI-admission rollout suppresses opening/push runs, the target becomes five
@@ -156,7 +159,10 @@ independent acceptance as `review_context` only for the selected candidate after
 Codex review, resolved findings, fresh independent acceptance and successful final-head CI.
 Keep auto-merge disabled through that handoff. Missing readiness stays unposted, never green.
 
-Review all open PRs and changed evidence, not just heads with no status. New findings or changed
+Review all open PRs and changed evidence, not just heads with no status. Legacy reviewers store
+an assessment binding in the coordinating Beads record and reuse it while unchanged, skipping
+duplicate comments but still checking final readiness. After posting feedback, they save the
+post-comment binding; CI progress alone does not create another acceptance review. New findings or changed
 criteria can invalidate acceptance without a push. A scheduled review may assess waiting PRs,
 but never runs `scripts/open-ticket-pr.sh --update-all`. Final status publication must recheck
 head, base, criteria, reviews and actual CI; the legacy status API cannot atomically fence new

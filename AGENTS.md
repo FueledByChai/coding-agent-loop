@@ -116,6 +116,8 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
   current; `scripts/loop-kit-sync.sh` carries it for the same reason (LK-19).
 - `ci/` holds what a project applies: the workflow skeleton and the `ruleset.json` that pairs
   with it, whose required context is the job that skeleton reports (`Check (scripts/check.sh)`).
+  New installations request it with `ci:run`; the first step rejects unrelated label events
+  before expensive work (0020). The installer preserves existing workflows.
   `.github/` holds this repository's own pair — `.github/workflows/ci.yml` and
   `.github/ruleset.json` — whose required contexts are the job this repository reports
   (`Check (check.sh)`) and the agent review (`Agent review`), a commit status the loop posts from

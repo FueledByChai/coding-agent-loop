@@ -85,7 +85,9 @@ Configure two active branch rulesets with exact include `["refs/heads/<base>"]`,
 
 Disable repository auto-merge and reconcile existing requests before controlled operation.
 The App lacks administration-write permission; this runtime never weakens or edits rulesets.
-`preflight` reads both configured rulesets, auto-merge setting and full workflow bytes. Existing
+`preflight` reads both configured rulesets, auto-merge setting, active workflow ID/path mapping
+and full workflow bytes. Admission check external IDs are versioned SHA256 digests of the
+complete run/head/base/App identity, avoiding repository-name dependent provider limits. Existing
 `ruleset-check.sh` still validates legacy job/context pairs. It cannot validate an external App
 check; use controller `preflight` for this additional pair, keeping legacy checks during migration.
 
@@ -137,8 +139,10 @@ naming commit is found. Pagination has no fixed history ceiling and rejects repe
 
 A blocked attempt retains the lane. `retry` retires it only after actual CI stop is verified
 (or no dispatch/uncertain refresh ever occurred); it retries the same PR with a new identity.
-An uncertain dispatch with no discovered run, an uncertain refresh, or an unconfirmed merge
-remains held for operator reconciliation. Do not delete state or manually release it because
+A successful or uncertain merge stays in `merging`: later ticks reconcile landed PR, ancestry
+and tree evidence without replaying the merge or admitting the next PR. Delayed reads do not
+permanently block it. An uncertain dispatch with no discovered run, an uncertain refresh, or a
+merge that never becomes provably landed remains held for operator reconciliation. Do not delete state or manually release it because
 time elapsed. Review the journal, provider event and guardian process evidence first. Recovery
 for an uncertain refresh/merge currently requires an operator adapter extension; the runtime
 intentionally has no unsafe force-release command. Report that limitation rather than silently

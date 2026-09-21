@@ -20,7 +20,10 @@ so it is not selected as an executable ticket or required to supply ticket proof
 `loop:coordination` with repository/base scope. Standalone and first-project tickets create or
 reuse a record and explicitly hand it to the next independent review run, which claims and
 records coordination before selection; the author cannot self-admit. Conflicting ownership
-still blocks admission. Ordering preferences are not implementation
+still blocks admission. Legacy actors pull shared Beads state before discovery and publish
+every coordination/assessment mutation before handoff, re-reading shared ownership after
+claim/selection updates. Synchronization failures block admission and status publication;
+retry reconciles already-posted feedback rather than duplicating it. Ordering preferences are not implementation
 blockers. Verify predecessor merges and landed commits before selection; revise the recorded
 order explicitly when bypassing a failed candidate. Only the selected candidate receives the
 project's sanctioned refresh and CI request. Waiting PRs may receive fixes, local proof and

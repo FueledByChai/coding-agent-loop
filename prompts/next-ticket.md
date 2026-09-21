@@ -8,13 +8,14 @@ marks the sprint) and `trailer_required` (whether commits sign with an agent tra
 
 Steps:
 
-1. Run `scripts/backlog-status.sh --next`. It names the first ready ticket whose blockers have a
+1. Refresh shared Beads state with `bd dolt pull`; resolve any synchronization failure before
+   claiming or publishing work. Run `scripts/backlog-status.sh --next`. It names the first ready ticket whose blockers have a
    commit on the default branch, taking the tickets carrying the `sprint_label` first, by priority
    then id, then the rest (`scripts/backlog-status.sh` shows every ticket's derived state;
    `--sprint` shows the sprint's). If it names none, report that and stop. Read the ticket with
    `bd show <id> --json` - its `acceptance_criteria` is the **Done when** line - then claim it with
-   `bd update <id> --claim` (the claim the queue honours) and `scripts/open-ticket-pr.sh <id>
-   --claim`, which pushes `ticket/<id>` to origin and refuses when another checkout holds it.
+   `bd update <id> --claim` (the claim the queue honours), publish it with `bd dolt push`,
+   then run `scripts/open-ticket-pr.sh <id> --claim`, which pushes `ticket/<id>` to origin and refuses when another checkout holds it.
    Read the merge order recorded in the coordinating Beads ticket's notes and the named
    coordinator's current selection (0019 in the kit). Ticket claim order is implementation
    scheduling, not merge admission. A shadow plan is not admission. If selection is missing or
@@ -32,7 +33,11 @@ Steps:
    that independent run claims and records coordination before selecting a candidate. This
    supplies a discoverable handoff even when no interview ran; it does not let the author admit
    itself. If no review runner is configured, name `review-prs` and the record id as the next
-   invocation needed, rather than waiting for a nonexistent coordinator.
+   invocation needed, rather than waiting for a nonexistent coordinator. Refresh with
+   `bd dolt pull` before coordination discovery or later shared-state decisions, and publish
+   each creation, ticket link, order or ownership update with `bd dolt push` before handing it
+   to another actor. A failed pull/push or unresolved merge conflict leaves admission blocked;
+   reconcile the shared record before retrying rather than creating another local-only epic.
 2. Read the ticket's **Done when** line first. Decide what test, fixture, or output proves it, and
    write that test before the implementation.
 3. Work in an isolated worktree when the harness offers one; otherwise on a branch named after the

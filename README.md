@@ -99,7 +99,8 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   a review pass. Selection and final gates are described in `prompts/review-prs.md` and 0019.
   Standalone and first-project tickets bootstrap a discoverable `loop:coordination` Beads epic;
   the next independent review run claims coordination and selects the candidate, so a missing
-  interview plan does not strand the PR. Planning preferences do not become false implementation
+  interview plan does not strand the PR. Pull shared Beads state before discovery and push every
+  coordination/assessment update before handoff; synchronization failure blocks admission. Planning preferences do not become false implementation
   dependencies. Five independent PRs
   prebuilt and repeatedly refreshed can cost 15 full runs. With the shipped automatic PR triggers,
   draft openings still cost five runs and selected refreshes cost four: nine runs, saving six.

@@ -18,6 +18,17 @@ never refresh branches. Only the coordinator can admit one candidate after prede
 are verified. A shadow plan or ticket claim cannot admit it. Missing or ambiguous selection
 leaves the final status unposted. Local proof and independent acceptance can still proceed.
 
+**Synchronize legacy coordination.** Outside worker mode, run `bd dolt pull` before discovering
+or reading coordination and prior assessments. After every coordination mutation—creation,
+link, claim, order, selection or assessment record—run `bd dolt push` before handing off or
+using it to advance the candidate. After publishing an ownership/selection change, pull again
+and verify the shared owner/order before acting. A synchronization failure blocks admission and
+final status publication; resolve conflicts and re-read the shared record rather than creating
+a second local-only epic or treating an unpushed claim as ownership. If feedback was posted but
+saving/publishing its assessment failed, reconcile that existing feedback by id on retry; do not
+post it again merely to repair persistence. In worker mode, the trusted controller owns fresh
+Beads inputs and journal persistence; the read-only worker does not mutate or sync Beads.
+
 **Legacy bootstrap coordination when needed.** Outside worker mode, for legacy or standalone
 PRs without a linked record,
 search `bd list --label loop:coordination --limit 0 --json` for this repository/base. Reuse its

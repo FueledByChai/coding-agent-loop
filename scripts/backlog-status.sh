@@ -444,6 +444,9 @@ MD
   # Beads mints an alphanumeric id once a prefix's numeric space is spent. The row has to be
   # read rather than dropped: it was silently absent while the id shape was digits-only.
   echo "$out" | grep -q '^AA-1a  done' || { echo "self-test: a generated Beads id should be read and reconciled:"; echo "$out"; exit 1; }
+  if echo "$out" | grep -q '^AA-09 '; then
+    echo "self-test: a coordination epic must not appear as an executable ticket"; exit 1
+  fi
   next="$("$me" --ref trunk --next)" || { echo "self-test: --next should find a ready ticket"; exit 1; }
   [ "$next" = "AA-06" ] || { echo "self-test: --next should pass over the claimed AA-05 and take AA-06, got '$next'"; exit 1; }
   out="$("$me" --ref trunk --show AA-02 2>&1)" || { echo "self-test: --show should find AA-02"; exit 1; }

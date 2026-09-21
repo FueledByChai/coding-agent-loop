@@ -1,6 +1,6 @@
 # 0007 — The agent review is required here, and a scheduled run on the owner's machine produces it
 
-Status: accepted
+Status: superseded by 0019
 Date: 2026-09-14
 
 ## Context

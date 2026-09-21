@@ -39,6 +39,15 @@ an existing completed acceptance job, and returns no App authority. No caller-pr
 is accepted. Missing acceptance holds the candidate; the separate worker service prepares/runs
 review jobs. It does not cause the gate service to execute an AI worker with App credentials.
 
+For `worker-receipt`, add a top-level `read_path` to that **worker policy**, for example
+`"read_path": "/opt/queue-tools:/usr/bin:/bin"`. It must contain protected `gh` and `bd`
+executables and any tools Beads needs, with the same path protections described below.
+The receipt reader uses `roles.acceptance.env.HOME` for the reviewer's read-only GitHub login
+store; protect that home through its ancestors too. Inherited tokens and other environment
+settings are discarded. Both the shell wrapper and isolated Python entry point use these
+explicit settings for the Beads sync and both evidence observations. Configure this before
+running acceptance jobs: the worker policy hash binds it, so older receipts become stale.
+
 The refresh wrapper receives repository, PR, ticket, expected head/base and attempt on stdin.
 Under the author's durable guardian, verify exclusive PR/worktree ownership and both remote
 SHAs, then use the project's sanctioned refresh helper; request completed Codex review of any

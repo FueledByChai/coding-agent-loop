@@ -153,6 +153,10 @@ class Controller:
         a=self.db.active()
         if a and a['phase']=='merging':
             if self.p.verify_merge(a):
+                # A previous inconclusive read may have revoked the gate. Repair it
+                # before releasing ownership; failed/lost updates retry without merging.
+                self.p.check(a,GATE,'completed','success')
+                a.pop('reason',None);a.pop('check_wait',None)
                 a['phase']='merged'; self.db.save(a,done=True)
             else:
                 self.p.check(a,GATE,'completed','failure')
@@ -233,6 +237,7 @@ class Controller:
             # GitHub may acknowledge the write before PR/ancestry/tree reads converge.
             # Persisted merge intent keeps ownership and lets later ticks verify, never replay.
             if not self.p.verify_merge(a):return a
+            a.pop('reason',None);a.pop('check_wait',None)
             a['phase']='merged'; self.db.save(a,done=True)
             return a
         except Pending as exc:
@@ -566,15 +571,23 @@ def worker_receipt(args):
     q.require(packet['binding']==q.digest(w.binding(expected)),'invalid requested binding')
     root=args.root.resolve()
     policy=w.load_policy(args.policy,root)
-    subprocess.run(['bd','dolt','pull'],cwd=root,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=True)
-    fresh=w.Observer(root).snapshot(expected['repository'],expected['number'])
+    read_path,binaries=protected_tools(policy.get('read_path'))
+    home=protected_path(policy['roles']['acceptance']['env']['HOME'])
+    # Use the reviewer's configured login store, never inherited tokens or startup
+    # settings. Both observers and their Beads reads use the same protected tools.
+    env={'PATH':read_path,'HOME':str(home),'GH_PROMPT_DISABLED':'1'}
+    subprocess.run([binaries['bd'],'dolt','pull'],cwd=root,env=env,
+                   stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=True)
+    ticket_reader=lambda ticket:q.read_ticket(root,ticket,env=env,executable=binaries['bd'])
+    observer=w.Observer(root,env,ticket_reader=ticket_reader)
+    fresh=observer.snapshot(expected['repository'],expected['number'])
     q.require(w.binding(fresh)==w.binding(expected),'acceptance source differs from requested candidate')
     db=w.Journal(w.trusted_path(args.state,root))
     try:
         w.bind_state(root,args.state)
         receipt=db.acceptance(fresh,policy)
         q.require(receipt and receipt['outcome']=='pass','independent worker acceptance unavailable')
-        final=w.Observer(root).snapshot(expected['repository'],expected['number'])
+        final=observer.snapshot(expected['repository'],expected['number'])
         q.require(w.binding(final)==w.binding(fresh),'acceptance changed during read')
         print(q.encoded({'outcome':'pass','job':receipt['job_id'],'binding':q.digest(w.binding(final)),
                         'reviewer_identity':policy['roles']['acceptance']['identity'],

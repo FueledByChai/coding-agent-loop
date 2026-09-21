@@ -244,9 +244,38 @@ class ControllerTests(unittest.TestCase):
         self.step()
         self.assertEqual(1,self.db.active()['number'])
         self.assertEqual('merging',self.db.active()['phase'])
-        self.step()
+        result=self.step()
         self.assertIsNone(self.db.active())
         self.assertEqual(2,self.db.next_number())
+        self.assertEqual('success',self.p.checks[c.GATE]['conclusion'])
+        self.assertNotIn('reason',result)
+        self.assertEqual([('merge',1)],[x for x in self.p.calls if x[0]=='merge'])
+        self.assertEqual([('dispatch',1)],[x for x in self.p.calls if x[0]=='dispatch'])
+
+    def test_delayed_merge_holds_lane_until_gate_repair_survives_restart(self):
+        self.through_admission();self.p.runs[0].update(status='completed',conclusion='success')
+        self.p.verify_merge=mock.Mock(side_effect=[False,False,True,True,True])
+        self.step();self.step()
+        self.assertEqual('failure',self.p.checks[c.GATE]['conclusion'])
+        original=self.p.check
+        def lost(a,name,status,conclusion=None,external=None):
+            self.assertEqual('merging',self.db.active()['phase'])
+            original(a,name,status,conclusion,external)
+            raise RuntimeError('lost gate repair response')
+        self.p.check=lost
+        with self.assertRaises(RuntimeError):self.step()
+        self.assertEqual(1,self.db.active()['number'])
+        self.p.check=mock.Mock(side_effect=c.CheckPending('gate temporarily invisible'))
+        self.runner=c.Controller(self.db,self.p,'policy1')
+        self.step()
+        self.assertEqual(1,self.db.active()['number'])
+        self.assertIn('check_wait',self.db.active())
+        self.p.check=original
+        result=self.step()
+        self.assertIsNone(self.db.active())
+        self.assertEqual(2,self.db.next_number())
+        self.assertEqual('success',self.p.checks[c.GATE]['conclusion'])
+        self.assertNotIn('reason',result);self.assertNotIn('check_wait',result)
         self.assertEqual([('merge',1)],[x for x in self.p.calls if x[0]=='merge'])
         self.assertEqual([('dispatch',1)],[x for x in self.p.calls if x[0]=='dispatch'])
 
@@ -566,5 +595,100 @@ class ProtocolTests(unittest.TestCase):
                        lambda r:r[0]['rules'][-2]['parameters'].update(required_review_thread_resolution=False)):
             rules=json.loads(json.dumps([protection,update]));mutate(rules)
             with self.assertRaises(c.q.QueueError):c.validate_rules(rules,p)
+
+class WorkerReceiptTests(unittest.TestCase):
+    def setUp(self):
+        # Protected ancestors are part of the real launcher boundary; /tmp is writable
+        # by other identities on Linux, so use a private directory below this test UID.
+        self.temp=tempfile.TemporaryDirectory(prefix='.queue-receipt-test-',dir=Path.home())
+        self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name).resolve()
+        self.repo=self.root/'mirror';self.repo.mkdir()
+        c.subprocess.run(['/usr/bin/git','init','-q',str(self.repo)],check=True)
+        self.bin=self.root/'tools';self.bin.mkdir()
+        self.log=self.root/'tools.jsonl'
+        self.policy=dict(revision='receipt-test',timeout=30,max_attempts=1,
+                         read_path=str(self.bin)+':/usr/bin:/bin',
+                         roles={role:dict(identity=role,github_login='author',command=['/usr/bin/true'],
+                                env={'HOME':str(self.root/role)}) for role in ('author','acceptance')})
+        for role in self.policy['roles']: (self.root/role).mkdir()
+        self.policy_file=self.root/'policy.json'
+        self.policy_file.write_text(json.dumps(self.policy))
+        self.ticket=dict(id='AA-1',status='in_progress',assignee='author',description='intent',
+                         acceptance_criteria='Prove the fixture',labels=['sprint'],dependencies=[])
+        path='repos/fixture/project/pulls/1'
+        self.responses={path:dict(state='open',draft=False,merged=False,node_id='fixture',body='body',
+            head=dict(ref='ticket/AA-1',sha='1'*40,repo={'full_name':'fixture/project'}),
+            base={'ref':'trunk'},user={'login':'author'}),
+            'repos/fixture/project/commits/trunk':{'sha':'b'*40},
+            path+'/commits?per_page=100':[[dict(sha='1'*40,commit={'message':'AA-1: fixture'})]],
+            path+'/reviews?per_page=100':[[dict(id=1,body='',state='COMMENTED',commit_id='1'*40,
+                submitted_at='2026-01-01T00:00:00Z',user={'login':c.q.REVIEWER})]],
+            path+'/comments?per_page=100':[[]],
+            'repos/fixture/project/issues/1/comments?per_page=100':[[]]}
+        record=('import json,os,sys\nfrom pathlib import Path\n'
+                'with Path('+repr(str(self.log))+').open("a") as log:\n'
+                ' log.write(json.dumps({"tool":Path(sys.argv[0]).name,"args":sys.argv[1:],'
+                '"env":dict(os.environ)})+"\\n")\n')
+        self.write_tool('bd',record+'print(json.dumps('+repr([self.ticket])+'))\n')
+        self.write_tool('gh',record+'responses='+repr(self.responses)+'\n'
+            'if sys.argv[1]=="repo": result={"nameWithOwner":"fixture/project"}\n'
+            'elif sys.argv[2]=="graphql": result={"data":{"node":{"reviewThreads":'
+            '{"pageInfo":{"hasNextPage":False,"endCursor":None},"nodes":[]}}}}\n'
+            'else: result=responses[sys.argv[4]]\nprint(json.dumps(result))\n')
+        env={'PATH':self.policy['read_path'],'HOME':str(self.root/'acceptance')}
+        reader=lambda ticket:c.q.read_ticket(self.repo,ticket,env=env,executable=str(self.bin/'bd'))
+        self.snapshot=c.w.Observer(self.repo,env,ticket_reader=reader).snapshot('fixture/project',1)
+        self.state=self.root/'state'
+        db=c.w.Journal(self.state)
+        try:
+            job=db.prepare(self.snapshot,'acceptance',self.repo,self.policy)
+            receipt=dict(job_id=job['id'],head=self.snapshot['head'],criteria_hash=self.snapshot['criteria_hash'],
+                         policy_hash=job['policy_hash'],outcome='pass',criteria=[{'id':'c1','evidence':'fixture proof'}])
+            db.record(job['id'],'finished',receipt);db.release(job['id'],'fixture worker stopped')
+        finally:db.close()
+        self.packet=json.dumps({'snapshot':self.snapshot,'binding':c.q.digest(c.w.binding(self.snapshot))})
+        self.wrapper=Path(__file__).with_name('queue-controller.sh').resolve()
+
+    def write_tool(self,name,body):
+        tool=self.bin/name
+        tool.write_text('#!/usr/bin/python3 -I\n'+body);tool.chmod(0o700)
+
+    def invoke(self,entry):
+        self.log.unlink(missing_ok=True)
+        return c.subprocess.run([str(entry),'--root',str(self.repo),'--state',str(self.state),
+            '--policy',str(self.policy_file),'worker-receipt'],input=self.packet,text=True,capture_output=True,
+            env={'PATH':'/usr/bin:/bin','HOME':str(self.root/'author'),
+                 'GH_TOKEN':'untrusted-inherited-token','PYTHONPATH':'/untrusted'},timeout=30)
+
+    def test_receipt_uses_protected_tools_for_both_observations_through_each_entry(self):
+        for entry in (self.wrapper,self.wrapper.with_suffix('.py')):
+            with self.subTest(entry=entry):
+                result=self.invoke(entry)
+                self.assertEqual(0,result.returncode,result.stderr)
+                self.assertEqual('pass',json.loads(result.stdout)['outcome'])
+                calls=[json.loads(line) for line in self.log.read_text().splitlines()]
+                bd=[call for call in calls if call['tool']=='bd']
+                self.assertEqual(['dolt','pull'],bd[0]['args'])
+                self.assertEqual(6,len([call for call in bd if call['args'][0]=='show']))
+                self.assertEqual(2,len([call for call in calls if call['args'][0]=='repo']))
+                for call in calls:
+                    self.assertEqual(str(self.root/'acceptance'),call['env']['HOME'])
+                    self.assertEqual(self.policy['read_path'],call['env']['PATH'])
+                    for name in ('GH_TOKEN','GITHUB_TOKEN','PYTHONPATH'):
+                        self.assertNotIn(name,call['env'])
+
+    def test_receipt_rejects_missing_relative_or_writable_path_before_execution(self):
+        for path in (None,'relative:/usr/bin:/bin',str(self.bin)+':/usr/bin:/bin'):
+            with self.subTest(path=path):
+                self.policy['read_path']=path;self.policy_file.write_text(json.dumps(self.policy))
+                self.bin.chmod(0o777 if path and path.startswith(str(self.bin)) else 0o700)
+                try:
+                    result=self.invoke(self.wrapper)
+                    self.assertNotEqual(0,result.returncode)
+                    if path is None:self.assertIn('protected read_path required',result.stderr)
+                    else:self.assertTrue('absolute' in result.stderr or 'protected' in result.stderr,result.stderr)
+                    self.assertFalse(self.log.exists())
+                finally:self.bin.chmod(0o700)
 
 if __name__=='__main__': unittest.main(argv=[sys.argv[0]])

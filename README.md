@@ -90,11 +90,17 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   story's status from git (done when every serving ticket landed, open k/n, unticketed), `--open`
   is the pick list for the next sprint where the sprint is a subset, and `--show <id>` prints a
   ticket or a story in full.
-- **Hand-off** is a pull request from that branch. A green PR that is up to date with the
-  default branch merges on its own; one that touches a `review_paths` entry is labelled
-  `needs-review` and waits for a person. With several agents at once, each merge leaves the
-  other PRs behind the default branch: `scripts/open-ticket-pr.sh --update-all` rebases them,
-  and the review pass runs it first, so parallel lanes drain without a hand on the wheel.
+- **Hand-off** is a pull request from that branch, opened as a draft during queue rollout.
+  Verify auto-merge is disabled before marking ready for review. Keep required human review
+  for `review_paths`. The coordinator records merge order beside the day's tickets in Beads,
+  with one selected candidate after predecessors land. Waiting PRs do not rebase or request CI;
+  author fixes, Codex review and independent acceptance may proceed. Only the selected candidate
+  gets a sanctioned refresh, renewed head review/acceptance, then CI. Never batch-refresh from
+  a review pass. Selection and final gates are described in `prompts/review-prs.md` and 0019.
+  Planning preferences do not become false implementation dependencies. Five independent PRs
+  prebuilt and repeatedly refreshed can cost 15 full runs; serial admission avoids ten redundant
+  runs, leaving five successful candidate runs before any genuine failures or code changes.
+  Prompts do not disable existing push/label triggers or provide an atomic admission lock.
 - **Done** means the project's check passes and the commit carries the proof. The check is
   the project's own script; CI runs the same script.
 - **The proof gate** makes "carries the proof" a check: with `code_paths`, `proof_paths`, and
@@ -140,16 +146,20 @@ real run in the pull request that changed it.
 
 ## Reviewing pull requests
 
-A green build is not a review. `prompts/review-prs.md` has an agent review every open pull
-request whose head commit carries no review status yet: it reads the ticket the title names
-(its done line), the diff, and the Project rules, posts one review comment with its findings,
-and posts a commit status (`review_context` in `.loop.toml`, default `Agent review`) through
-`scripts/review-status.sh`. The status is red only for a missing proof, an unmet done line,
-a Project-rules breach, or a defect named with file and line; everything else is a comment.
-Add the context to the branch ruleset's required status checks and auto-merge waits for it.
-Run the prompt from a schedule on a machine with the owner's agent subscription (every ten
-minutes is plenty): each head is reviewed once, a new push gets a fresh review, and no API
-key has to live on GitHub.
+A green build is not a review. `prompts/review-prs.md` independently assesses each PR's proof,
+done line, Project rules and concrete defects. Waiting PRs can receive acceptance before CI,
+but acceptance is not merge authorization. Durable workers return receipts; a trusted
+controller owns the final gate. During the legacy bootstrap, the named coordinator can relay
+independent acceptance as `review_context` only for the selected candidate after completed
+Codex review, resolved findings, fresh independent acceptance and successful final-head CI.
+Keep auto-merge disabled through that handoff. Missing readiness stays unposted, never green.
+
+Review all open PRs and changed evidence, not just heads with no status. New findings or changed
+criteria can invalidate acceptance without a push. A scheduled review may assess waiting PRs,
+but never runs `scripts/open-ticket-pr.sh --update-all`. Final status publication must recheck
+head, base, criteria, reviews and actual CI; the legacy status API cannot atomically fence new
+feedback. Decision 0019 replaces the old batch-refresh and immediate passing-status handoff;
+the trusted App gate and CI-admission rollout provide enforcement separately.
 
 The author continues with `prompts/respond-to-review.md` after opening the PR. It covers fixes,
 supported disputes and separate tickets, keeps unresolved blockers visible, and verifies a

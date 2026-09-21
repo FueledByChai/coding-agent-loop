@@ -18,6 +18,9 @@ next-ticket.md	--claim
 next-ticket.md	Never push the default branch
 next-ticket.md	sprint
 next-ticket.md	respond-to-review.md
+next-ticket.md	waiting PRs do not rebase or request CI
+next-ticket.md	selected candidate
+next-ticket.md	shadow plan is not admission
 respond-to-review.md	full head SHA
 respond-to-review.md	all pages
 respond-to-review.md	fix, dispute, or separate ticket
@@ -42,12 +45,22 @@ grill-me.md	sprint
 grill-me.md	comment above `sprint_label`
 grill-me.md	every open ticket, so an omission is a fault
 grill-me.md	"or none" only where that comment states the subset reading
+grill-me.md	merge order
+grill-me.md	N(N-1)/2
+grill-me.md	ordering preferences are not implementation dependencies
+grill-me.md	single coordinator
+grill-me.md	waiting PRs do not rebase or request CI
 grill-me.md	--stories
 grill-me.md	settings file and the Beads queue
 grill-me.md	this repository, a new one, or a sibling
 review-prs.md	four questions
 review-prs.md	one status per head commit
-review-prs.md	--update-all
+review-prs.md	Never run `scripts/open-ticket-pr.sh --update-all`
+review-prs.md	completed Codex review on the full head SHA
+review-prs.md	acceptance is not merge authorization
+review-prs.md	selected candidate
+review-prs.md	missing CI leaves the status unposted
+review-prs.md	same-head evidence changes
 review-prs.md	respond-to-review.md
 grill-project.md	in a sentence
 grill-project.md	Who and where
@@ -104,7 +117,7 @@ self_test() {
   local file phrase
   while IFS=$'\t' read -r file phrase; do
     case "$file:$phrase" in
-      respond-to-review.md:*|next-ticket.md:respond-to-review.md|review-prs.md:respond-to-review.md) ;;
+      respond-to-review.md:*|next-ticket.md:*|review-prs.md:*|grill-me.md:merge\ order|grill-me.md:N*|grill-me.md:ordering*|grill-me.md:single*|grill-me.md:waiting*) ;;
       *) continue ;;
     esac
     # Remove this phrase independent of capitalization or line wrapping.
@@ -118,7 +131,7 @@ assert rule.search(s)
 p.write_text(rule.sub('removed rule', s))
 PY
     rc=0; out="$("$me" 2>&1)" || rc=$?
-    [ "$rc" = 1 ] && echo "$out" | grep -qF "$file no longer says \"$phrase\"" || { echo "self-test: missing author rule should fail: $phrase (rc $rc):"; echo "$out"; exit 1; }
+    [ "$rc" = 1 ] && echo "$out" | grep -qF "$file no longer says \"$phrase\"" || { echo "self-test: missing handoff or planning rule should fail: $phrase (rc $rc):"; echo "$out"; exit 1; }
     cp "$src/$file" "$dir/loop/prompts/$file"
   done <<< "$RULES"
   rm "$dir/loop/prompts/respond-to-review.md"

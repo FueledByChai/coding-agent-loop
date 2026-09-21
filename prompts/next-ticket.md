@@ -15,6 +15,10 @@ Steps:
    `bd show <id> --json` - its `acceptance_criteria` is the **Done when** line - then claim it with
    `bd update <id> --claim` (the claim the queue honours) and `scripts/open-ticket-pr.sh <id>
    --claim`, which pushes `ticket/<id>` to origin and refuses when another checkout holds it.
+   Read the merge order recorded in the coordinating Beads ticket's notes and the named
+   coordinator's current selection (0019 in the kit). Ticket claim order is implementation
+   scheduling, not merge admission. A shadow plan is not admission. If selection is missing or
+   ambiguous, leave admission pending with that coordinator; do not select yourself.
 2. Read the ticket's **Done when** line first. Decide what test, fixture, or output proves it, and
    write that test before the implementation.
 3. Work in an isolated worktree when the harness offers one; otherwise on a branch named after the
@@ -27,10 +31,11 @@ Steps:
    "<what fails and what you tried>"`) and stop.
 5. Commit with the ticket id first in the subject, a body that says what changed and how the done
    line is proven, and, when the config requires it, a `Co-Authored-By: <agent> <email>` trailer
-   naming the agent and model that did the work. Then `scripts/open-ticket-pr.sh <id>` pushes the
+   naming the agent and model that did the work. Then `scripts/open-ticket-pr.sh <id> --draft` pushes the
    branch and opens the pull request against the default branch (`--body-file` for a fuller report
-   than the commit body). Never push the default branch. The ticket stays claimed while the work
-   is in flight; once its commit is on the default branch it is done, and it is closed in Beads
+   than the commit body). Verify auto-merge is disabled before `gh pr ready <number>` starts
+   review, and keep it disabled through the final gate handoff. Never push the default branch.
+   The ticket stays claimed while the work is in flight; once its commit is on the default branch it is done, and it is closed in Beads
    (`bd close <id> --reason ...`) - `scripts/backlog-status.sh --reconcile` fails while a landed
    commit names a ticket Beads still has open. `scripts/release-notes.sh --archive` closes a
    release's shipped tickets too.
@@ -39,6 +44,13 @@ Steps:
    read the review findings, fix or answer them with evidence, and obtain completed review of
    the resulting head. Keep the ticket claimed through this handoff. Waiting for an independent
    reviewer or queue admission is a named handoff, not permission to declare the PR ready.
+   In particular, waiting PRs do not rebase or request CI. Required local implementation checks
+   still run; review repairs and independent acceptance can proceed while waiting. Only the
+   selected candidate, after its predecessors have actually merged and their commits landed,
+   may use the project's sanctioned refresh procedure. Never batch-refresh the waiting PRs.
+   A changed head needs completed Codex review and fresh independent acceptance before the
+   coordinator requests CI. The reviewer/controller rechecks final evidence before the merge
+   gate; an earlier acceptance receipt cannot authorize a changed head or base.
 7. Finish with a short report: ticket id, the pull request URL, what was built, how it was
    verified, any new tickets added, anything the owner should look at. A green PR that is up to
    date with the default branch merges only after the project's required gates pass; otherwise

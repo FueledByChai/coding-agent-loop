@@ -34,11 +34,14 @@ below it are this project's own and are what the loop prompts mean when they say
   --claim`) and push `ticket/<id>` to origin with `scripts/open-ticket-pr.sh <id> --claim`;
   `backlog-status.sh --next` passes over claimed tickets, so several agents can hold several
   tickets. After the commit, `scripts/open-ticket-pr.sh <id>` pushes
-  the branch and opens the pull request; a green PR up to date with the default branch merges
-  on its own, one that touches a review path is labelled `needs-review` and waits for the
-  owner. Several agents can run at once: claims keep them on different tickets, and
-  `scripts/open-ticket-pr.sh --update-all` (run first by the review pass) rebases the open
-  pull requests a merge left behind. Never push the default branch. Never force-push. Never
+  the branch and opens the pull request. During queue rollout, use `--draft`, verify auto-merge
+  is disabled, then mark ready for review; retain any required human review for `review_paths`.
+  Several agents can implement at once, but the named coordinator records merge order and selects
+  one candidate in Beads (0019). Waiting PRs do not rebase or request CI. Never run
+  `scripts/open-ticket-pr.sh --update-all` as a review handoff. Only the selected candidate gets
+  the project's sanctioned refresh after predecessors land, followed by completed head review,
+  independent acceptance, then CI and final gate verification. Shadow planning grants no live
+  admission. Never push the default branch. Never force-push. Never
   rewrite its history. `scripts/pr-readiness.sh` prints, for every open pull request, the six
   facts a merge waits on (`--pr <number>` for one of them, `--ready` for the ones that pass all
   six): the project's check ran on the head, no review conversation is unresolved, no changes

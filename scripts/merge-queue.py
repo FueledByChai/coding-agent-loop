@@ -429,9 +429,9 @@ class GitHub:
         return result
 
 
-def read_ticket(root, ticket):
+def read_ticket(root, ticket, env=None, executable="bd"):
     try:
-        p = subprocess.run(["bd", "show", ticket, "--json", "--readonly"], cwd=root,
+        p = subprocess.run([executable, "show", ticket, "--json", "--readonly"], cwd=root, env=env,
                            text=True, capture_output=True, check=True, timeout=30)
         rows = json.loads(p.stdout)
         require(isinstance(rows, list) and len(rows) == 1 and rows[0]["id"] == ticket, "ticket identity mismatch")

@@ -57,7 +57,11 @@ Example policy (replace every example, inspect the resulting private file):
 }
 ```
 
-The controller validates configured UID separation and protected paths. It cannot prove an
+The controller validates configured UID separation and protected paths. Every `read_path`
+entry must be absolute, nonempty and protected through its ancestors; the resolved `gh` and
+`bd` binaries must also be protected, including symlink targets. Validation happens before
+requesting an App token or executing observation tools. Use service-managed tool installations
+instead of author/reviewer-owned package-manager directories. It cannot prove an
 operator-written wrapper actually crosses that boundary: inspect the wrapper and sudo policy,
 and demonstrate that the author cannot read the key or alter the controller before activation.
 Do not clone the policy/key/journal to a second active host. Only one canonical journal/service

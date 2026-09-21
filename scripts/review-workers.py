@@ -351,6 +351,13 @@ def bind_state(root, state):
 
 
 class Observer(q.GitHub):
+    def __init__(self,root,env=None,ticket_reader=None):
+        super().__init__(root,env)
+        self.ticket_reader=ticket_reader
+
+    def ticket(self,ticket):
+        return self.ticket_reader(ticket) if self.ticket_reader else q.read_ticket(self.root,ticket)
+
     def feedback(self, endpoint, path, number, node_id):
         reviews = self.pages(path+'/reviews?per_page=100')
         issue_comments = self.pages(endpoint+'/issues/'+str(number)+'/comments?per_page=100')
@@ -387,7 +394,7 @@ class Observer(q.GitHub):
         branch, head = pr['head']['ref'], pr['head']['sha']
         match = q.re.fullmatch(r'ticket/([A-Z][A-Z0-9]*-[a-z0-9]+)',branch)
         q.require(match is not None and q.sha(head), 'claimed ticket branch and full head required')
-        ticket = q.read_ticket(self.root,match[1])
+        ticket = self.ticket(match[1])
         metadata = ticket_metadata(ticket)
         criteria = ticket.get('acceptance_criteria')
         q.require(ticket['status']=='in_progress' and ticket.get('assignee') and nonempty(criteria), 'claimed ticket with criteria required')
@@ -401,7 +408,7 @@ class Observer(q.GitHub):
         evidence=q.review_evidence(reviews,head,issue_comments,lambda ref:self.get(endpoint+'/commits/'+ref)['sha'])
         def verify_source():
             final=self.get(path)
-            again=q.read_ticket(self.root,match[1])
+            again=self.ticket(match[1])
             q.require((final['head']['sha'],final['base']['ref'],final['state'],final['draft'],final.get('body')) ==
                       (head,base,'open',False,pr.get('body')) and self.get(base_path)['sha']==base_sha and
                       (again.get('acceptance_criteria'),again.get('description'),again.get('status'),again.get('assignee')) ==

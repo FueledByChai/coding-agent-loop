@@ -60,14 +60,20 @@ jobs:
                   if check.get('external_id') == external_id: matches.append(check)
               return len(matches) == 1 and matches[0]['status'] == 'in_progress'
           for _ in range(24):
-              checks = []
-              for page in range(1, 101):
+              checks = []; page = 1; seen = set()
+              while True:
                   url = 'https://api.github.com/repos/' + e['GITHUB_REPOSITORY'] + '/commits/' + e['QUEUE_BASE'] + '/check-runs?filter=all&per_page=100&page=' + str(page)
                   request = Request(url, headers={'Authorization': 'Bearer ' + e['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
                   with urlopen(request, timeout=15) as response: data = json.load(response)
-                  rows = data['check_runs']; checks.extend(rows)
+                  rows = data['check_runs']
+                  assert isinstance(rows, list), 'invalid admission inventory'
+                  if rows:
+                      fingerprint = hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+                      assert fingerprint not in seen, 'admission inventory repeated a page'
+                      seen.add(fingerprint)
+                  checks.extend(rows)
                   if len(rows) < 100: break
-              else: raise SystemExit('admission inventory exceeded page limit')
+                  page += 1
               if authorized(checks): break
               time.sleep(5)
           else: raise SystemExit('no trusted admission for this exact run/head/base')

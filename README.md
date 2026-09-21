@@ -388,6 +388,12 @@ in both the receipt and reply, with proof; disputes and deferrals retain a block
 findings remain visible in the packet and must also be assessed by the author/reviewer; this
 controller does not claim to extract all natural-language defects automatically.
 
+Worker packets and evidence identities include sorted ticket labels and dependency edges
+(target id, relationship type and current status). Adding, removing or changing them invalidates
+prepared jobs and completed acceptance, and changes during a worker run or either final source
+read fail closed. Provider ordering alone does not invalidate evidence. Dependency notes and
+timestamps are excluded; the merge coordinator still checks whether blockers have actually landed.
+
 Acceptance runs in a separate detached worktree and a fresh reviewer session, with no author
 conversation history. Configure its adapter to enforce read-only execution; the controller also
 rejects a changed head or dirty reviewer worktree. Each nonblank line of the ticket criteria has

@@ -16,7 +16,11 @@ verdict must not double as permission to merge an unfinished candidate.
 Extend planning, author and reviewer prompts with a recorded order, predecessors, named
 coordinator and one selected candidate. Record confirmed plans and revisions in a coordinating
 Beads issue and link participating tickets. A new coordination-only record uses `--type epic`
-so it is not selected as an executable ticket or required to supply ticket proof. Ordering preferences are not implementation
+so it is not selected as an executable ticket or required to supply ticket proof. Label records
+`loop:coordination` with repository/base scope. Standalone and first-project tickets create or
+reuse a record and explicitly hand it to the next independent review run, which claims and
+records coordination before selection; the author cannot self-admit. Conflicting ownership
+still blocks admission. Ordering preferences are not implementation
 blockers. Verify predecessor merges and landed commits before selection; revise the recorded
 order explicitly when bypassing a failed candidate. Only the selected candidate receives the
 project's sanctioned refresh and CI request. Waiting PRs may receive fixes, local proof and
@@ -27,7 +31,9 @@ Acceptance workers return receipts only. In the legacy bootstrap, a named indepe
 coordinator may relay acceptance only after completed full-head Codex review, resolved findings,
 fresh independent acceptance and successful actual final-head CI, rechecking evidence after CI.
 Open PRs as drafts and disable auto-merge before marking ready. Reassess changed evidence even
-without a new head. Missing readiness leaves status unposted; invalidate stale passing evidence.
+without a new head. Persist legacy assessment bindings and reuse unchanged verdicts without
+posting duplicate comments; capture the post-comment binding after any feedback. CI progress
+alone changes readiness, not substantive acceptance. Missing readiness leaves status unposted; invalidate stale passing evidence.
 
 A shadow plan is not live admission. Without a live controller, one coordinator serializes
 handoffs using existing Beads and GitHub tools; notes are not an atomic lock. Ambiguous ownership

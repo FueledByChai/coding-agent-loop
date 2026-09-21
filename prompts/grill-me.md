@@ -127,10 +127,12 @@ session.
 for selection and handoff. Record the confirmed order and later changes with `bd update
 <coordinating-ticket> --append-notes "<order, rationale, coordinator, selected candidate or none>"`;
 link that ticket from each participating ticket. Use an existing planning/story issue when
-available, otherwise use `bd create "Merge coordination: <scope>" --type epic --description
+available, otherwise use `bd create "Merge coordination: <scope>" --type epic --labels loop:coordination --description
 "<scope, order and coordinator>"`. The explicit epic type keeps this administrative record out
 of executable ticket selection and ticket-proof checks; do not create a default task without
-acceptance criteria. No parallel Markdown ticket list.
+acceptance criteria. Label reused coordination records `loop:coordination` too, and include
+repository/base scope so standalone tickets and review runs can discover the same record.
+No parallel Markdown ticket list.
 Ordering preferences are not implementation dependencies: use `bd dep` only for real blockers.
 
 The coordinator verifies predecessors have merged into the configured default branch and their

@@ -19,6 +19,8 @@ next-ticket.md	Never push the default branch
 next-ticket.md	sprint
 next-ticket.md	respond-to-review.md
 next-ticket.md	waiting PRs do not rebase or request CI
+next-ticket.md	bootstrap coordination
+next-ticket.md	loop:coordination
 next-ticket.md	selected candidate
 next-ticket.md	shadow plan is not admission
 respond-to-review.md	full head SHA
@@ -46,6 +48,7 @@ grill-me.md	comment above `sprint_label`
 grill-me.md	every open ticket, so an omission is a fault
 grill-me.md	"or none" only where that comment states the subset reading
 grill-me.md	--type epic
+grill-me.md	loop:coordination
 grill-me.md	merge order
 grill-me.md	N(N-1)/2
 grill-me.md	nine runs
@@ -60,6 +63,10 @@ review-prs.md	one status per head commit
 review-prs.md	Never run `scripts/open-ticket-pr.sh --update-all`
 review-prs.md	completed Codex review on the full head SHA
 review-prs.md	acceptance is not merge authorization
+review-prs.md	claim the coordination
+review-prs.md	skip duplicate feedback
+review-prs.md	post-comment binding
+review-prs.md	CI changes alone
 review-prs.md	selected candidate
 review-prs.md	missing CI leaves the status unposted
 review-prs.md	same-head evidence changes
@@ -119,7 +126,7 @@ self_test() {
   local file phrase
   while IFS=$'\t' read -r file phrase; do
     case "$file:$phrase" in
-      respond-to-review.md:*|next-ticket.md:*|review-prs.md:*|grill-me.md:--type*|grill-me.md:merge\ order|grill-me.md:N*|grill-me.md:nine*|grill-me.md:ordering*|grill-me.md:single*|grill-me.md:waiting*) ;;
+      respond-to-review.md:*|next-ticket.md:*|review-prs.md:*|grill-me.md:loop:coordination|grill-me.md:--type*|grill-me.md:merge\ order|grill-me.md:N*|grill-me.md:nine*|grill-me.md:ordering*|grill-me.md:single*|grill-me.md:waiting*) ;;
       *) continue ;;
     esac
     # Remove this phrase independent of capitalization or line wrapping.

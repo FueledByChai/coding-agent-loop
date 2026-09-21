@@ -19,6 +19,20 @@ Steps:
    coordinator's current selection (0019 in the kit). Ticket claim order is implementation
    scheduling, not merge admission. A shadow plan is not admission. If selection is missing or
    ambiguous, leave admission pending with that coordinator; do not select yourself.
+   For a standalone, existing or first-project ticket with no coordination link, bootstrap
+   coordination before handoff: search `bd list --label loop:coordination --limit 0 --json`
+   for this repository and configured base. Reuse the matching active record; if none exists,
+   create `bd create "Merge coordination: <repo/base>" --type epic --labels loop:coordination
+   --description "<repo/base, ticket, proposed order; selected=none; coordinator=next independent
+   review-prs run>"`. Link its id in the ticket's notes and later the PR body. Existing orders
+   stay authoritative; propose adding this ticket rather than overwriting the order. Multiple
+   conflicting records need reconciliation by the coordinator before admission. With no prior
+   order, propose dependency-respecting PR creation order (PR number breaks ties), or this
+   ticket alone when no other PR exists. Hand off the record id explicitly to `review-prs`;
+   that independent run claims and records coordination before selecting a candidate. This
+   supplies a discoverable handoff even when no interview ran; it does not let the author admit
+   itself. If no review runner is configured, name `review-prs` and the record id as the next
+   invocation needed, rather than waiting for a nonexistent coordinator.
 2. Read the ticket's **Done when** line first. Decide what test, fixture, or output proves it, and
    write that test before the implementation.
 3. Work in an isolated worktree when the harness offers one; otherwise on a branch named after the

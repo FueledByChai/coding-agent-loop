@@ -10,6 +10,11 @@ Use three OS identities: controller, author and independent reviewer. A distinct
 one shared UID is not isolation. Install reviewed kit files under a root/controller-owned
 path such as `/opt/coding-agent-loop`, protected through every ancestor. Keep a trusted
 observation mirror with Beads under the controller identity; never execute PR code there.
+Launch the shell wrapper directly (its fixed privileged-mode Bash ignores startup hooks),
+or use `/usr/bin/python3 -I` as in the service unit below. Do not invoke it through an
+ambient `bash`/`python3` search or drop Python isolated mode at the privileged boundary.
+The wrapper fixes PATH and removes shell/Python startup overrides before using the fixed
+system interpreter; custom observation tools still use the validated private `read_path`.
 Run the existing author/acceptance guardian under its configured service boundary. Author
 fixes and completed Codex review still precede independent acceptance (0017–0018).
 
@@ -114,7 +119,7 @@ Type=simple
 User=queue-gate
 Group=queue-gate
 WorkingDirectory=/var/lib/queue-gate/mirror
-ExecStart=/usr/bin/python3 /opt/coding-agent-loop/scripts/queue-controller.py --root /var/lib/queue-gate/mirror --state /var/lib/queue-gate/state --policy /etc/queue-gate/policy.json serve
+ExecStart=/usr/bin/python3 -I /opt/coding-agent-loop/scripts/queue-controller.py --root /var/lib/queue-gate/mirror --state /var/lib/queue-gate/state --policy /etc/queue-gate/policy.json serve
 Restart=on-failure
 RestartSec=15
 KillMode=control-group

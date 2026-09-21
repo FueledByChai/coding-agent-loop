@@ -299,6 +299,27 @@ class ControllerTests(unittest.TestCase):
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_privileged_launch_ignores_path_and_interpreter_startup_injection(self):
+        import os,subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);marker=root/'executed-untrusted'
+            payload='#!/bin/sh\nprintf injected > "$ATTACK_MARKER"\nexit 76\n'
+            for name in ('bash','dirname','python3'):
+                path=root/name;path.write_text(payload);path.chmod(0o755)
+            startup=root/'startup';startup.write_text('printf startup > "$ATTACK_MARKER"\n')
+            (root/'sitecustomize.py').write_text('import os;open(os.environ["ATTACK_MARKER"],"w").write("python startup")\n')
+            env=dict(os.environ,PATH=str(root),BASH_ENV=str(startup),ENV=str(startup),
+                     PYTHONPATH=str(root),ATTACK_MARKER=str(marker))
+            wrapper=Path(__file__).with_name('queue-controller.sh').resolve()
+            entry=wrapper.with_suffix('.py')
+            for command in ([str(wrapper),'--help'],['/bin/bash','-p',str(wrapper),'--help'],[str(entry),'--help']):
+                with self.subTest(command=command):
+                    if marker.exists():marker.unlink()
+                    result=subprocess.run(command,env=env,text=True,capture_output=True,timeout=10)
+                    self.assertEqual(0,result.returncode,result.stderr)
+                    self.assertIn('usage:',result.stdout)
+                    self.assertFalse(marker.exists(),'untrusted startup code ran')
+
     def test_observation_rejects_unprotected_path_before_token_or_tools(self):
         p=c.Provider.__new__(c.Provider)
         p.policy={'read_path':'/trusted/bin:/foreign/bin','repo':'fixture/project','base':'trunk'}

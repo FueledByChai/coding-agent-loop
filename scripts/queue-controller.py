@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3 -I
 """Opt-in trusted queue controller. Run from a protected installation, never a PR checkout.
 
 No imported shadow snapshots. App credentials remain in this process. Commands configured

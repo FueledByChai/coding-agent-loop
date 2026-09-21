@@ -192,6 +192,21 @@ class ControllerTests(unittest.TestCase):
         self.step()
         self.assertEqual('blocked',self.db.active()['phase'])
         self.assertFalse(any(x[0]=='merge' for x in self.p.calls))
+    def test_successful_merge_waits_for_landed_reads_across_restart(self):
+        self.through_admission(); self.p.runs[0].update(status='completed',conclusion='success')
+        self.p.verify_merge=mock.Mock(side_effect=[False,False,True])
+        self.step()
+        self.assertEqual('merging',self.db.active()['phase'])
+        self.runner=c.Controller(self.db,self.p,'policy1')
+        self.step()
+        self.assertEqual(1,self.db.active()['number'])
+        self.assertEqual('merging',self.db.active()['phase'])
+        self.step()
+        self.assertIsNone(self.db.active())
+        self.assertEqual(2,self.db.next_number())
+        self.assertEqual([('merge',1)],[x for x in self.p.calls if x[0]=='merge'])
+        self.assertEqual([('dispatch',1)],[x for x in self.p.calls if x[0]=='dispatch'])
+
     def test_merge_crash_reconciles_landed_state_without_resending(self):
         self.through_admission(); self.p.runs[0].update(status='completed',conclusion='success')
         original=self.p.merge
@@ -222,7 +237,7 @@ class ControllerTests(unittest.TestCase):
             finally: other.close()
     def test_admission_run_identity_and_rerun_refusal(self):
         expected=dict(repository='fixture/project',app_id=10,attempt='nonce',head='a'*40,base_sha='b'*40,run_id=8)
-        check=dict(app={'id':10},name='Queue CI admission',status='in_progress',external_id=json.dumps(expected))
+        check=dict(app={'id':10},name='Queue CI admission',status='in_progress',external_id=c.admission_id(expected))
         self.assertTrue(c.admitted([check],expected,1))
         for field,value in [('app_id',11),('head','c'*40),('base_sha','c'*40),('run_id',9),('attempt','other')]:
             with self.subTest(field=field): self.assertFalse(c.admitted([check],dict(expected,**{field:value}),1))
@@ -241,6 +256,58 @@ class ControllerTests(unittest.TestCase):
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_private_configuration_rejects_foreign_owned_ancestors(self):
+        path=Path('/protected/foreign/policy.json')
+        def stat(p,**kw):
+            return mock.Mock(st_uid=999999 if str(p)=='/protected/foreign' else c.os.getuid(),
+                             st_mode=0o755 if p!=path else 0o600)
+        with mock.patch.object(Path,'resolve',lambda p:p),mock.patch.object(Path,'is_file',return_value=True),\
+             mock.patch.object(Path,'stat',stat):
+            with self.assertRaises(c.q.QueueError):c.secure_file(path)
+
+    def test_relative_adapter_is_rejected_before_execution(self):
+        p=c.Provider.__new__(c.Provider)
+        p.policy={'refresh':{'command':['tmp/refresh'],'env':{},'timeout':10}}
+        executable=mock.Mock()
+        executable.is_absolute.return_value=True
+        executable.stat.return_value=mock.Mock(st_uid=c.os.getuid(),st_mode=0o755)
+        with mock.patch.object(c,'protected_path',return_value=executable),\
+             mock.patch.object(c.subprocess,'run',return_value=mock.Mock(stdout='{}')) as run:
+            with self.assertRaises(c.q.QueueError):p.command('refresh',{})
+            run.assert_not_called()
+
+    def test_preflight_binds_workflow_id_to_pinned_path_and_active_state(self):
+        p=c.Provider.__new__(c.Provider)
+        p.policy=dict(ruleset_ids=[],workflow_id=17,workflow_path='.github/workflows/queue.yml',
+                      workflow_sha256=c.q.hashlib.sha256(b'pinned').hexdigest(),base='trunk')
+        workflow=dict(id=17,path=p.policy['workflow_path'],state='active')
+        def api(method,path):
+            if path=='':return {'allow_auto_merge':False}
+            if path.startswith('/actions/workflows/'):return workflow
+            if path.startswith('/contents/'):return {'content':c.base64.b64encode(b'pinned').decode()}
+            raise AssertionError(path)
+        p.api=api
+        with mock.patch.object(c,'validate_rules'):
+            self.assertTrue(p.protections())
+            for field,value in [('id',18),('path','.github/workflows/unrelated.yml'),('state','disabled_manually')]:
+                original=workflow[field];workflow[field]=value
+                with self.subTest(field=field),self.assertRaises(c.q.QueueError):p.protections()
+                workflow[field]=original
+
+    def test_admission_external_id_is_bounded_and_binds_long_repository(self):
+        p=c.Provider.__new__(c.Provider);p.policy={'app_id':123456789}
+        s=snapshot();s['repository']='o'*39+'/'+('r'*100)
+        a=dict(id='a'*32,snapshot=s,run_id=123456789012)
+        p.pages=mock.Mock(return_value=[])
+        p.api=mock.Mock(return_value={'id':91})
+        p.check(a,c.ADMISSION,'in_progress')
+        payload=p.api.call_args.args[2]
+        self.assertLessEqual(len(payload['external_id']),255)
+        check=dict(payload,app={'id':p.policy['app_id']})
+        expected=c.admission_identity(a,p)
+        self.assertTrue(c.admitted([check],expected,1))
+        self.assertFalse(c.admitted([check],dict(expected,repository='other/project'),1))
+
     def test_actual_workflow_gate_rejects_forged_identity_before_checkout(self):
         import io, os, re
         root=Path(__file__).resolve().parent.parent
@@ -255,9 +322,9 @@ class ProtocolTests(unittest.TestCase):
         self.assertIn('persist-credentials: false',text)
         env=dict(GITHUB_EVENT_NAME='workflow_dispatch',GITHUB_RUN_ATTEMPT='1',QUEUE_APP_ID='10',
                  QUEUE_REQUEST_APP='10',QUEUE_ATTEMPT='a'*32,QUEUE_HEAD='b'*40,QUEUE_BASE='c'*40,
-                 GITHUB_SHA='c'*40,GITHUB_REPOSITORY='fixture/project',GITHUB_RUN_ID='8',GH_TOKEN='fixture')
-        identity=dict(repository='fixture/project',app_id=10,attempt='a'*32,head='b'*40,base_sha='c'*40,run_id=8)
-        check=dict(name=c.ADMISSION,app={'id':10},status='in_progress',external_id=json.dumps(identity))
+                 GITHUB_SHA='c'*40,GITHUB_REPOSITORY='o'*39+'/'+('r'*100),GITHUB_RUN_ID='8',GH_TOKEN='fixture')
+        identity=dict(repository=env['GITHUB_REPOSITORY'],app_id=10,attempt='a'*32,head='b'*40,base_sha='c'*40,run_id=8)
+        check=dict(name=c.ADMISSION,app={'id':10},status='in_progress',external_id=c.admission_id(identity))
         def response():return io.StringIO(json.dumps({'check_runs':[check]}))
         with mock.patch('urllib.request.urlopen',side_effect=lambda *a,**kw:response()),mock.patch('time.sleep'):
             with mock.patch.dict(os.environ,env,clear=True):exec(code,{})
@@ -271,7 +338,7 @@ class ProtocolTests(unittest.TestCase):
     def test_live_check_reconciles_lost_create_response(self):
         p=c.Provider.__new__(c.Provider);p.policy={'app_id':10}
         a=dict(id='nonce',snapshot=snapshot(),run_id=8)
-        external=c.q.encoded(c.admission_identity(a,p))
+        external=c.admission_id(c.admission_identity(a,p))
         check=dict(id=91,name=c.ADMISSION,app={'id':10},external_id=external)
         p.pages=mock.Mock(return_value=[check]);p.api=mock.Mock(return_value=check)
         p.check(a,c.ADMISSION,'in_progress',external=c.admission_identity(a,p))

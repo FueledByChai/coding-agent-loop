@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import json, os, re, time
+          import hashlib, json, os, re, time
           from urllib.request import Request, urlopen
           e = os.environ
           assert e['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
@@ -51,14 +51,13 @@ jobs:
           assert e['QUEUE_BASE'] == e['GITHUB_SHA'] and re.fullmatch('[0-9a-f]{40}', e['QUEUE_BASE'])
           expected = dict(repository=e['GITHUB_REPOSITORY'], app_id=int(e['QUEUE_APP_ID']),
               attempt=e['QUEUE_ATTEMPT'], head=e['QUEUE_HEAD'], base_sha=e['QUEUE_BASE'], run_id=int(e['GITHUB_RUN_ID']))
+          external_id = 'queue-admission-v1:' + hashlib.sha256(json.dumps(expected, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
           def authorized(checks):
               matches = []
               for check in checks:
                   if check.get('name') != 'Queue CI admission' or check.get('app', {}).get('id') != expected['app_id']:
                       continue
-                  try: identity = json.loads(check.get('external_id') or '')
-                  except (ValueError, TypeError): continue
-                  if identity == expected: matches.append(check)
+                  if check.get('external_id') == external_id: matches.append(check)
               return len(matches) == 1 and matches[0]['status'] == 'in_progress'
           for _ in range(24):
               checks = []

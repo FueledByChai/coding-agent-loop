@@ -216,7 +216,9 @@ class Controller:
                       self.p.ci_success(a,again[0]),'CI changed before merge')
             a['phase']='merging'; self.db.save(a)
             self.p.merge(a)
-            q.require(self.p.verify_merge(a),'merge result not proven landed')
+            # GitHub may acknowledge the write before PR/ancestry/tree reads converge.
+            # Persisted merge intent keeps ownership and lets later ticks verify, never replay.
+            if not self.p.verify_merge(a):return a
             a['phase']='merged'; self.db.save(a,done=True)
             return a
         except Pending as exc:
@@ -232,14 +234,16 @@ def admission_identity(a,provider):
                 attempt=a['id'],head=a['snapshot']['head'],base_sha=a['snapshot']['base_sha'],run_id=a['run_id'])
 
 
+def admission_id(identity):
+    return 'queue-admission-v1:'+q.digest(identity)
+
+
 def admitted(checks,expected,run_attempt):
     if run_attempt!=1: return False
     matches=[]
     for check in checks:
         if check.get('name')!=ADMISSION or check.get('app',{}).get('id')!=expected['app_id']: continue
-        try: data=json.loads(check.get('external_id') or '')
-        except (ValueError,TypeError): continue
-        if data==expected: matches.append(check)
+        if check.get('external_id')==admission_id(expected):matches.append(check)
     return len(matches)==1 and matches[0]['status']=='in_progress'
 
 
@@ -272,7 +276,8 @@ def secure_file(path):
               'private controller-owned file required: '+str(path))
     # Writable ancestor directories would allow swapping even a protected file.
     for parent in path.parents:
-        q.require(not parent.stat().st_mode & 0o022,'writable configuration ancestor: '+str(parent))
+        q.require(parent.stat().st_uid in (0,os.getuid()) and not parent.stat().st_mode & 0o022,
+                  'untrusted configuration ancestor: '+str(parent))
     return path
 
 
@@ -356,10 +361,11 @@ class Provider:
     def command(self,name,packet):
         adapter=self.policy[name]
         # Executable/config are trusted, PR-provided text is stdin data, never shell code.
+        q.require(Path(adapter['command'][0]).is_absolute(),'absolute adapter executable required')
         executable=protected_path(adapter['command'][0])
         q.require(executable.is_absolute() and executable.stat().st_uid in (0,os.getuid()) and
                   not executable.stat().st_mode & 0o022,'untrusted adapter executable')
-        result=subprocess.run(adapter['command'],input=q.encoded(packet),text=True,stdout=subprocess.PIPE,
+        result=subprocess.run([str(executable)]+adapter['command'][1:],input=q.encoded(packet),text=True,stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE,env=adapter['env'],cwd='/',timeout=adapter['timeout'],check=True)
         q.require(len(result.stdout)<=1048576,'adapter response too large')
         return json.loads(result.stdout)
@@ -381,7 +387,7 @@ class Provider:
             if status=='completed' and conclusion=='failure': return None
             raise q.QueueError('CI run must be bound before admission')
         if name==ADMISSION: external=admission_identity(a,self)
-        identity=q.encoded(external or {'attempt':a['id'],'kind':name})
+        identity=admission_id(external) if name==ADMISSION else q.encoded({'attempt':a['id'],'kind':name})
         checks=self.pages('/commits/'+head+'/check-runs?filter=all',key='check_runs')
         matches=[r for r in checks if r['name']==name and r['app']['id']==self.policy['app_id'] and
                  (r.get('external_id')==identity or r['id']==a.get('admission_check' if name==ADMISSION else 'gate_check'))]
@@ -449,6 +455,9 @@ class Provider:
         validate_rules(rules,p)
         repo=self.api('GET','')
         q.require(not repo['allow_auto_merge'],'repository auto-merge must be disabled for exclusive controller merging')
+        workflow=self.api('GET','/actions/workflows/'+str(p['workflow_id']))
+        q.require(workflow.get('id')==p['workflow_id'] and workflow.get('path')==p['workflow_path'] and
+                  workflow.get('state')=='active','dispatch workflow must match the pinned active workflow path')
         data=self.api('GET','/contents/'+p['workflow_path']+'?ref='+quote(p['base'],safe=''))
         content=base64.b64decode(data['content'])
         q.require(q.hashlib.sha256(content).hexdigest()==p['workflow_sha256'],'trusted workflow changed')

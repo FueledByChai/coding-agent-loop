@@ -67,6 +67,8 @@ review-prs.md	one status per head commit
 review-prs.md	Never run `scripts/open-ticket-pr.sh --update-all`
 review-prs.md	completed Codex review on the full head SHA
 review-prs.md	acceptance is not merge authorization
+review-prs.md	default_branch
+review-prs.md	other-base PRs remain untouched
 review-prs.md	disable-auto
 review-prs.md	waiting or unselected
 review-prs.md	final-gate record

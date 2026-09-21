@@ -36,7 +36,12 @@ fresh independent acceptance and successful actual final-head CI, rechecking evi
 Open PRs as drafts and disable auto-merge before marking ready. Reassess changed evidence even
 without a new head. Persist legacy assessment bindings and reuse unchanged verdicts without
 posting duplicate comments; capture the post-comment binding after any feedback. CI progress
-alone changes readiness, not substantive acceptance. Missing readiness leaves status unposted; invalidate stale passing evidence.
+alone changes readiness, not substantive acceptance. Dependencies and labels are assessment
+inputs too. Legacy adoption disables existing auto-merge requests and clears old successful
+statuses; subsequent passes invalidate success on every waiting/unselected or unproven
+candidate. Published final-gate records bind policy, selection, acceptance, CI and status id.
+A failed Git branch claim rolls back only the newly acquired Beads claim with conditional
+ownership guards, publishes that recovery and never deletes somebody else's branch. Missing readiness leaves status unposted; invalidate stale passing evidence.
 
 A shadow plan is not live admission. Without a live controller, one coordinator serializes
 handoffs using existing Beads and GitHub tools; notes are not an atomic lock. Ambiguous ownership

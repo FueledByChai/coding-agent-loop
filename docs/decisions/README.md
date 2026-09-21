@@ -9,7 +9,7 @@ the old one. Cite a decision by its number. `scripts/decisions.sh new "<title>"`
 - [0004](0004-the-terminal-ui-s-views-render-from-uncut-fields-not-from-th.md) The terminal UI's views render from uncut fields, not from the padded tables — superseded by 0013
 - [0005](0005-this-repository-s-own-merge-gating-is-applied-by-hand-and-re.md) This repository's own merge gating is applied by hand and recorded, not checked — accepted
 - [0006](0006-the-check-lets-the-loop-s-own-review-status-through-and-noth.md) The check lets the loop's own review status through, and nothing else — accepted
-- [0007](0007-the-agent-review-is-required-here-and-a-scheduled-run-on-the.md) The agent review is required here, and a scheduled run on the owner's machine produces it — accepted
+- [0007](0007-the-agent-review-is-required-here-and-a-scheduled-run-on-the.md) The agent review is required here, and a scheduled run on the owner's machine produces it — superseded by 0019
 - [0008](0008-the-section-that-describes-the-check-is-compared-with-the-sc.md) The section that describes the check is compared with the script by name — accepted
 - [0009](0009-the-skills-a-harness-loads-are-pointers-to-the-prompts-insta.md) The skills a harness loads are pointers to the prompts, installed from the kit — accepted
 - [0010](0010-the-settings-example-is-a-synced-kit-file-and-loop-toml-besi.md) The settings example is a synced kit file, and .loop.toml beside it is the project's — accepted
@@ -21,4 +21,4 @@ the old one. Cite a decision by its number. `scripts/decisions.sh new "<title>"`
 - [0016](0016-persist-merge-admission-in-a-fenced-shadow-queue-before-enab.md) Persist merge admission in a fenced shadow queue before enabling live adapters — accepted
 - [0017](0017-require-author-evidence-and-completed-head-review-before-acc.md) Require author evidence and completed head review before acceptance handoff — accepted
 - [0018](0018-keep-review-worker-jobs-durable-and-separate-from-merge-auth.md) Keep review worker jobs durable and separate from merge authority — accepted
-- [0019](0019-plan-merge-order-and-separate-acceptance-from-final-status-p.md) Plan merge order and separate acceptance from final status publication — accepted
+- [0019](0019-plan-merge-order-and-separate-acceptance-from-final-status-p.md) Plan merge order and separate acceptance from final status publication — accepted, supersedes 0007

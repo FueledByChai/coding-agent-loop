@@ -1,6 +1,6 @@
 # 0019 — Plan merge order and separate acceptance from final status publication
 
-Status: accepted
+Status: accepted, supersedes 0007
 Date: 2026-09-20
 
 ## Context
@@ -15,7 +15,8 @@ verdict must not double as permission to merge an unfinished candidate.
 
 Extend planning, author and reviewer prompts with a recorded order, predecessors, named
 coordinator and one selected candidate. Record confirmed plans and revisions in a coordinating
-Beads issue and link participating tickets. Ordering preferences are not implementation
+Beads issue and link participating tickets. A new coordination-only record uses `--type epic`
+so it is not selected as an executable ticket or required to supply ticket proof. Ordering preferences are not implementation
 blockers. Verify predecessor merges and landed commits before selection; revise the recorded
 order explicitly when bypassing a failed candidate. Only the selected candidate receives the
 project's sanctioned refresh and CI request. Waiting PRs may receive fixes, local proof and

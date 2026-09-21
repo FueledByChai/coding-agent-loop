@@ -204,7 +204,7 @@ cat "$BD_QUEUE_JSON"
 EOF
   chmod +x "$dir/bin/bd"
 
-  # A queue with two tickets, a dependency, a story served, and a cited record.
+  # Three tickets, a dependency, a story, a cited record and a non-ticket coordination epic.
   good() {
     rm -rf "$dir/docs"; mkdir -p "$dir/docs/decisions"
     printf '[loop]\nstories = "docs/PRODUCT_BACKLOG.md"\ndecisions = "docs/decisions"\n' > "$dir/.loop.toml"
@@ -212,7 +212,8 @@ EOF
 [
  {"id":"AA-01","title":"The first ticket","description":"It does the first thing. Decisions: 0001.","acceptance_criteria":"a fixture proves it","status":"closed","issue_type":"task","labels":["story:SS-01"],"dependencies":[]},
  {"id":"AA-02","title":"The second ticket","description":"It does the next thing.","acceptance_criteria":"another fixture proves it","status":"open","issue_type":"task","labels":[],"dependencies":[{"issue_id":"AA-02","depends_on_id":"AA-01","type":"blocks"}]},
- {"id":"AA-1a","title":"The generated-id ticket","description":"Beads minted this id.","acceptance_criteria":"the generated id is read","status":"open","issue_type":"task","labels":[],"dependencies":[]}
+ {"id":"AA-1a","title":"The generated-id ticket","description":"Beads minted this id.","acceptance_criteria":"the generated id is read","status":"open","issue_type":"task","labels":[],"dependencies":[]},
+ {"id":"AA-ep","title":"Merge coordination","description":"Order AA-02 then AA-1a; one coordinator.","acceptance_criteria":"","status":"open","issue_type":"epic","labels":[],"dependencies":[]}
 ]
 JSON
     cat > "$dir/docs/PRODUCT_BACKLOG.md" <<'EOF'
@@ -246,6 +247,9 @@ EOF
     return 0
   }
 
+  # A coordination record accidentally created as a default task must fail, not enter work.
+  assert_names "coordination without epic type" "AA-ep carries no acceptance criteria" \
+    "sed -i.bak 's/\"issue_type\":\"epic\"/\"issue_type\":\"task\"/' \"$dir/queue.json\""
   assert_names "missing acceptance" "AA-02 carries no acceptance criteria" \
     "perl -pi -e 's/\"another fixture proves it\"/\"\"/' \"\$dir/queue.json\"" || failed=1
   # A Beads-generated id is a ticket too: before the shape was widened this fault was invisible,

@@ -127,7 +127,10 @@ session.
 for selection and handoff. Record the confirmed order and later changes with `bd update
 <coordinating-ticket> --append-notes "<order, rationale, coordinator, selected candidate or none>"`;
 link that ticket from each participating ticket. Use an existing planning/story issue when
-available, otherwise create a coordination issue in Beads. No parallel Markdown ticket list.
+available, otherwise use `bd create "Merge coordination: <scope>" --type epic --description
+"<scope, order and coordinator>"`. The explicit epic type keeps this administrative record out
+of executable ticket selection and ticket-proof checks; do not create a default task without
+acceptance criteria. No parallel Markdown ticket list.
 Ordering preferences are not implementation dependencies: use `bd dep` only for real blockers.
 
 The coordinator verifies predecessors have merged into the configured default branch and their

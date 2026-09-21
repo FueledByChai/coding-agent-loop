@@ -83,7 +83,7 @@ review_hits() {
 }
 
 # The merge policy (HK-10): a green PR that is up to date with the default branch merges on its
-# own; a PR that touches a review path is the one kind that waits for the owner's review.
+# own. Drafts never request auto-merge; review paths still require the owner's review.
 apply_merge_policy() {
   local url="$1" base="$2" hits
   hits="$(review_hits "$base")"
@@ -91,6 +91,8 @@ apply_merge_policy() {
     gh pr edit "$url" --add-label "needs-review" >/dev/null 2>&1 || true
     echo "merge policy: a review path changed, so this PR waits for the owner's review (no auto-merge):"
     echo "$hits" | sed 's/^/  /'
+  elif [ "$DRAFT" = 1 ]; then
+    echo "merge policy: draft PR; auto-merge not requested (complete review and the final gate before merging)"
   else
     if gh pr merge "$url" --auto --rebase >/dev/null 2>&1; then
       echo "merge policy: auto-merge on; it merges once CI is green on a branch up to date with $base (--update after $base moves)"
@@ -236,6 +238,17 @@ EOF
     grep -q '^pr create --base trunk --head ticket/AA-01 --title AA-01: code change' "$GH_LOG" || { echo "self-test: pr create should target trunk:"; cat "$GH_LOG"; exit 1; }
     grep -q '^pr merge https://example.invalid/pull/1 --auto --rebase' "$GH_LOG" || { echo "self-test: auto-merge not requested:"; cat "$GH_LOG"; exit 1; }
     grep -q 'needs-review' "$GH_LOG" && { echo "self-test: needs-review must not be applied to a code change"; exit 1; }
+    # Draft publication with the default empty review paths must not request auto-merge.
+    cp .loop.toml "$dir/before-draft.toml"
+    printf '[loop]\ndefault_branch = "trunk"\nreview_paths = []\n' > .loop.toml
+    : > "$GH_LOG"
+    out="$("$me" AA-01 --draft)"
+    grep -q '^pr create .* --draft$' "$GH_LOG" || { echo "self-test: draft flag not passed:"; cat "$GH_LOG"; exit 1; }
+    if grep -q '^pr merge' "$GH_LOG"; then
+      echo "self-test: draft creation must never request auto-merge"; cat "$GH_LOG"; exit 1
+    fi
+    echo "$out" | grep -q '^merge policy: draft PR; auto-merge not requested' || { echo "self-test: draft policy not reported:"; echo "$out"; exit 1; }
+    mv "$dir/before-draft.toml" .loop.toml
     # A change under the review path: labelled, not auto-merged.
     : > "$GH_LOG"
     echo changed > fixtures/expected/out.csv

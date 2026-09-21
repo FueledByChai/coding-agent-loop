@@ -33,6 +33,9 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | `scripts/review-workers.sh` | opt-in durable author/acceptance jobs, fresh evidence validation and crash reconciliation; no merge authority |
 | `scripts/review-workers.py` | isolated command environments, local process guardian and worker receipt validation |
 | `scripts/review-workers-tests.py` | offline concurrency, process crash, timeout, freshness and reply-evidence fixtures |
+| `scripts/queue-controller.sh` | opt-in App controller: one admitted run, fresh final gate, expected-head merge and conservative recovery |
+| `scripts/queue-controller.py` | protected live journal, App authentication, independent receipt bridge and live protection preflight |
+| `scripts/queue-controller-tests.py` | offline controller crash/race fixtures and execution of the shipped CI admission gate |
 | `scripts/pr-readiness.sh` | the six facts a merge waits on for every open pull request — the project's check ran on the head, no review conversation is unresolved, no changes are requested, the agent review's status is success, the branch is current and clean, and the branch and subject name one claimed Beads ticket; `--pr <number>` judges one, `--ready` lists the ones that pass all six |
 | `scripts/reference-check.sh` | the queue's own references: every ticket carries acceptance criteria, every `blocks` dependency and `story:` label resolves, no dependency cycle, and every decision cited is a record; another project's ids quoted in prose are left alone |
 | `scripts/with-test-postgres.sh` | runs a command against a disposable PostgreSQL: a uniquely named container, two ownership labels, the connection URL in the environment (`test_db_*` in `.loop.toml`), and a cleanup that removes only the container it created |
@@ -496,3 +499,15 @@ Do not store the future GitHub App merge credential on this worker account or fi
 merge enforcement needs separate service/OS credentials and a trusted publisher (LK-e9y); no
 worker receipt, including imported or manually edited local data, is itself merge authorization.
 No global model, login, credential or agent settings are changed by installation.
+
+## Trusted controller (opt-in)
+
+The live adapter is `scripts/queue-controller.sh` (0021). It requires a dedicated GitHub App,
+separate controller/author/reviewer OS identities, protected operator configuration and a
+controlled migration. Follow [the operator runbook](templates/queue-operations.md); installed
+projects receive it at `loop/templates/queue-operations.md` and the complete optional workflow
+at `loop/templates/ci/queue-controller.yml`. This is not another language snippet.
+
+Installation changes no active workflow, ruleset, service or consumer pin. The existing shadow
+CLI and review workers retain their boundaries. Offline `--self-test` proves modeled behavior;
+only the controlled live proof establishes enforced GitHub admission and completes rollout.

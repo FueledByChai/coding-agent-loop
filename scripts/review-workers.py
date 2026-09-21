@@ -62,10 +62,24 @@ def load_policy(path, root):
     return p
 
 
+def ticket_metadata(ticket):
+    """Canonical evidence-relevant ticket graph; provider ordering is not a change."""
+    labels, dependencies = ticket.get('labels', []), ticket.get('dependencies', [])
+    q.require(isinstance(labels, list) and all(nonempty(v) for v in labels), 'invalid ticket labels')
+    q.require(isinstance(dependencies, list), 'invalid ticket dependencies')
+    edges = set()
+    for edge in dependencies:
+        q.require(isinstance(edge, dict) and all(nonempty(edge.get(k)) for k in
+                  ('id', 'dependency_type', 'status')), 'incomplete ticket dependency')
+        edges.add((edge['id'], edge['dependency_type'], edge['status']))
+    return dict(labels=sorted(set(labels)), dependencies=[
+        dict(id=i, dependency_type=t, status=s) for i,t,s in sorted(edges)])
+
+
 def binding(s):
     # All feedback is included so edits/resolutions/new findings invalidate acceptance.
     return {k:s[k] for k in ('repository','number','head','base','base_sha','ticket',
-                             'criteria_hash','intent','pr_body','review_evidence','threads','comments','reviews','assignee')}
+                             'criteria_hash','intent','pr_body','review_evidence','threads','comments','reviews','assignee','ticket_metadata')}
 
 
 def policy_hash(policy):
@@ -260,6 +274,7 @@ def validate_result(job, r, fresh):
                             ('criteria_hash',s['criteria_hash']),('policy_hash',job['policy_hash'])):
         q.require(r.get(field) == expected, 'result identity mismatch: '+field)
     q.require(fresh['criteria_hash'] == s['criteria_hash'], 'criteria changed during work')
+    q.require(fresh['ticket_metadata'] == s['ticket_metadata'], 'ticket dependencies or labels changed during work')
     q.require(all(fresh[k]==s[k] for k in ('repository','number','ticket','branch','base','assignee','intent')), 'target or ticket ownership changed during work')
     if job['role'] == 'acceptance':
         q.require(binding(fresh) == binding(s), 'head/base/feedback changed during acceptance')
@@ -373,6 +388,7 @@ class Observer(q.GitHub):
         match = q.re.fullmatch(r'ticket/([A-Z][A-Z0-9]*-[a-z0-9]+)',branch)
         q.require(match is not None and q.sha(head), 'claimed ticket branch and full head required')
         ticket = q.read_ticket(self.root,match[1])
+        metadata = ticket_metadata(ticket)
         criteria = ticket.get('acceptance_criteria')
         q.require(ticket['status']=='in_progress' and ticket.get('assignee') and nonempty(criteria), 'claimed ticket with criteria required')
         commits = self.pages(path+'/commits?per_page=100')
@@ -389,7 +405,8 @@ class Observer(q.GitHub):
             q.require((final['head']['sha'],final['base']['ref'],final['state'],final['draft'],final.get('body')) ==
                       (head,base,'open',False,pr.get('body')) and self.get(base_path)['sha']==base_sha and
                       (again.get('acceptance_criteria'),again.get('description'),again.get('status'),again.get('assignee')) ==
-                      (criteria,ticket.get('description'),ticket['status'],ticket['assignee']), 'source changed during observation')
+                      (criteria,ticket.get('description'),ticket['status'],ticket['assignee']) and
+                      ticket_metadata(again) == metadata, 'source changed during observation')
         verify_source()
         q.require(self.feedback(endpoint,path,number,pr['node_id']) == feedback, 'feedback changed during observation')
         verify_source()
@@ -403,7 +420,7 @@ class Observer(q.GitHub):
                     review_evidence=evidence,threads=threads,comments=all_comments,
                     reviews=[{k:r[k] for k in ('id','body','state','commit_id','submitted_at')} for r in reviews],
                     commits=[c['sha'] for c in commits],changes_requested=q.changes_requested(reviews),
-                    author_login=pr['user']['login'],assignee=ticket['assignee'])
+                    author_login=pr['user']['login'],assignee=ticket['assignee'],ticket_metadata=metadata)
 
 
 def instructions(role):

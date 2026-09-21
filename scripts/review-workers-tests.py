@@ -25,7 +25,8 @@ def snapshot(**changes):
              criteria_hash=w.q.digest('First criterion\nSecond criterion'),
              criteria_items=[dict(id='c1', text='First criterion'), dict(id='c2', text='Second criterion')],
              review_evidence='review:7', threads=[], comments=[], reviews=[], commits=['a'*40],
-             changes_requested=False, author_login='author', assignee='owner')
+             changes_requested=False, author_login='author', assignee='owner',
+             ticket_metadata={'labels':[], 'dependencies':[]})
     s.update(changes)
     return s
 
@@ -117,6 +118,47 @@ class WorkersTest(unittest.TestCase):
         self.assertTrue(self.db.acceptance(snapshot(), policy()))
         self.assertIsNone(self.db.acceptance(snapshot(head='c'*40), policy()))
         self.assertIsNone(self.db.acceptance(snapshot(), dict(policy(), revision='v2')))
+
+    def test_metadata_changes_invalidate_active_jobs_and_receipts(self):
+        original = {'labels':['sprint', 'story:LS-03'], 'dependencies':[
+            {'id':'AA-2', 'dependency_type':'blocks', 'status':'closed'}]}
+        changes = [dict(original, labels=[]), dict(original, labels=['sprint']),
+                   dict(original, labels=original['labels']+['urgent']),
+                   dict(original, dependencies=[]),
+                   dict(original, dependencies=original['dependencies']+[
+                       {'id':'AA-3', 'dependency_type':'blocks', 'status':'open'}])]
+        for field, value in [('id','AA-3'), ('dependency_type','related'), ('status','open')]:
+            changes.append(dict(original, dependencies=[dict(original['dependencies'][0], **{field:value})]))
+        s=snapshot(ticket_metadata=original)
+        j=self.job(snap=s)
+        self.assertEqual(original, w.packet(j)['snapshot']['ticket_metadata'])
+        for state in ('queued','running'):
+            self.db.record(j['id'],state)
+            for metadata in changes:
+                fresh=snapshot(ticket_metadata=metadata)
+                with self.subTest(state=state,metadata=metadata):
+                    with self.assertRaises(w.q.QueueError): self.job(snap=fresh)
+                    with self.assertRaises(w.q.QueueError): w.validate_result(j,result(j),fresh)
+        self.db.record(j['id'],'finished',result(j))
+        self.db.release(j['id'],'fixture verified stopped')
+        self.assertTrue(self.db.acceptance(s,policy()))
+        for metadata in changes:
+            self.assertIsNone(self.db.acceptance(snapshot(ticket_metadata=metadata),policy()))
+
+    def test_metadata_normalization_rejects_incomplete_provider_values(self):
+        self.assertEqual({'labels':[], 'dependencies':[]},w.ticket_metadata({}))
+        for value in ({'labels':None}, {'labels':'sprint'}, {'labels':['']},
+                      {'dependencies':None}, {'dependencies':{}},
+                      {'dependencies':[{'id':'AA-2','status':'open'}]},
+                      {'dependencies':[{'id':'AA-2','dependency_type':'blocks'}]}):
+            with self.subTest(value=value), self.assertRaises(w.q.QueueError):
+                w.ticket_metadata(value)
+
+    def test_author_receipt_is_also_invalidated_by_metadata_change(self):
+        j=self.job(role='author')
+        fresh=snapshot(ticket_metadata={'labels':['new-scope'], 'dependencies':[]})
+        with self.assertRaises(w.q.QueueError):
+            w.validate_result(j,result(j,outcome='handled',dispositions=[]),fresh)
 
     def test_author_cannot_produce_acceptance(self):
         j = self.job(role='author')
@@ -256,7 +298,12 @@ if Path(sys.argv[0]).name=='bd':
   if n==2:
    s['issue_comments'].append(dict(id=99,body='new finding during observation',user={'login':'reviewer'}))
    Path(os.environ['FIXTURE_DATA']).write_text(json.dumps(s))
- print(json.dumps([dict(id='AA-1',status='in_progress',assignee='owner',acceptance_criteria=s['criteria'])]));sys.exit()
+ if s.get('metadata_race'):
+  counter=Path(os.environ['FIXTURE_DATA']+'.metadata-reads');n=int(counter.read_text())+1 if counter.exists() else 1;counter.write_text(str(n))
+  if n==s['metadata_race']:
+   s[s['metadata_field']]=s['metadata_change']
+   Path(os.environ['FIXTURE_DATA']).write_text(json.dumps(s))
+ print(json.dumps([dict(id='AA-1',status='in_progress',assignee='owner',acceptance_criteria=s['criteria'],labels=s.get('labels',[]),dependencies=s.get('dependencies',[]))]));sys.exit()
 if a[0]=='repo':print(json.dumps({'nameWithOwner':'fixture/project'}));sys.exit()
 if a[:2]==['api','graphql']:
  print(json.dumps({'data':{'node':{'reviewThreads':{'pageInfo':{'hasNextPage':False,'endCursor':None},'nodes':s['threads']}}}}));sys.exit()
@@ -291,6 +338,8 @@ if mode=='dirty':Path('unexpected.txt').write_text('changed by reviewer')
 if mode=='descendant':
  import subprocess
  subprocess.Popen([sys.executable,'-c','import time; time.sleep(2)'])
+if mode=='metadata-change':
+ d=Path(os.environ['FIXTURE_DATA']);v=json.loads(d.read_text());v[v['metadata_field']]=v['metadata_change'];d.write_text(json.dumps(v))
 if mode=='source-change':
  d=Path(os.environ['FIXTURE_DATA']);v=json.loads(d.read_text());v['criteria']='changed while reviewing';d.write_text(json.dumps(v))
 r['head']=s['head']
@@ -431,6 +480,55 @@ print(json.dumps(r))
         p=self.call('acceptance','--repo','fixture/project','--pr','1')
         self.assertNotEqual(0,p.returncode,p.stdout)
         self.assertIn('feedback changed during observation',p.stderr)
+
+    def change_data(self, **changes):
+        data=json.loads(self.data.read_text());data.update(changes)
+        self.data.write_text(json.dumps(data))
+
+    def test_metadata_provider_order_is_stable_and_packet_is_complete(self):
+        deps=[dict(id='AA-2',dependency_type='blocks',status='closed'),
+              dict(id='AA-3',dependency_type='related',status='open')]
+        self.change_data(labels=['sprint','story:LS-03'],dependencies=deps)
+        j=self.prepare()
+        metadata=j['snapshot']['ticket_metadata']
+        self.assertEqual(['sprint','story:LS-03'],metadata['labels'])
+        self.assertEqual(deps,metadata['dependencies'])
+        self.change_data(labels=['story:LS-03','sprint'],dependencies=list(reversed(deps)))
+        self.assertEqual(j['id'],self.prepare()['id'])
+        self.assertEqual(0,self.call('run',j['id']).returncode)
+        self.assertEqual(0,self.call('acceptance','--repo','fixture/project','--pr','1').returncode)
+
+    def test_metadata_changes_before_during_and_after_worker(self):
+        for phase in ('prepared','running','stored'):
+            for field, change in [('labels',['new-label']),('dependencies',[
+                    dict(id='AA-2',dependency_type='blocks',status='open')])]:
+                with self.subTest(phase=phase,field=field):
+                    self.change_data(labels=[],dependencies=[],metadata_field=field,metadata_change=change)
+                    self.configure('metadata-change' if phase=='running' else 'pass')
+                    p=json.loads(self.policy.read_text());p['revision']=phase+field
+                    self.policy.write_text(json.dumps(p))
+                    j=self.prepare()
+                    if phase=='prepared': self.change_data(**{field:change})
+                    run=self.call('run',j['id'])
+                    self.assertEqual(0 if phase=='stored' else 1,run.returncode,run.stdout+run.stderr)
+                    if phase=='stored': self.change_data(**{field:change})
+                    evidence=self.call('acceptance','--repo','fixture/project','--pr','1')
+                    self.assertNotEqual(0,evidence.returncode,evidence.stdout)
+                    self.assertFalse(json.loads(self.call('show',j['id']).stdout)['active'])
+
+    def test_metadata_race_at_both_final_source_reads_blocks_receipt(self):
+        j=self.prepare();self.assertEqual(0,self.call('run',j['id']).returncode)
+        for read in (2,3):
+            for field, change in [('labels',['new-label']),('dependencies',[
+                    dict(id='AA-2',dependency_type='blocks',status='open')])]:
+                with self.subTest(read=read,field=field):
+                    counter=Path(str(self.data)+'.metadata-reads')
+                    if counter.exists(): counter.unlink()
+                    self.change_data(labels=[],dependencies=[],metadata_race=read,
+                                     metadata_field=field,metadata_change=change)
+                    p=self.call('acceptance','--repo','fixture/project','--pr','1')
+                    self.assertNotEqual(0,p.returncode,p.stdout)
+                    self.assertIn('source changed during observation',p.stderr)
 
     def test_stderr_limit_after_fast_exit(self):
         self.configure('stderr-large')

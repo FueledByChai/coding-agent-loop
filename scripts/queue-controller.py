@@ -34,6 +34,10 @@ class Pending(Exception):
     """Provider is still computing readiness; retain ownership without mutating the PR."""
 
 
+class CheckPending(Exception):
+    """A check creation was attempted; only provider visibility can settle its identity."""
+
+
 class Journal:
     def __init__(self,state):
         self.state=Path(state).resolve()
@@ -132,12 +136,19 @@ class Controller:
     def block(self,a,reason):
         a.update(phase='blocked',reason=reason); self.db.save(a)
         # Revoke admission first. Never release a lane on an exception or elapsed time.
-        self.p.check(a,ADMISSION,'completed','failure')
-        self.p.check(a,GATE,'completed','failure')
+        pending=None
+        for name in (ADMISSION,GATE):
+            try:self.p.check(a,name,'completed','failure')
+            except CheckPending as exc:pending=exc
         self.p.cancel(a)
+        if pending:raise pending
         return a
     def tick(self):
-        with self.db.lock(): return self._tick()
+        with self.db.lock():
+            try:return self._tick()
+            except CheckPending as exc:
+                a=self.db.active();a['check_wait']=str(exc);self.db.save(a)
+                return a
     def _tick(self):
         a=self.db.active()
         if a and a['phase']=='merging':
@@ -165,6 +176,8 @@ class Controller:
                 self.db.save(a); return a
             if a['phase'] in ('selected','reviewing'):
                 s=self.p.observe(a['number'])
+                if a.get('gate_check_create_intent'):
+                    q.require(w.binding(s)==w.binding(a['snapshot']),'evidence changed after gate creation intent')
                 ready=self.p.ready(s)
                 if ready is None:return a
                 if not ready:
@@ -282,13 +295,17 @@ def secure_file(path):
     return path
 
 
-def protected_tools(read_path):
+def protected_search_path(read_path):
     q.require(isinstance(read_path,str) and bool(read_path),'protected read_path required')
     directories=[]
     for entry in read_path.split(os.pathsep):
         q.require(bool(entry) and Path(entry).is_absolute(),'read_path entries must be absolute and nonempty')
         directories.append(str(protected_path(entry)))
-    canonical=os.pathsep.join(directories)
+    return os.pathsep.join(directories)
+
+
+def protected_tools(read_path):
+    canonical=protected_search_path(read_path)
     binaries={}
     for name in ('gh','bd'):
         path=shutil.which(name,path=canonical)
@@ -332,7 +349,8 @@ class App:
 
 
 class Provider:
-    def __init__(self,p,root): self.policy=p; self.root=Path(root); self.app=App(p); self.prefix='/repos/'+p['repo']
+    def __init__(self,p,root,journal):
+        self.policy=p; self.root=Path(root); self.journal=journal; self.app=App(p); self.prefix='/repos/'+p['repo']
     def api(self,method,path,data=None): return self.app.api(method,self.prefix+path,data)
     def pages(self,path,key=None,until=None):
         result=[];page=1;seen=set()
@@ -379,13 +397,20 @@ class Provider:
         return True
     def command(self,name,packet):
         adapter=self.policy[name]
-        # Executable/config are trusted, PR-provided text is stdin data, never shell code.
+        # A single protected wrapper owns all interpreter/config choices.
+        q.require(isinstance(adapter['command'],list) and len(adapter['command'])==1,
+                  'adapter must be one protected wrapper executable without arguments')
         q.require(Path(adapter['command'][0]).is_absolute(),'absolute adapter executable required')
         executable=protected_path(adapter['command'][0])
         q.require(executable.is_absolute() and executable.stat().st_uid in (0,os.getuid()) and
                   not executable.stat().st_mode & 0o022,'untrusted adapter executable')
-        result=subprocess.run([str(executable)]+adapter['command'][1:],input=q.encoded(packet),text=True,stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE,env=adapter['env'],cwd='/',timeout=adapter['timeout'],check=True)
+        env=dict(adapter['env'])
+        q.require(not set(env)-{'PATH','HOME','LANG','LC_ALL','LC_CTYPE','TZ'},
+                  'adapter environment must not select interpreter code or preload configuration')
+        env['PATH']=protected_search_path(env.get('PATH',os.defpath))
+        env['HOME']=str(protected_path(env.get('HOME',str(Path.home()))))
+        result=subprocess.run([str(executable)],input=q.encoded(packet),text=True,stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE,env=env,cwd='/',timeout=adapter['timeout'],check=True)
         q.require(len(result.stdout)<=1048576,'adapter response too large')
         return json.loads(result.stdout)
     def acceptance(self,s):
@@ -407,6 +432,10 @@ class Provider:
             raise q.QueueError('CI run must be bound before admission')
         if name==ADMISSION: external=admission_identity(a,self)
         identity=admission_id(external) if name==ADMISSION else q.encoded({'attempt':a['id'],'kind':name})
+        key='admission_check' if name==ADMISSION else 'gate_check'
+        intent_key=key+'_create_intent'
+        target={'head':head,'external_id':identity}
+        q.require(not a.get(intent_key) or a[intent_key]==target,'check creation identity changed')
         checks=self.pages('/commits/'+head+'/check-runs?filter=all',key='check_runs')
         matches=[r for r in checks if r['name']==name and r['app']['id']==self.policy['app_id'] and
                  (r.get('external_id')==identity or r['id']==a.get('admission_check' if name==ADMISSION else 'gate_check'))]
@@ -414,13 +443,18 @@ class Provider:
         data={'status':status}
         if conclusion:data['conclusion']=conclusion
         if matches:
+            a[key]=matches[0]['id'];a[intent_key]=target;self.journal.save(a)
             r=self.api('PATCH','/check-runs/'+str(matches[0]['id']),data)
         else:
+            # A lost create response or stale listing must never trigger another POST.
+            if a.get(intent_key) or a.get(key):
+                raise CheckPending(name+' creation outcome unconfirmed; retaining lane and polling')
             # Do not create a success check after losing a prior check identity.
             if status=='completed' and conclusion=='failure': return None
             q.require(status=='in_progress','cannot complete an unknown App check')
+            a[intent_key]=target;self.journal.save(a)
             r=self.api('POST','/check-runs',dict(data,name=name,head_sha=head,external_id=identity))
-        a['admission_check' if name==ADMISSION else 'gate_check']=r['id']
+        a[key]=r['id'];self.journal.save(a)
         return r['id']
     def dispatch(self,a):
         s=a['snapshot']
@@ -515,7 +549,8 @@ def load_policy(path):
         q.require(q.integer(p[k]),'positive '+k+' required')
     for role in ('acceptance','refresh'):
         a=p[role]
-        q.require(isinstance(a['command'],list) and a['command'] and all(w.nonempty(v) for v in a['command']), 'adapter argv required')
+        q.require(isinstance(a['command'],list) and len(a['command'])==1 and w.nonempty(a['command'][0]),
+                  'one protected adapter wrapper executable required; configure arguments inside it')
         q.require(type(a['timeout']) is int and 1<=a['timeout']<=900,'bounded adapter timeout required')
         q.require(isinstance(a['env'],dict) and all(isinstance(k,str) and isinstance(v,str) for k,v in a['env'].items()),'explicit adapter environment required')
         q.require(not any(k in a['env'] for k in ('GH_TOKEN','GITHUB_TOKEN')),'controller adapters must not receive App tokens')
@@ -576,7 +611,7 @@ def main():
     db=Journal(args.state)
     try:
         db.bind(p['repo'],p['base'])
-        provider=Provider(p,root)
+        provider=Provider(p,root,db)
         ph=q.digest({'policy':p,'implementation':q.hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                      'observer':w.policy_hash({})})
         runner=Controller(db,provider,ph)

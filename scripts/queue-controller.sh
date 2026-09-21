@@ -1,3 +1,7 @@
-#!/usr/bin/env bash
+#!/bin/bash -p
+# Privileged-mode bash ignores inherited startup code before this file is read.
 set -euo pipefail
-exec python3 "$(dirname "$0")/queue-controller.py" "$@"
+export PATH=/usr/bin:/bin
+unset BASH_ENV ENV CDPATH PYTHONPATH PYTHONHOME PYTHONUSERBASE
+script_dir="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)"
+exec /usr/bin/python3 -I "$script_dir/queue-controller.py" "$@"

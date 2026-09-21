@@ -4,24 +4,46 @@ name: CI
 # .loop.toml), so CI and the checkout agree on what "passing" means. One job per check
 # command; each job's `name` is a required status check in the branch ruleset
 # (ci/ruleset.json), and a pull request must be up to date with the default branch when the
-# jobs pass, so after another PR merges a branch is rebased (scripts/open-ticket-pr.sh <id>
-# --update) and the jobs run again on the exact result that would land.
+# jobs pass. Only the selected candidate is refreshed after predecessors land; complete
+# review and independent acceptance on that head before adding ci:run (README, 0020).
+# Waiting PRs receive no request. Opening, pushing, marking ready and merging do not build.
+#
+# GitHub cannot filter pull_request label events by label name. Do not put a job-level if:
+# on the label: a skipped required job can satisfy branch protection without running tests.
+# The first step instead FAILS unrelated requests before checkout or expensive work. This
+# produces a cheap red check, never a skipped green one. Labels are cooperative requests,
+# not trusted queue admission; LK-e9y supplies the separate App gate and controller.
+# https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks
 #
 # Add the toolchain steps your check needs before the `run` line (language setup, caches,
 # browsers). Split the check into more jobs by giving the script flags and adding a job per
 # flag, each with its own name in the ruleset.
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    types: [labeled]
 
 jobs:
   check:
     name: Check (scripts/check.sh)
     runs-on: ubuntu-latest
     steps:
+      - name: Verify CI request
+        shell: bash
+        env:
+          REQUEST_EVENT: ${{ github.event_name }}
+          REQUEST_ACTION: ${{ github.event.action }}
+          REQUEST_LABEL: ${{ github.event.label.name }}
+          REQUEST_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          if [ "$REQUEST_EVENT" != pull_request ] || [ "$REQUEST_ACTION" != labeled ] || [ "$REQUEST_LABEL" != ci:run ] || [ "$REQUEST_DRAFT" != false ]; then
+            echo 'Full CI was not requested for a ready PR; rejecting before checkout.' >&2
+            exit 1
+          fi
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      # Add toolchain steps below this line.
       # The queue checks read the commits, and a shallow clone leaves git log origin/main with
       # only the tip, so --reconcile cannot see the commits a closed ticket names (LK-48).
       - name: Fetch the queue's history

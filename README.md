@@ -102,7 +102,7 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   interview plan does not strand the PR. Pull shared Beads state before discovery and push every
   coordination/assessment update before handoff; synchronization failure blocks admission. Planning preferences do not become false implementation
   dependencies. Five independent PRs
-  prebuilt and repeatedly refreshed can cost 15 full runs. With the shipped automatic PR triggers,
+  prebuilt and repeatedly refreshed can cost 15 full runs. With existing automatic PR triggers (including this kit repository),
   draft openings still cost five runs and selected refreshes cost four: nine runs, saving six.
   After the separate CI-admission rollout suppresses opening/push runs, the target becomes five
   successful candidate runs, saving ten against the original 15. Genuine failures or code changes
@@ -131,6 +131,47 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   For JaCoCo the kit ships the figure itself: `coverage = "python3 scripts/coverage-percent.py"`
   reads `target/site/jacoco/jacoco.csv` (or the CSV path you give it), and refuses a report with
   no executable lines rather than printing the `0.00` a `0/0` would produce.
+
+## Requesting full CI
+
+New installations receive the request-only `ci/workflow.yml` skeleton (0020). Opening a PR,
+marking it ready, pushing review fixes and merging do not run its full check. Existing workflows,
+including this kit repository's own CI, are preserved by the installer and require deliberate
+migration. Compare the template with your workflow; retain any unique post-merge deployment or
+validation steps instead of deleting them along with a duplicate full build.
+
+The author hands completed head review and proof to the coordinator recorded in Beads. Only
+after that coordinator selects this PR, verifies its predecessors landed, and obtains fresh
+independent acceptance should it request the full check. Waiting PRs receive no refresh or CI
+request. With this skeleton, create the request label once and then add it to the selected PR:
+
+```bash
+gh label create ci:run --description "Request full CI for the selected reviewed candidate"
+gh pr edit <pr> --add-label ci:run
+```
+
+If the label already exists, keep it. Inspect the current head and existing CI run first; adding
+an already-present label is not a new request. Reuse an in-progress or successful run for the same
+head/base. After a new head has completed review and acceptance, or an explicit failed-run retry
+is needed, remove `ci:run` and add it again. Removal itself does not trigger this skeleton.
+Verify the requested head and tested commit, actual successful full job and current base before
+publishing the final gate. A later push invalidates old evidence and requires a new request.
+
+Every added label starts a lightweight job because GitHub has no label-name trigger filter.
+The first step rejects events other than adding `ci:run` to a non-draft PR, before checkout,
+toolchain setup or the full check. Unrelated labels therefore produce a failed check and can
+replace an earlier green result; avoid label changes after final validation. Re-request only the
+selected candidate after checking its evidence. Never add a job-level `if:` to hide these failures:
+a skipped required job can satisfy protection without running tests. The ruleset still requires
+`Check (scripts/check.sh)`; `scripts/ruleset-check.sh` verifies that job-name pairing, not admission.
+See [GitHub's required-check behavior](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).
+
+This skeleton reduces automatic work; a label is not authorization and it neither serializes
+requests nor prevents a user with label permissions from requesting a waiting PR. Keep the
+existing independent final gate during bootstrap. LK-e9y supplies trusted queue admission,
+duplicate-dispatch handling and the App-issued gate. A plain `workflow_dispatch` replacement
+cannot satisfy the current Actions-required context; migrate that context with the App gate.
+No live consumer workflow or protection changes merely because the kit template is upgraded.
 
 ## Deciding things once
 

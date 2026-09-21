@@ -161,7 +161,50 @@ Still to supply:
 EOF
 }
 
+request_workflow_test() {
+  # Exercise the shipped gate, not a second implementation of its decision.
+  python3 - "$1" <<'PYTEST'
+import os, pathlib, re, subprocess, sys, tempfile
+text = pathlib.Path(sys.argv[1]).read_text()
+active = '\n'.join(line for line in text.splitlines() if not line.lstrip().startswith('#'))
+trigger = re.search(r'^on:\n(.*?)(?=^\S)', active, re.M | re.S)
+assert trigger and re.fullmatch(r'\s*pull_request:\s*types: \[labeled\]\s*', trigger[1]), 'CI must be requested by a label event only'
+assert not re.search(r'^    (?:if|continue-on-error):', active, re.M), 'required job must not skip or tolerate failures'
+assert 'continue-on-error:' not in active, 'request rejection must fail the required job'
+assert '    steps:\n      - name: Verify CI request\n' in active, 'request gate must precede checkout/toolchain work'
+for key, expression in [('REQUEST_EVENT','github.event_name'), ('REQUEST_ACTION','github.event.action'),
+                        ('REQUEST_LABEL','github.event.label.name'), ('REQUEST_DRAFT','github.event.pull_request.draft')]:
+    assert key + ': ${{ ' + expression + ' }}' in active, 'gate must use event fields, not the persistent labels list'
+m = re.search(r'      - name: Verify CI request\n.*?        run: \|\n((?:          [^\n]*\n)+)', active, re.S)
+assert m, 'request gate shell block missing'
+guard = '\n'.join(line[10:] for line in m[1].splitlines())
+assert '      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}' in active, 'checkout must test the requested head'
+assert '    name: Check (scripts/check.sh)' in active and '      - run: scripts/check.sh' in active
+cases = [('pull_request','labeled','ci:run','false',True),
+         ('pull_request','labeled','needs-review','false',False),
+         ('pull_request','labeled','ci:run','true',False),
+         ('pull_request','synchronize','ci:run','false',False),
+         ('pull_request','opened','ci:run','false',False),
+         ('pull_request','unlabeled','ci:run','false',False),
+         ('push','','ci:run','false',False),
+         ('workflow_dispatch','','ci:run','false',False),
+         ('pull_request','labeled','','false',False),
+         ('pull_request','labeled','$(exit 0)','false',False)]
+with tempfile.TemporaryDirectory(prefix='ci-request-proof-') as d:
+    proof = pathlib.Path(d)/'full-check-ran'
+    for event, action, label, draft, admitted in cases:
+        if proof.exists(): proof.unlink()
+        env = dict(os.environ,REQUEST_EVENT=event,REQUEST_ACTION=action,REQUEST_LABEL=label,
+                   REQUEST_DRAFT=draft,PROOF=str(proof))
+        run = subprocess.run(['bash','-e','-c',guard+'\nprintf ran > "$PROOF"\n'],env=env,capture_output=True,text=True)
+        assert (run.returncode == 0) == admitted, (event,action,label,draft,run.stderr)
+        assert proof.exists() == admitted, 'unrequested event reached expensive work'
+print('CI request template: 10 admission scenarios passed')
+PYTEST
+}
+
 self_test() {
+  request_workflow_test "$KIT/ci/workflow.yml"
   SELF_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/loop-install.XXXXXX")"
   trap 'rm -rf "$SELF_TEST_DIR"' EXIT
   local dir="$SELF_TEST_DIR/fresh" out loop_runs=0 pair f want marker first=1 suite='== loop self-tests' n p fix
@@ -173,6 +216,7 @@ self_test() {
   echo "$out" | grep -q '^installed: .loop.toml' || { echo "self-test: .loop.toml should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .github/workflows/loop.yml' || { echo "self-test: the workflow should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: ci/ruleset.json' || { echo "self-test: the ruleset should be installed:"; echo "$out"; exit 1; }
+  request_workflow_test "$dir/.github/workflows/loop.yml"
   [ -f "$dir/ci/ruleset.json" ] || { echo "self-test: ci/ruleset.json should be installed"; exit 1; }
   [ -f "$dir/loop.toml.example" ] || { echo "self-test: loop.toml.example should be installed at the root"; exit 1; }
   echo "$out" | grep -q '^installed: .agent/commands/' || { echo "self-test: the wrappers should be installed:"; echo "$out"; exit 1; }
@@ -233,7 +277,8 @@ self_test() {
   local parser=""
   if ruby -ryaml -e 'exit 0' >/dev/null 2>&1; then parser=ruby; elif python3 -c 'import yaml' >/dev/null 2>&1; then parser=python; fi
   for f in rust python node java go other; do
-    awk -v snip="$dir/loop/templates/ci/$f.yml" '{print} /uses: actions\/checkout/ {while ((getline line < snip) > 0) if (line !~ /^#/) print line}' "$dir/.github/workflows/loop.yml" > "$dir/loop-$f.yml"
+    awk -v snip="$dir/loop/templates/ci/$f.yml" '{print} /# Add toolchain steps below this line\./ {while ((getline line < snip) > 0) if (line !~ /^#/) print line}' "$dir/.github/workflows/loop.yml" > "$dir/loop-$f.yml"
+    request_workflow_test "$dir/loop-$f.yml"
     grep -q 'run: scripts/check.sh' "$dir/loop-$f.yml" || { echo "self-test: the spliced $f workflow lost the check step"; exit 1; }
     case "$parser" in
       ruby) ruby -ryaml -e 'w = YAML.safe_load(File.read(ARGV[0])); s = w["jobs"]["check"]["steps"]; abort("steps") unless s.length >= 3 && s.last["run"] == "scripts/check.sh"' "$dir/loop-$f.yml" || { echo "self-test: the spliced $f workflow should parse with the check last:"; cat "$dir/loop-$f.yml"; exit 1; } ;;

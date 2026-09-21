@@ -122,6 +122,32 @@ where that comment states the subset reading, because under the other one a tick
 leave unlabelled is a ticket the full check fails on. The write step labels them in the same
 session.
 
+**The merge order.** Alongside the day's selected tickets, propose an explicit merge order
+(ticket ids, then PR numbers as they exist), predecessors and a single coordinator responsible
+for selection and handoff. Record the confirmed order and later changes with `bd update
+<coordinating-ticket> --append-notes "<order, rationale, coordinator, selected candidate or none>"`;
+link that ticket from each participating ticket. Use an existing planning/story issue when
+available, otherwise create a coordination issue in Beads. No parallel Markdown ticket list.
+Ordering preferences are not implementation dependencies: use `bd dep` only for real blockers.
+
+The coordinator verifies predecessors have merged into the configured default branch and their
+commits landed before selecting one candidate. Record a revised order and reason if a failed or
+withdrawn candidate is bypassed; authors cannot independently promote themselves. A live
+controller's durable selection is authoritative when enabled; a shadow queue plan/claim is not
+live admission. Without a live controller, one named coordinator serializes the handoff using
+Beads notes and GitHub evidence; notes are not an atomic lock, so concurrent coordinators must
+stop until ownership is unambiguous. Waiting PRs do not rebase or request CI. They can still
+receive author fixes, Codex review, local proof and independent acceptance. Only the selected
+candidate refreshes using the project's sanctioned procedure, renews review/acceptance for any
+changed head, then requests CI and advances through the final merge gate. See `review-prs.md`.
+
+State the cost in runs: prebuilding N independent PRs and rebuilding every remaining PR after
+each merge can add N(N-1)/2 full runs. For five PRs that is ten extra runs (15 total instead of
+five successful candidate runs). Actual failures or code changes can require more runs. This
+planning guidance does not change existing push/label CI triggers; removing those automatic
+runs requires the separate CI-admission rollout.
+
+
 Ask the owner to confirm the draft, and apply their edits, before going on.
 
 ## 4. Write and hand off
@@ -138,9 +164,11 @@ Never write to the default branch. From the main checkout:
 3. Commit the stories, records, and wireframes with the subject `Backlog: <XX-nn..XX-mm> <one-line
    summary>` and, when the config requires it, a `Co-Authored-By: <agent> <email>` trailer naming
    the agent and model.
-4. `git push -u origin backlog/<short-slug>` and open the PR with `gh pr create --fill`, then
-   `gh pr merge --auto --rebase`; CI on a docs-only change is quick and the owner can merge or
-   wait for auto-merge.
+4. `git push -u origin backlog/<short-slug>` and open the PR as a draft with
+   `gh pr create --draft --fill`. Use the same selected-candidate handoff as code PRs:
+   verify auto-merge is disabled, then mark it ready for review. Follow
+   `respond-to-review.md` and `review-prs.md`; a documentation PR does not bypass admission,
+   completed review, independent acceptance or CI.
 5. Report: the PR URL, the story ids and ticket ids added, the decision records written or
    superseded, what the first next-ticket run will pick up, and any question the owner deferred
    (record those as `bd update <id> --status blocked --append-notes "<the question>"` on the ticket

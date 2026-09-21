@@ -19,6 +19,8 @@ next-ticket.md	Never push the default branch
 next-ticket.md	sprint
 next-ticket.md	respond-to-review.md
 next-ticket.md	waiting PRs do not rebase or request CI
+next-ticket.md	Git claim fails
+next-ticket.md	--if-assignee
 next-ticket.md	bd dolt pull
 next-ticket.md	bd dolt push
 next-ticket.md	bootstrap coordination
@@ -65,6 +67,10 @@ review-prs.md	one status per head commit
 review-prs.md	Never run `scripts/open-ticket-pr.sh --update-all`
 review-prs.md	completed Codex review on the full head SHA
 review-prs.md	acceptance is not merge authorization
+review-prs.md	disable-auto
+review-prs.md	waiting or unselected
+review-prs.md	final-gate record
+review-prs.md	dependencies and labels
 review-prs.md	bd dolt pull
 review-prs.md	bd dolt push
 review-prs.md	synchronization failure blocks admission

@@ -168,7 +168,11 @@ criteria can invalidate acceptance without a push. A scheduled review may assess
 but never runs `scripts/open-ticket-pr.sh --update-all`. Final status publication must recheck
 head, base, criteria, reviews and actual CI; the legacy status API cannot atomically fence new
 feedback. Decision 0019 replaces the old batch-refresh and immediate passing-status handoff;
-the trusted App gate and CI-admission rollout provide enforcement separately.
+the trusted App gate and CI-admission rollout provide enforcement separately. Legacy adoption
+also disables existing auto-merge requests and resets old successes; later passes keep every
+waiting/unselected PR pending and require a matching final-gate record before retaining success.
+Assessment bindings include ticket dependencies and labels. A failed Git claim rolls back only
+the newly acquired Beads claim with ownership guards and publishes the recovery.
 
 The author continues with `prompts/respond-to-review.md` after opening the PR. It covers fixes,
 supported disputes and separate tickets, keeps unresolved blockers visible, and verifies a

@@ -43,14 +43,30 @@ existing coordinator; conflicting owners/records require reconciliation before s
 Beads notes/claims are not the live controller's atomic admission fence: use this only with a
 single serialized reviewer invocation, otherwise stop admission and report the conflict.
 
+**Reconcile existing merge gates before reviewing.** Outside worker mode, adoption must include
+existing PRs, not just newly created drafts. The sole legacy coordinator inventories every open
+PR's current-head status and auto-merge request. Disable each armed request with `gh pr merge
+<number> --disable-auto` and verify it is off before continuing. On first adoption, reset every
+existing successful `review_context` to pending using the status API in step 6; an old green
+status is not proof that this policy ran. On every subsequent pass, reset success for every
+waiting or unselected candidate, and for a selected candidate without a verified final-gate
+record matching this policy's content hash, current acceptance binding, selection, head/base,
+successful CI run and posted status id. Recheck step 6 even when that record matches. Missing
+readiness never means retaining an older success. Verify each reset; failure stops admission.
+Do this reconciliation before reusing an unchanged acceptance verdict. These status/auto-merge
+changes never authorize refreshing or requesting CI for a waiting PR. Workers perform none
+of these mutations; the controller owns the required gate.
+
 **Reuse unchanged assessments and skip duplicate feedback.** In worker mode, the trusted worker
 journal owns receipt reuse. In the legacy path, keep an assessment record in the coordinating
 Beads issue's notes: repository/PR, reviewer identity, binding digest, verdict, proof and existing
 findings URL. Before posting anything, compare the current binding with the last verified
 independent assessment. Do not trust an author's claimed verdict as independent evidence.
-Build the binding from full head and base SHAs, ticket intent and criteria, PR body, assignee,
+Build the binding from full head and base SHAs, ticket intent and criteria, ticket status,
+dependencies and labels, PR body, assignee,
 governing policy content, completed-review evidence, and all pages of comments, reviews and
-threads (ids, actors, bodies, states, commit ids and resolutions). Normalize arrays by stable id;
+threads (ids, actors, bodies, states, commit ids and resolutions). Sort dependency edges by
+(type, target id), labels lexically, and other arrays by stable id;
 use SHA-256 of canonical JSON (Python's `json.dumps(binding, sort_keys=True, separators=(",", ":"))`
 encoded as UTF-8). Exclude observation time, CI progress and the coordination notes themselves.
 Store the normalized binding with its digest so a later run can reproduce it; missing fields,
@@ -108,7 +124,8 @@ For each pull request needing assessment, following the recorded order:
    --url <findings-url>`. Passing acceptance alone must not publish a passing status. Before
    `scripts/review-status.sh <sha> pass "<independent proof>" --url <evidence-url>`, the independent
    reviewer acting as the named coordinator must freshly verify all of the following:
-   - This is the selected candidate and every predecessor actually merged; no waiting PR is
+   - This is the selected candidate, every recorded predecessor and every current ticket blocker
+     actually landed, and current ticket dependencies/labels match the acceptance binding; no waiting PR is
      refreshed or given CI. Its base and full head still match the evidence under assessment.
    - There is completed Codex review on the full head SHA, with no queued/running review for
      that head, unresolved review conversation, outstanding requested changes or unaddressed
@@ -124,8 +141,12 @@ For each pull request needing assessment, following the recorded order:
      sends the candidate back to the relevant step, with fresh acceptance as needed.
    Keep auto-merge disabled throughout this bootstrap handoff. A posted legacy status is not
    an atomic fence against new findings; the separate trusted-controller rollout supplies
-   enforcement. Publish at most one status per head commit for unchanged evidence; changed
-   evidence permits a corrected status and requires reassessment. Report missing readiness as
+   enforcement. Persist and publish a final-gate record after success: policy content hash,
+   acceptance binding digest, selected PR/coordinator, full head/base, CI run id and the verified
+   posted status id/URL. If recording or publishing that proof fails, reset the status to pending
+   and report the failed handoff. Aim for one status per head commit while evidence and gate
+   state stay unchanged; pending resets or recovery are state changes and may require a new
+   status. Changed evidence requires reassessment. Report missing readiness as
    pending/unposted, not as a fabricated defect or a passing gate. Existing passing statuses
    must be invalidated by the coordinator when their evidence becomes stale: use `gh api
    -X POST repos/{owner}/{repo}/statuses/<full-sha> -f state=pending -f context=<review_context>

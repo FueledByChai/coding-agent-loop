@@ -13,9 +13,19 @@ Steps:
    commit on the default branch, taking the tickets carrying the `sprint_label` first, by priority
    then id, then the rest (`scripts/backlog-status.sh` shows every ticket's derived state;
    `--sprint` shows the sprint's). If it names none, report that and stop. Read the ticket with
-   `bd show <id> --json` - its `acceptance_criteria` is the **Done when** line - then claim it with
+   `bd show <id> --json` - its `acceptance_criteria` is the **Done when** line. Before claiming,
+   save the prior status/assignee and successfully inspect `git ls-remote --heads origin
+   refs/heads/ticket/<id>`. If a branch already exists, reconcile its owner rather than acquiring
+   another claim; a remote-read failure also stops claiming. Then claim it with
    `bd update <id> --claim` (the claim the queue honours), publish it with `bd dolt push`,
-   then run `scripts/open-ticket-pr.sh <id> --claim`, which pushes `ticket/<id>` to origin and refuses when another checkout holds it.
+   then run `scripts/open-ticket-pr.sh <id> --claim`, which pushes `ticket/<id>` to origin and
+   refuses when another checkout holds it. If the Git claim fails after a newly acquired Beads
+   claim, stop work and roll back only this attempt's Beads claim: pull shared state, verify
+   ownership, then use `bd update <id> --if-assignee "<this actor>" --if-status in_progress
+   --assignee "" --status "<prior status>"` and `bd dolt push`. Never clear a pre-existing claim,
+   overwrite a different owner, or delete an existing remote branch. A failed conditional
+   update or rollback publication is an explicit reconciliation blocker; report the actual
+   branch/claim state and responsible actor rather than leaving a silent published claim.
    Read the merge order recorded in the coordinating Beads ticket's notes and the named
    coordinator's current selection (0019 in the kit). Ticket claim order is implementation
    scheduling, not merge admission. A shadow plan is not admission. If selection is missing or

@@ -38,7 +38,8 @@ without a new head. Persist legacy assessment bindings and reuse unchanged verdi
 posting duplicate comments; capture the post-comment binding after any feedback. CI progress
 alone changes readiness, not substantive acceptance. Dependencies and labels are assessment
 inputs too. Legacy adoption disables existing auto-merge requests and clears old successful
-statuses; subsequent passes invalidate success on every waiting/unselected or unproven
+statuses only in the configured default-branch lane, rechecking the target before mutations;
+other-base PRs stay untouched. Subsequent passes invalidate success on every waiting/unselected or unproven
 candidate. Published final-gate records bind policy, selection, acceptance, CI and status id.
 A failed Git branch claim rolls back only the newly acquired Beads claim with conditional
 ownership guards, publishes that recovery and never deletes somebody else's branch. Missing readiness leaves status unposted; invalidate stale passing evidence.

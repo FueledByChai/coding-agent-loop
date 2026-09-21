@@ -5,10 +5,14 @@ status. In durable worker mode, return the structured acceptance receipt only; t
 controller owns final status publication. Never publish a status from an author worker.
 
 The queue is Beads (`bd`), a hard dependency. Settings come from `.loop.toml`:
-`scripts/loop-config.sh` names `check` (the full check) and `review_context` (the name of the
-final status, default "Agent review"). Inspect all open PRs (paginate `gh api
-"repos/{owner}/{repo}/pulls?state=open&per_page=100" --paginate`) and their current heads, review
-evidence and coordinating Beads notes. `scripts/review-status.sh --pending`
+`scripts/loop-config.sh` names `check` (the full check), `default_branch` (this queue's base),
+and `review_context` (the final status, default "Agent review"). Inspect all open PRs targeting
+that configured base: paginate `gh api --method GET repos/{owner}/{repo}/pulls -f state=open
+-f "base=<default_branch>" -F per_page=100 --paginate`, substituting the configured value.
+Read their current heads, review evidence and coordinating Beads notes. This inventory and
+all following coordination, review and gate mutations are scoped to that repository/base;
+other-base PRs remain untouched. Re-read a PR's base immediately before each mutation; if it
+was retargeted outside this lane, drop it from this pass without changing its gates. `scripts/review-status.sh --pending`
 is only a convenience for heads with no status, not the complete work list: same-head evidence
 changes (new findings, changed criteria or completed CI) can require reassessment.
 
@@ -44,8 +48,8 @@ Beads notes/claims are not the live controller's atomic admission fence: use thi
 single serialized reviewer invocation, otherwise stop admission and report the conflict.
 
 **Reconcile existing merge gates before reviewing.** Outside worker mode, adoption must include
-existing PRs, not just newly created drafts. The sole legacy coordinator inventories every open
-PR's current-head status and auto-merge request. Disable each armed request with `gh pr merge
+existing PRs in the configured base lane, not just newly created drafts. The sole legacy
+coordinator inventories each in-scope PR's current-head status and auto-merge request. Disable each armed request with `gh pr merge
 <number> --disable-auto` and verify it is off before continuing. On first adoption, reset every
 existing successful `review_context` to pending using the status API in step 6; an old green
 status is not proof that this policy ran. On every subsequent pass, reset success for every

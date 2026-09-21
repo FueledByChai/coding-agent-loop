@@ -169,7 +169,8 @@ but never runs `scripts/open-ticket-pr.sh --update-all`. Final status publicatio
 head, base, criteria, reviews and actual CI; the legacy status API cannot atomically fence new
 feedback. Decision 0019 replaces the old batch-refresh and immediate passing-status handoff;
 the trusted App gate and CI-admission rollout provide enforcement separately. Legacy adoption
-also disables existing auto-merge requests and resets old successes; later passes keep every
+also disables existing auto-merge requests and resets old successes within the configured
+default-branch lane only; other-base PRs stay untouched and targets are rechecked before mutation; later passes keep every
 waiting/unselected PR pending and require a matching final-gate record before retaining success.
 Assessment bindings include ticket dependencies and labels. A failed Git claim rolls back only
 the newly acquired Beads claim with ownership guards and publishes the recovery.

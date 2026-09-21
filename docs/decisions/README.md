@@ -23,3 +23,4 @@ the old one. Cite a decision by its number. `scripts/decisions.sh new "<title>"`
 - [0018](0018-keep-review-worker-jobs-durable-and-separate-from-merge-auth.md) Keep review worker jobs durable and separate from merge authority — accepted
 - [0019](0019-plan-merge-order-and-separate-acceptance-from-final-status-p.md) Plan merge order and separate acceptance from final status publication — accepted, supersedes 0007
 - [0020](0020-request-ci-explicitly-and-reject-unrelated-labels-without-sk.md) Request CI explicitly and reject unrelated labels without skipping the required job — accepted
+- [0021](0021-fence-live-ci-admission-and-merge-authority-with-a-dedicated.md) Fence live CI admission and merge authority with a dedicated App and protected controller — accepted

@@ -1,0 +1,83 @@
+# Opt-in complete workflow, not a stack snippet. Render __QUEUE_APP_ID__ as the numeric
+# dedicated App id, add the project's existing toolchain/Beads setup AFTER admission,
+# and replace scripts/check.sh only with the configured full check. Pin the resulting
+# entire file's SHA256 in the private controller policy. Never run from a PR workflow ref.
+name: Queue CI
+run-name: queue:${{ inputs.attempt }}
+on:
+  workflow_dispatch:
+    inputs:
+      attempt:
+        required: true
+        type: string
+      head:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      app_id:
+        required: true
+        type: string
+permissions:
+  contents: read
+  checks: read
+jobs:
+  check:
+    name: Queue full check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Queue admission
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUEUE_ATTEMPT: ${{ inputs.attempt }}
+          QUEUE_HEAD: ${{ inputs.head }}
+          QUEUE_BASE: ${{ inputs.base_sha }}
+          QUEUE_REQUEST_APP: ${{ inputs.app_id }}
+          QUEUE_APP_ID: '__QUEUE_APP_ID__'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, re, time
+          from urllib.request import Request, urlopen
+          e = os.environ
+          assert e['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
+          assert e['GITHUB_RUN_ATTEMPT'] == '1', 'reruns require new queue admission'
+          assert e['QUEUE_APP_ID'].isdigit() and int(e['QUEUE_APP_ID']) > 0
+          assert e['QUEUE_REQUEST_APP'] == e['QUEUE_APP_ID']
+          assert re.fullmatch('[0-9a-f]{32}', e['QUEUE_ATTEMPT'])
+          assert re.fullmatch('[0-9a-f]{40}', e['QUEUE_HEAD'])
+          assert e['QUEUE_BASE'] == e['GITHUB_SHA'] and re.fullmatch('[0-9a-f]{40}', e['QUEUE_BASE'])
+          expected = dict(repository=e['GITHUB_REPOSITORY'], app_id=int(e['QUEUE_APP_ID']),
+              attempt=e['QUEUE_ATTEMPT'], head=e['QUEUE_HEAD'], base_sha=e['QUEUE_BASE'], run_id=int(e['GITHUB_RUN_ID']))
+          def authorized(checks):
+              matches = []
+              for check in checks:
+                  if check.get('name') != 'Queue CI admission' or check.get('app', {}).get('id') != expected['app_id']:
+                      continue
+                  try: identity = json.loads(check.get('external_id') or '')
+                  except (ValueError, TypeError): continue
+                  if identity == expected: matches.append(check)
+              return len(matches) == 1 and matches[0]['status'] == 'in_progress'
+          for _ in range(24):
+              checks = []
+              for page in range(1, 101):
+                  url = 'https://api.github.com/repos/' + e['GITHUB_REPOSITORY'] + '/commits/' + e['QUEUE_BASE'] + '/check-runs?filter=all&per_page=100&page=' + str(page)
+                  request = Request(url, headers={'Authorization': 'Bearer ' + e['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+                  with urlopen(request, timeout=15) as response: data = json.load(response)
+                  rows = data['check_runs']; checks.extend(rows)
+                  if len(rows) < 100: break
+              else: raise SystemExit('admission inventory exceeded page limit')
+              if authorized(checks): break
+              time.sleep(5)
+          else: raise SystemExit('no trusted admission for this exact run/head/base')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head }}
+          fetch-depth: 0
+          persist-credentials: false
+      # Add project toolchain setup and Beads bootstrap here, after admission.
+      - name: Full check
+        run: scripts/check.sh

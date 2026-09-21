@@ -1,0 +1,157 @@
+# Trusted queue operator runbook
+
+This is an opt-in runtime, not a deployed service. Do not retire legacy gates on the strength
+of offline tests. `queue-controller.sh --self-test` is offline; `preflight` reads GitHub and
+`tick`/`serve` can dispatch, publish checks, cancel and merge. The shadow CLI is unchanged.
+
+## Identities and protected installation
+
+Use three OS identities: controller, author and independent reviewer. A distinct HOME under
+one shared UID is not isolation. Install reviewed kit files under a root/controller-owned
+path such as `/opt/coding-agent-loop`, protected through every ancestor. Keep a trusted
+observation mirror with Beads under the controller identity; never execute PR code there.
+Run the existing author/acceptance guardian under its configured service boundary. Author
+fixes and completed Codex review still precede independent acceptance (0017–0018).
+
+Create/install a dedicated GitHub App only for the selected repository. Grant Checks, Contents,
+Actions and Pull requests write; Administration read; Metadata read. Store its PEM and policy
+as controller-owned mode 0600 files below a mode 0700 private directory. Do not place either in
+Git, Actions secrets, worker environments or the author/reviewer homes. The controller uses
+short-lived installation tokens scoped to this repository and never passes them to adapters.
+`app_actor_id` is the App bot's numeric user id, not the App id or installation id.
+
+Provide an operator-owned wrapper for each adapter, using a narrowly allowed `sudo -n -u`
+command or a comparably isolated service boundary. The acceptance wrapper runs the shipped
+`queue-controller.py --root ... --state ... --policy ... worker-receipt` command **as the
+independent reviewer**, with that reviewer's existing worker policy, journal and read-only
+GitHub identity. It compares fresh GitHub/Beads evidence with the requested binding, validates
+an existing completed acceptance job, and returns no App authority. No caller-provided verdict
+is accepted. Missing acceptance holds the candidate; the separate worker service prepares/runs
+review jobs. It does not cause the gate service to execute an AI worker with App credentials.
+
+The refresh wrapper receives repository, PR, ticket, expected head/base and attempt on stdin.
+Under the author's durable guardian, verify exclusive PR/worktree ownership and both remote
+SHAs, then use the project's sanctioned refresh helper; request completed Codex review of any
+new head. Return JSON `{"stopped":true,"head":"<full resulting SHA>"}` only after proving the
+worker group stopped and the remote head matches. Conflicts, timeouts or uncertain stop proof
+must fail. Never implement the wrapper with an unguarded force-push or update-all call.
+
+Example policy (replace every example, inspect the resulting private file):
+
+```json
+{
+  "repo": "owner/project", "base": "main",
+  "state_dir": "/var/lib/queue-gate/state",
+  "app_id": 123, "installation_id": 456, "app_actor_id": 789,
+  "private_key": "/etc/queue-gate/app.pem",
+  "workflow_id": 1011, "workflow_path": ".github/workflows/queue.yml",
+  "workflow_sha256": "SHA256_OF_COMPLETE_RENDERED_WORKFLOW",
+  "ci_job": "Queue full check", "ruleset_ids": [1213, 1415],
+  "author_uid": 1002, "reviewer_uid": 1003,
+  "reviewer_identity": "independent-acceptance-v1",
+  "read_path": "/usr/local/bin:/usr/bin:/bin",
+  "acceptance": {"command": ["/usr/local/libexec/queue-acceptance"],
+    "env": {"PATH":"/usr/bin:/bin","HOME":"/var/lib/queue-gate"}, "timeout": 180},
+  "refresh": {"command": ["/usr/local/libexec/queue-refresh"],
+    "env": {"PATH":"/usr/bin:/bin","HOME":"/var/lib/queue-gate"}, "timeout": 900}
+}
+```
+
+The controller validates configured UID separation and protected paths. It cannot prove an
+operator-written wrapper actually crosses that boundary: inspect the wrapper and sudo policy,
+and demonstrate that the author cannot read the key or alter the controller before activation.
+Do not clone the policy/key/journal to a second active host. Only one canonical journal/service
+owns a lane. Back up the stopped journal and audit trail together; do not reset it to retry CI.
+
+## Workflow and rules
+
+`loop/templates/ci/queue-controller.yml` is a **complete optional workflow**, unlike the six
+stack snippets beside it. Render `__QUEUE_APP_ID__` to the dedicated numeric App id. Add the
+project's pinned toolchain, Beads installation/bootstrap and other setup after admission;
+use the configured full check as the `Full check` step. Preserve those two step names, the job
+name, read-only permissions, exact-head checkout and `persist-credentials: false`. Pin the
+complete resulting file's SHA256 in private policy. Leave unrendered placeholders fail-closed.
+Never execute a helper from the PR before admission. This workflow's dispatch job does not
+replace a legacy PR-required Actions context by itself; the App check is the new required gate.
+
+Configure two active branch rulesets with exact include `["refs/heads/<base>"]`, no excludes:
+
+1. Restrict updates (`update`), with sole bypass actor
+   `{"actor_id":<APP_ID>,"actor_type":"Integration","bypass_mode":"always"}`.
+2. No bypass actors; deletion and non-fast-forward protection; pull request with rebase-only
+   methods and resolved conversations; strict required status checks containing
+   `{"context":"Queue merge gate","integration_id":<APP_ID>}`. Retain any existing required
+   human/security checks. **Never grant this App a bypass on this second ruleset.**
+
+Disable repository auto-merge and reconcile existing requests before controlled operation.
+The App lacks administration-write permission; this runtime never weakens or edits rulesets.
+`preflight` reads both configured rulesets, auto-merge setting and full workflow bytes. Existing
+`ruleset-check.sh` still validates legacy job/context pairs. It cannot validate an external App
+check; use controller `preflight` for this additional pair, keeping legacy checks during migration.
+
+## Supervision and recovery
+
+Example systemd unit, after preparing actual accounts, mirror, adapters and private policy:
+
+```ini
+[Unit]
+Description=One-candidate merge queue
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=queue-gate
+Group=queue-gate
+WorkingDirectory=/var/lib/queue-gate/mirror
+ExecStart=/usr/bin/python3 /opt/coding-agent-loop/scripts/queue-controller.py --root /var/lib/queue-gate/mirror --state /var/lib/queue-gate/state --policy /etc/queue-gate/policy.json serve
+Restart=on-failure
+RestartSec=15
+KillMode=control-group
+UMask=0077
+[Install]
+WantedBy=multi-user.target
+```
+
+Do not enable `NoNewPrivileges` with a sudo-based adapter; it prevents the required UID switch.
+A macOS installation needs an equivalent launchd service under the dedicated account, with
+protected paths and process-group stop proof. Installing the kit does not install either service.
+
+Use the same `--root`, `--state`, `--policy` prefix for `preflight`, `enqueue <PR>`, `status`,
+`tick`, `serve`, and `retry --reason <reason>`. Enqueue order is durable; only its first PR can
+refresh or dispatch. The lock spans every observation/mutation within a tick, including network
+calls. It has no timeout-based takeover. Polls are 15 seconds. Supervisors may restart the
+process, but saved mutation intent prevents duplicate dispatch/refresh/merge.
+
+A blocked attempt retains the lane. `retry` retires it only after actual CI stop is verified
+(or no dispatch/uncertain refresh ever occurred); it retries the same PR with a new identity.
+An uncertain dispatch with no discovered run, an uncertain refresh, or an unconfirmed merge
+remains held for operator reconciliation. Do not delete state or manually release it because
+time elapsed. Review the journal, provider event and guardian process evidence first. Recovery
+for an uncertain refresh/merge currently requires an operator adapter extension; the runtime
+intentionally has no unsafe force-release command. Report that limitation rather than silently
+marking the ticket or candidate done.
+
+## Controlled migration evidence
+
+Retain exports of original settings, rulesets, workflow bytes and automation configuration.
+Install the new workflow through a reviewed PR while legacy protection still applies. Register
+the App check and add its expected-source requirement and exclusive updater rule. Test a
+controlled candidate with **both** old and new checks, accepting one-time duplicate validation
+for migration. Preserve project deployments and distinct security checks.
+
+Record three PR identities/order, the unchanged heads of both waiting PRs, no waiting run or
+refresh, independent acceptance binding, actual admitted run/job/step ids, App check source/id,
+expected-head merge response and landed tree/ancestry. Kill/restart the supervisor while CI
+runs and prove it reuses that run. Send unauthorized, duplicate, stale-head and rerun requests;
+prove they stop before `Full check`, never publish a passing gate and do not release the lane.
+Exercise reopened feedback and changed base before merge. Retain the old/new successful
+contexts on the same controlled head and the final live ruleset reads.
+
+Only after that evidence exists, propose the reviewed removal of duplicate push/label full
+builds and the exact legacy captain automation. Verify the resulting active workflow inventory,
+required contexts and service health before the next candidate. Rollback restores the saved
+legacy workflow/check/captain configuration before disabling the new gate. Do not leave an
+App-only gate required while its controller is offline and claim migration succeeded.
+
+This runbook is not evidence that migration happened. LK-e9y remains unfinished until its
+controlled live proof and migration verification are recorded; consumer adoption is RB-g6do.

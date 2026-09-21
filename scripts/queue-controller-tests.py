@@ -70,6 +70,49 @@ class ControllerTests(unittest.TestCase):
         self.fail('not dispatched')
     def through_admission(self):
         self.through_dispatch(); return self.step()
+    def test_lost_check_creation_polls_without_reposting_or_releasing(self):
+        for name in (c.GATE,c.ADMISSION):
+            with self.subTest(name=name):
+                self.db.close();self.tmp.cleanup();self.setUp()
+                if name==c.ADMISSION:self.through_dispatch()
+                live=c.Provider.__new__(c.Provider);live.policy={'app_id':10};live.journal=self.db
+                created=[];visible=[False]
+                live.pages=lambda *a,**kw:created if visible[0] else []
+                def api(method,path,data):
+                    if method=='POST':
+                        key='gate_check_create_intent' if name==c.GATE else 'admission_check_create_intent'
+                        self.assertEqual(data['external_id'],self.db.active()[key]['external_id'])
+                        created.append(dict(data,id=91,app={'id':10}))
+                        raise RuntimeError('response lost after accepted create')
+                    return dict(created[0],**data)
+                live.api=api
+                original=self.p.check
+                self.p.check=lambda a,n,*args,**kw:live.check(a,n,*args,**kw) if n==name else original(a,n,*args,**kw)
+                with self.assertRaises(RuntimeError):self.step()
+                self.runner=c.Controller(self.db,self.p,'policy1')
+                for _ in range(3):self.step()
+                self.assertEqual(1,len(created))
+                self.assertEqual(1,self.db.active()['number'])
+                visible[0]=True
+                self.step()
+                self.assertEqual(1,len(created))
+                self.assertEqual([('dispatch',1)],[x for x in self.p.calls if x[0]=='dispatch'])
+
+    def test_unknown_admission_creation_still_cancels_stale_run(self):
+        self.through_dispatch()
+        live=c.Provider.__new__(c.Provider);live.policy={'app_id':10};live.journal=self.db
+        live.pages=lambda *a,**kw:[]
+        live.api=mock.Mock(side_effect=RuntimeError('lost create'))
+        original=self.p.check
+        self.p.check=lambda a,n,*args,**kw:live.check(a,n,*args,**kw) if n==c.ADMISSION else original(a,n,*args,**kw)
+        with self.assertRaises(RuntimeError):self.step()
+        self.p.snapshots[1]['head']='d'*40
+        self.step()
+        self.assertEqual('blocked',self.db.active()['phase'])
+        self.assertIn(('cancel',1),self.p.calls)
+        self.assertEqual(1,live.api.call_count)
+        self.assertIn('admission_check_create_intent',self.db.active())
+
     def test_retired_request_can_be_explicitly_requeued_at_the_tail(self):
         self.db.retire_request(1,'draft while waiting')
         self.db.enqueue(1)
@@ -319,6 +362,31 @@ class ProtocolTests(unittest.TestCase):
              mock.patch.object(Path,'stat',stat):
             with self.assertRaises(c.q.QueueError):c.secure_file(path)
 
+    def test_protected_wrapper_rejects_environment_code_injection(self):
+        p=c.Provider.__new__(c.Provider)
+        for name in ('BASH_ENV','ENV','PYTHONPATH','LD_PRELOAD','RUBYOPT'):
+            p.policy={'refresh':{'command':['/trusted/wrapper'],'env':{name:'/author/code'},'timeout':10}}
+            executable=mock.Mock()
+            executable.is_absolute.return_value=True
+            executable.stat.return_value=mock.Mock(st_uid=c.os.getuid(),st_mode=0o755)
+            with self.subTest(name=name),mock.patch.object(c,'protected_path',return_value=executable),\
+                 mock.patch.object(c.subprocess,'run',return_value=mock.Mock(stdout='{}')) as run:
+                with self.assertRaises(c.q.QueueError):p.command('refresh',{})
+                run.assert_not_called()
+
+    def test_adapter_interpreter_arguments_cannot_select_unprotected_code(self):
+        p=c.Provider.__new__(c.Provider)
+        for command in (['/usr/bin/python3','/author/adapter.py'],['/bin/bash','-c','untrusted'],
+                        ['/usr/bin/env','PATH=/author/bin','adapter']):
+            p.policy={'refresh':{'command':command,'env':{},'timeout':10}}
+            executable=mock.Mock()
+            executable.is_absolute.return_value=True
+            executable.stat.return_value=mock.Mock(st_uid=c.os.getuid(),st_mode=0o755)
+            with self.subTest(command=command),mock.patch.object(c,'protected_path',return_value=executable),\
+                 mock.patch.object(c.subprocess,'run',return_value=mock.Mock(stdout='{}')) as run:
+                with self.assertRaises(c.q.QueueError):p.command('refresh',{})
+                run.assert_not_called()
+
     def test_relative_adapter_is_rejected_before_execution(self):
         p=c.Provider.__new__(c.Provider)
         p.policy={'refresh':{'command':['tmp/refresh'],'env':{},'timeout':10}}
@@ -349,7 +417,7 @@ class ProtocolTests(unittest.TestCase):
                 workflow[field]=original
 
     def test_admission_external_id_is_bounded_and_binds_long_repository(self):
-        p=c.Provider.__new__(c.Provider);p.policy={'app_id':123456789}
+        p=c.Provider.__new__(c.Provider);p.policy={'app_id':123456789};p.journal=mock.Mock()
         s=snapshot();s['repository']='o'*39+'/'+('r'*100)
         a=dict(id='a'*32,snapshot=s,run_id=123456789012)
         p.pages=mock.Mock(return_value=[])
@@ -390,7 +458,7 @@ class ProtocolTests(unittest.TestCase):
             with mock.patch.dict(os.environ,env,clear=True),self.assertRaises(SystemExit):exec(code,{})
 
     def test_live_check_reconciles_lost_create_response(self):
-        p=c.Provider.__new__(c.Provider);p.policy={'app_id':10}
+        p=c.Provider.__new__(c.Provider);p.policy={'app_id':10};p.journal=mock.Mock()
         a=dict(id='nonce',snapshot=snapshot(),run_id=8)
         external=c.admission_id(c.admission_identity(a,p))
         check=dict(id=91,name=c.ADMISSION,app={'id':10},external_id=external)
@@ -398,7 +466,7 @@ class ProtocolTests(unittest.TestCase):
         p.check(a,c.ADMISSION,'in_progress',external=c.admission_identity(a,p))
         self.assertEqual(('PATCH','/check-runs/91'),p.api.call_args.args[:2])
         p.api.reset_mock();p.pages.return_value=[]
-        p.check(a,c.ADMISSION,'completed','failure')
+        with self.assertRaises(c.CheckPending):p.check(a,c.ADMISSION,'completed','failure')
         p.api.assert_not_called()
 
     def test_dependency_proof_stops_once_all_commits_are_found(self):

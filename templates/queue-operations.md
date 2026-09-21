@@ -20,7 +20,12 @@ Git, Actions secrets, worker environments or the author/reviewer homes. The cont
 short-lived installation tokens scoped to this repository and never passes them to adapters.
 `app_actor_id` is the App bot's numeric user id, not the App id or installation id.
 
-Provide an operator-owned wrapper for each adapter, using a narrowly allowed `sudo -n -u`
+Configure exactly one absolute, protected wrapper executable per adapter, with no command
+arguments. Put interpreter, script, config and UID-switch arguments inside the reviewed
+wrapper; an interpreter followed by an external script path is rejected. Adapter environments
+allow only `PATH`, `HOME`, `LANG`, `LC_ALL`, `LC_CTYPE` and `TZ`; PATH entries and HOME must be
+protected too. Interpreter/preload variables such as `BASH_ENV` and `PYTHONPATH` are rejected.
+Use a narrowly allowed `sudo -n -u`
 command or a comparably isolated service boundary. The acceptance wrapper runs the shipped
 `queue-controller.py --root ... --state ... --policy ... worker-receipt` command **as the
 independent reviewer**, with that reviewer's existing worker policy, journal and read-only
@@ -126,7 +131,12 @@ Use the same `--root`, `--state`, `--policy` prefix for `preflight`, `enqueue <P
 `tick`, `serve`, `retry --reason <reason>`, and `retire-request <PR> --reason <reason>`. Enqueue order is durable; only its first PR can
 refresh or dispatch. The lock spans every observation/mutation within a tick, including network
 calls. It has no timeout-based takeover. Polls are 15 seconds. Supervisors may restart the
-process, but saved mutation intent prevents duplicate dispatch/refresh/merge.
+process, but saved mutation intent prevents duplicate dispatch/refresh/merge/check creation.
+A lost check-creation response stays unknown until its original check appears; stale inventories
+do not cause another create request. If evidence changes meanwhile, CI cancellation proceeds
+even while check revocation is waiting for visibility. Do not retire that attempt until the
+unknown check is reconciled. A creation that never reached GitHub requires operator
+reconciliation; elapsed time does not authorize another POST.
 
 `status` reports the active attempt and ordered pending requests. If an unadmitted queued PR
 is closed, made draft, or becomes unobservable, the service retains its request rather than

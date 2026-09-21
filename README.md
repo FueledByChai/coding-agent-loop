@@ -98,9 +98,11 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   gets a sanctioned refresh, renewed head review/acceptance, then CI. Never batch-refresh from
   a review pass. Selection and final gates are described in `prompts/review-prs.md` and 0019.
   Planning preferences do not become false implementation dependencies. Five independent PRs
-  prebuilt and repeatedly refreshed can cost 15 full runs; serial admission avoids ten redundant
-  runs, leaving five successful candidate runs before any genuine failures or code changes.
-  Prompts do not disable existing push/label triggers or provide an atomic admission lock.
+  prebuilt and repeatedly refreshed can cost 15 full runs. With the shipped automatic PR triggers,
+  draft openings still cost five runs and selected refreshes cost four: nine runs, saving six.
+  After the separate CI-admission rollout suppresses opening/push runs, the target becomes five
+  successful candidate runs, saving ten against the original 15. Genuine failures or code changes
+  can add runs. Prompts do not disable those triggers or provide an atomic admission lock.
 - **Done** means the project's check passes and the commit carries the proof. The check is
   the project's own script; CI runs the same script.
 - **The proof gate** makes "carries the proof" a check: with `code_paths`, `proof_paths`, and

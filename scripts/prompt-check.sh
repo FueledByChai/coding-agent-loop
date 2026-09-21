@@ -48,6 +48,7 @@ grill-me.md	"or none" only where that comment states the subset reading
 grill-me.md	--type epic
 grill-me.md	merge order
 grill-me.md	N(N-1)/2
+grill-me.md	nine runs
 grill-me.md	ordering preferences are not implementation dependencies
 grill-me.md	single coordinator
 grill-me.md	waiting PRs do not rebase or request CI
@@ -118,7 +119,7 @@ self_test() {
   local file phrase
   while IFS=$'\t' read -r file phrase; do
     case "$file:$phrase" in
-      respond-to-review.md:*|next-ticket.md:*|review-prs.md:*|grill-me.md:--type*|grill-me.md:merge\ order|grill-me.md:N*|grill-me.md:ordering*|grill-me.md:single*|grill-me.md:waiting*) ;;
+      respond-to-review.md:*|next-ticket.md:*|review-prs.md:*|grill-me.md:--type*|grill-me.md:merge\ order|grill-me.md:N*|grill-me.md:nine*|grill-me.md:ordering*|grill-me.md:single*|grill-me.md:waiting*) ;;
       *) continue ;;
     esac
     # Remove this phrase independent of capitalization or line wrapping.

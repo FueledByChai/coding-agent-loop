@@ -7,6 +7,7 @@ by the operator run with explicit environments and must cross the documented OS 
 import argparse
 import base64
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import fcntl
 import importlib.util
 import json
@@ -66,7 +67,31 @@ class Journal:
             if not rows:self.db.execute('INSERT INTO lane VALUES (?)',(lane,))
     def enqueue(self,number):
         q.require(q.integer(number),'positive PR number required')
-        self.db.execute('INSERT OR IGNORE INTO requests(number) VALUES (?)',(number,))
+        self.db.execute('BEGIN IMMEDIATE')
+        try:
+            row=self.db.execute('SELECT done FROM requests WHERE number=?',(number,)).fetchone()
+            if row and row['done']:
+                a=self.active()
+                q.require(not a or a['number']!=number,'active attempt cannot be requeued')
+                self.db.execute('DELETE FROM requests WHERE number=?',(number,))
+            self.db.execute('INSERT OR IGNORE INTO requests(number) VALUES (?)',(number,))
+            self.db.execute('COMMIT')
+        except BaseException:self.db.execute('ROLLBACK');raise
+    def retire_request(self,number,reason):
+        q.require(q.integer(number) and w.nonempty(reason),'request number and retirement reason required')
+        with self.lock():
+            a=self.active()
+            q.require(not a or a['number']!=number,'active attempt retains ownership; verify stop through retry/reconciliation')
+            self.db.execute('BEGIN IMMEDIATE')
+            try:
+                cursor=self.db.execute('UPDATE requests SET done=1 WHERE number=? AND done=0',(number,))
+                q.require(cursor.rowcount==1,'request is absent or already retired')
+                self.db.execute('INSERT INTO events(at,attempt,detail) VALUES (?,NULL,?)',
+                    (time.time(),q.encoded({'kind':'retire-request','number':number,'reason':reason})))
+                self.db.execute('COMMIT')
+            except BaseException:self.db.execute('ROLLBACK');raise
+    def requests(self):
+        return [dict(row) for row in self.db.execute('SELECT position,number FROM requests WHERE done=0 ORDER BY position')]
     def next_number(self):
         row=self.db.execute('SELECT number FROM requests WHERE done=0 ORDER BY position LIMIT 1').fetchone()
         return row[0] if row else None
@@ -160,7 +185,7 @@ class Controller:
                 self.fresh(a)
                 self.p.check(a,GATE,'in_progress')
                 self.fresh(a)
-                a.update(phase='dispatching',dispatch_intent=True); self.db.save(a)
+                a.update(phase='dispatching',dispatch_intent=True,dispatch_started_at=time.time()); self.db.save(a)
                 self.p.dispatch(a)  # uncertain response is reconciled, never dispatched twice
                 return a
             self.fresh(a)
@@ -216,6 +241,14 @@ def admitted(checks,expected,run_attempt):
         except (ValueError,TypeError): continue
         if data==expected: matches.append(check)
     return len(matches)==1 and matches[0]['status']=='in_progress'
+
+
+def dispatch_boundary(a):
+    stamp=a.get('dispatch_started_at')
+    q.require(type(stamp) in (float,int) and q.math.isfinite(stamp) and stamp>0,
+              'dispatch time missing; retain the attempt for reconciliation')
+    # Small clock skew allowance; preserve the original boundary across restart.
+    return datetime.fromtimestamp(stamp-300,timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 def run_matches(run,a,p):
@@ -280,15 +313,19 @@ class App:
 class Provider:
     def __init__(self,p,root): self.policy=p; self.root=Path(root); self.app=App(p); self.prefix='/repos/'+p['repo']
     def api(self,method,path,data=None): return self.app.api(method,self.prefix+path,data)
-    def pages(self,path,key=None):
-        result=[]
-        for page in range(1,101):
+    def pages(self,path,key=None,until=None):
+        result=[];page=1;seen=set()
+        while True:
             data=self.api('GET',path+('&' if '?' in path else '?')+'per_page=100&page='+str(page))
             rows=data[key] if key else data
             q.require(isinstance(rows,list),'invalid paginated GitHub result')
+            if rows:
+                fingerprint=q.digest(rows)
+                q.require(fingerprint not in seen,'GitHub pagination repeated a page')
+                seen.add(fingerprint)
             result.extend(rows)
-            if len(rows)<100:return result
-        raise q.QueueError('GitHub page limit exceeded')
+            if len(rows)<100 or (until and until(result)):return result
+            page+=1
     def observe(self,n):
         # Only gh receives the short-lived App token. Configured worker commands never do.
         env={'PATH':os.defpath,'HOME':str(Path.home()),'GH_TOKEN':self.app.token(),'GH_PROMPT_DISABLED':'1'}
@@ -305,8 +342,11 @@ class Provider:
         q.require(pr['head']['sha']==s['head'] and pr['base']['ref']==s['base'],'PR changed during readiness read')
         blockers=[d['id'] for d in s['ticket_metadata']['dependencies'] if d['dependency_type']=='blocks']
         if blockers:
-            subjects=[item['commit']['message'].splitlines()[0] for item in self.pages('/commits?sha='+s['base_sha'])]
-            q.require(all(any(subject.startswith(ticket+':') for subject in subjects) for ticket in blockers),
+            def found(rows):
+                subjects=[item['commit']['message'].partition('\n')[0] for item in rows]
+                return all(any(subject.startswith(ticket+':') for subject in subjects) for ticket in blockers)
+            commits=self.pages('/commits?sha='+s['base_sha'],until=found)
+            q.require(found(commits),
                       'dependency lacks a naming commit on the observed base')
         comparison=self.api('GET','/compare/'+s['base_sha']+'...'+s['head'])
         if comparison['merge_base_commit']['sha']!=s['base_sha']:return False
@@ -363,7 +403,9 @@ class Provider:
                  {'ref':self.policy['base'],'inputs':{'attempt':a['id'],'head':s['head'],'base_sha':s['base_sha'],
                      'app_id':str(self.policy['app_id'])}})
     def find_runs(self,a):
-        runs=self.pages('/actions/workflows/'+str(self.policy['workflow_id'])+'/runs?event=workflow_dispatch',key='workflow_runs')
+        runs=self.pages('/actions/workflows/'+str(self.policy['workflow_id'])+'/runs?event=workflow_dispatch'
+                        +'&head_sha='+a['snapshot']['base_sha']+'&created='+quote('>='+dispatch_boundary(a),safe=''),
+                        key='workflow_runs')
         matches=[r for r in runs if r.get('display_title')=='queue:'+a['id']]
         q.require(all(run_matches(r,a,self.policy) for r in matches),'unauthorized or retried CI dispatch')
         return matches
@@ -486,6 +528,7 @@ def main():
     parser.add_argument('--root',type=Path)
     sub=parser.add_subparsers(dest='command')
     en=sub.add_parser('enqueue'); en.add_argument('pr',type=int)
+    retire=sub.add_parser('retire-request');retire.add_argument('pr',type=int);retire.add_argument('--reason',required=True)
     for name in ('tick','serve','status','preflight','worker-receipt'):sub.add_parser(name)
     retry=sub.add_parser('retry'); retry.add_argument('--reason',required=True)
     args=parser.parse_args()
@@ -513,6 +556,9 @@ def main():
             with db.lock():
                 provider.observe(args.pr); db.enqueue(args.pr)
             print(q.encoded({'enqueued':args.pr,'merge_authorization':False}))
+        elif args.command=='retire-request':
+            db.retire_request(args.pr,args.reason)
+            print(q.encoded({'retired_request':args.pr,'reason':args.reason,'remote_mutations':False}))
         elif args.command=='retry':
             with db.lock():
                 a=db.active()
@@ -522,7 +568,7 @@ def main():
                 a.update(phase='retired',recovery_reason=args.reason)
                 db.save(a,retire=True)
             print('attempt retired; next tick retries the same selected PR')
-        elif args.command=='status':print(q.encoded(db.active()))
+        elif args.command=='status':print(q.encoded({'active':db.active(),'requests':db.requests()}))
         elif args.command=='preflight':provider.protections(); print('queue protections and trusted workflow verified')
         elif args.command=='tick':print(q.encoded(runner.tick()))
         else:

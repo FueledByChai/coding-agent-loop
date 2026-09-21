@@ -38,7 +38,10 @@ repository rules, installed consumer pins or services.
 ## Alternatives
 
 - Refresh every waiting PR: for N independently prebuilt PRs, rebuilding after each merge can
-  add N(N-1)/2 full runs. Five PRs cost 15 runs instead of five successful candidate runs.
+  add N(N-1)/2 full runs. Five PRs start at 15 runs. Keeping automatic draft-opening builds but
+  serializing refreshes reduces this to nine (five openings plus four refreshes), saving six.
+  Suppressing automatic builds in the later CI-admission rollout enables the target of five
+  successful candidate runs, saving ten against the original 15.
 - Turn merge preferences into dependencies: unnecessarily blocks parallel implementation.
 - Let each author select itself from a plan: multiple candidates can spend CI concurrently.
 - Publish acceptance as a passing required status before Codex or CI completes: repeats the

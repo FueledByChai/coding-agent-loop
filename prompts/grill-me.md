@@ -145,10 +145,13 @@ candidate refreshes using the project's sanctioned procedure, renews review/acce
 changed head, then requests CI and advances through the final merge gate. See `review-prs.md`.
 
 State the cost in runs: prebuilding N independent PRs and rebuilding every remaining PR after
-each merge can add N(N-1)/2 full runs. For five PRs that is ten extra runs (15 total instead of
-five successful candidate runs). Actual failures or code changes can require more runs. This
-planning guidance does not change existing push/label CI triggers; removing those automatic
-runs requires the separate CI-admission rollout.
+each merge can add N(N-1)/2 full runs. For five PRs the starting case is 15 runs. With the shipped
+automatic PR triggers, opening five drafts still costs five runs and four selected refreshes
+cost four: nine runs, saving six. Only after the separate CI-admission rollout suppresses
+automatic opening/push runs is the target five successful candidate runs, saving ten against
+the original 15. Actual failures or code changes can require more runs. This planning guidance
+does not itself change existing push/label CI triggers; report the interim and final costs
+separately for the consumer's actual triggers.
 
 
 Ask the owner to confirm the draft, and apply their edits, before going on.

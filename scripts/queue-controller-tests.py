@@ -70,6 +70,43 @@ class ControllerTests(unittest.TestCase):
         self.fail('not dispatched')
     def through_admission(self):
         self.through_dispatch(); return self.step()
+    def test_unknown_mergeability_waits_without_refresh_or_dispatch(self):
+        self.p.ready=lambda s:None
+        for _ in range(3):self.step()
+        self.assertEqual('selected',self.db.active()['phase'])
+        self.assertFalse(any(x[0] in ('refresh','dispatch','merge') for x in self.p.calls))
+
+    def test_unknown_mergeability_after_admission_keeps_polling(self):
+        self.through_admission()
+        self.p.ready=lambda s:None
+        self.step()
+        self.assertEqual('running',self.db.active()['phase'])
+        self.assertFalse(any(x[0] in ('cancel','merge') for x in self.p.calls))
+
+    def test_lane_schema_forbids_a_second_binding(self):
+        self.db.bind('fixture/project','trunk')
+        with self.assertRaises(c.sqlite3.IntegrityError):
+            self.db.db.execute('INSERT INTO lane(binding) VALUES (?)',('["other/project","trunk"]',))
+        self.assertEqual(1,self.db.db.execute('SELECT count(*) FROM lane').fetchone()[0])
+
+    def test_two_initial_binders_have_exactly_one_owner(self):
+        import threading
+        barrier=threading.Barrier(2)
+        results=[]
+        def bind(repo):
+            db=c.Journal(self.db.state)
+            try:
+                barrier.wait(timeout=5)
+                try:db.bind(repo,'trunk');results.append(('bound',repo))
+                except c.q.QueueError:results.append(('refused',repo))
+            finally:db.close()
+        threads=[threading.Thread(target=bind,args=(r,)) for r in ('fixture/one','fixture/two')]
+        for t in threads:t.start()
+        for t in threads:t.join(timeout=10)
+        self.assertFalse(any(t.is_alive() for t in threads))
+        self.assertEqual(1,len([r for r in results if r[0]=='bound']))
+        self.assertEqual(1,self.db.db.execute('SELECT count(*) FROM lane').fetchone()[0])
+
     def test_refresh_only_selected_and_lost_response_holds_even_if_current(self):
         self.p.ready=lambda s:False
         self.p.refresh=mock.Mock(side_effect=RuntimeError('lost response'))
@@ -219,6 +256,17 @@ class ProtocolTests(unittest.TestCase):
         p.api.reset_mock();p.pages.return_value=[]
         p.check(a,c.ADMISSION,'completed','failure')
         p.api.assert_not_called()
+
+    def test_provider_distinguishes_unknown_from_proven_stale(self):
+        p=c.Provider.__new__(c.Provider)
+        s=snapshot()
+        pr=dict(auto_merge=None,head={'sha':s['head']},base={'ref':s['base']},mergeable=None)
+        comparison={'merge_base_commit':{'sha':s['base_sha']}}
+        p.api=lambda method,path:pr if path.startswith('/pulls/') else comparison
+        self.assertIsNone(p.ready(s))
+        pr['mergeable']=True;self.assertIs(p.ready(s),True)
+        comparison['merge_base_commit']['sha']='c'*40
+        self.assertIs(p.ready(s),False)
 
     def test_live_ci_evidence_requires_real_full_step(self):
         p=c.Provider.__new__(c.Provider);p.policy={'ci_job':'Queue full check'}

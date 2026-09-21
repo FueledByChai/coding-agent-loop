@@ -28,6 +28,10 @@ GATE = 'Queue merge gate'
 ADMISSION = 'Queue CI admission'
 
 
+class Pending(Exception):
+    """Provider is still computing readiness; retain ownership without mutating the PR."""
+
+
 class Journal:
     def __init__(self,state):
         self.state=Path(state).resolve()
@@ -42,6 +46,9 @@ class Journal:
         self.db.execute('CREATE UNIQUE INDEX IF NOT EXISTS one_controller_attempt ON attempts(active) WHERE active=1')
         self.db.execute('CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY,at REAL,attempt TEXT,detail TEXT)')
         self.db.execute('CREATE TABLE IF NOT EXISTS lane(binding TEXT)')
+        # The constant-expression unique index also guards direct/concurrent inserts.
+        # An old journal with conflicting bindings fails here without deleting any state.
+        self.db.execute('CREATE UNIQUE INDEX IF NOT EXISTS one_lane ON lane((1))')
     def close(self): self.db.close()
     @contextmanager
     def lock(self):
@@ -52,9 +59,11 @@ class Journal:
             yield
         finally: os.close(fd)
     def bind(self,repo,base):
-        lane=q.encoded([repo.lower(),base]); rows=list(self.db.execute('SELECT binding FROM lane'))
-        q.require(not rows or rows[0][0]==lane,'controller journal belongs to a different lane')
-        if not rows: self.db.execute('INSERT INTO lane VALUES (?)',(lane,))
+        lane=q.encoded([repo.lower(),base])
+        with self.lock():
+            rows=list(self.db.execute('SELECT binding FROM lane'))
+            q.require(len(rows)<=1 and (not rows or rows[0][0]==lane),'controller journal belongs to a different lane')
+            if not rows:self.db.execute('INSERT INTO lane VALUES (?)',(lane,))
     def enqueue(self,number):
         q.require(q.integer(number),'positive PR number required')
         self.db.execute('INSERT OR IGNORE INTO requests(number) VALUES (?)',(number,))
@@ -87,8 +96,10 @@ class Controller:
     def fresh(self,a):
         self.p.protections()
         s=self.p.observe(a['number']); reviewed(s)
-        q.require(self.p.ready(s),'selected head is not current and mergeable')
         q.require(w.binding(s)==w.binding(a['snapshot']),'head/base/review/ticket evidence changed')
+        ready=self.p.ready(s)
+        if ready is None:raise Pending('GitHub is computing mergeability; poll without refresh')
+        q.require(ready,'selected head is not current and mergeable')
         q.require(self.p.acceptance(s)==a['acceptance'],'independent acceptance changed')
         q.require(a['policy']==self.policy_hash,'controller policy changed')
         return s
@@ -128,7 +139,9 @@ class Controller:
                 self.db.save(a); return a
             if a['phase'] in ('selected','reviewing'):
                 s=self.p.observe(a['number'])
-                if not self.p.ready(s):
+                ready=self.p.ready(s)
+                if ready is None:return a
+                if not ready:
                     if a['phase']=='selected':
                         # Persist before mutation. Never replay a refresh whose outcome is unknown.
                         a.update(phase='refreshing',snapshot=s,refresh_finished=False); self.db.save(a)
@@ -180,6 +193,11 @@ class Controller:
             self.p.merge(a)
             q.require(self.p.verify_merge(a),'merge result not proven landed')
             a['phase']='merged'; self.db.save(a,done=True)
+            return a
+        except Pending as exc:
+            a['reason']=str(exc)
+            self.p.check(a,GATE,'in_progress')
+            self.db.save(a)
             return a
         except q.QueueError as exc: return self.block(a,str(exc))
 
@@ -291,7 +309,10 @@ class Provider:
             q.require(all(any(subject.startswith(ticket+':') for subject in subjects) for ticket in blockers),
                       'dependency lacks a naming commit on the observed base')
         comparison=self.api('GET','/compare/'+s['base_sha']+'...'+s['head'])
-        return pr['mergeable'] is True and comparison['merge_base_commit']['sha']==s['base_sha']
+        if comparison['merge_base_commit']['sha']!=s['base_sha']:return False
+        if pr['mergeable'] is None:return None
+        q.require(pr['mergeable'] is True,'current head has a confirmed merge conflict')
+        return True
     def command(self,name,packet):
         adapter=self.policy[name]
         # Executable/config are trusted, PR-provided text is stdin data, never shell code.

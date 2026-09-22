@@ -131,7 +131,9 @@ def validate_author_bridge(policy, packet):
              'GIT_CONFIG_GLOBAL':'/dev/null','GIT_ATTR_NOSYSTEM':'1','GIT_NO_REPLACE_OBJECTS':'1'}
         return subprocess.check_output([str(binary),'-C',str(tree),'--work-tree='+str(tree),
                                        '-c','core.fsmonitor=false','-c','core.untrackedCache=false',
-                                       '-c','core.hooksPath=/dev/null',*args],env=env,
+                                       '-c','core.hooksPath=/dev/null','-c','core.fileMode=true',
+                                       '-c','core.symlinks=true','-c','core.ignoreStat=false',
+                                       '-c','core.trustCtime=true','-c','core.checkStat=default',*args],env=env,
                                        text=True,stderr=subprocess.PIPE).strip()
     q.require(checked_git('remote','get-url','origin').removesuffix('.git').rstrip('/')==
               'https://github.com/'+policy['repo'], 'author repository remote mismatch')

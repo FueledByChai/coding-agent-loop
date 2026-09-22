@@ -34,6 +34,7 @@ scripts/check-list.sh --section AGENTS.md "The check" check.sh
 # loop posts it as a commit status - while the template a project installs reports
 # `Check (scripts/check.sh)` alone (decision 0006).
 scripts/ruleset-check.sh .github/ruleset.json .github/workflows/ci.yml ci/ruleset.json ci/workflow.yml
+python3 .github/tests/queue_workflow_test.py
 ./install.sh --self-test
 # The sprint here is every open ticket (LK-15), so an open ticket without the sprint label is a
 # fault: --next would work it after the labelled ones, which is not the order the label states.

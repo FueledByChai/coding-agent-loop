@@ -314,7 +314,8 @@ class IsolationTest(unittest.TestCase):
         p={'author_uid':os.getuid()+1,'repo':'fixture/project','worktrees':{'AA-1':'/author/AA-1'},
            'command':['/usr/bin/false'],'env':{'HOME':'/author'}}
         with mock.patch.object(w,'git',side_effect=AssertionError('Git before UID check')):
-            with self.assertRaises(w.q.QueueError):w.validate_author_bridge(p,{'role':'author','snapshot':snapshot(),'worktree':'/author/AA-1'})
+            with self.assertRaisesRegex(w.q.QueueError,'configured non-root author UID'):
+                w.validate_author_bridge(p,{'protocol':1,'role':'author','snapshot':snapshot(),'worktree':'/author/AA-1'})
 
 
 class RuntimeTest(unittest.TestCase):
@@ -454,6 +455,7 @@ print(json.dumps(r))
             self.assertFalse(marker.exists())
         finally:db.close()
 
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
     def test_author_bridge_checks_actual_checkout_before_adapter(self):
         self.git('remote','add','origin','https://github.com/fixture/project.git')
         p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}

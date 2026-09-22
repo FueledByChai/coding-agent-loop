@@ -580,6 +580,7 @@ print(json.dumps(r))
         p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
         packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
                 'worktree':str(self.repo.resolve())}
+        self.assertEqual(self.repo.resolve(),w.validate_author_bridge(p,packet))
         self.git('config','core.symlinks','false')
         tracked.unlink();tracked.write_text('proof.py')
         self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal the replaced symlink')
@@ -602,6 +603,50 @@ print(json.dumps(r))
             w.validate_author_bridge(p,packet)
 
     @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_clean_filter_cannot_hide_tracked_changes(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        blob=self.git('rev-parse','HEAD:proof.py')
+        info=Path(self.git('rev-parse','--git-path','info'));info=info if info.is_absolute() else self.repo/info
+        (info/'attributes').write_text('proof.py filter=hide\n')
+        marker=self.root/'clean-filter-ran';hook=self.root/'clean-filter'
+        hook.write_text('#!/bin/sh\ntouch '+str(marker)+'\n/usr/bin/git cat-file blob '+blob+'\n');hook.chmod(0o755)
+        self.git('config','filter.hide.clean',str(hook))
+        (self.repo/'proof.py').write_text('hidden source code\n');self.git('add','proof.py')
+        self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal filtered source change')
+        marker.unlink()
+        with self.assertRaisesRegex(w.q.QueueError,'author-defined filters'):
+            w.validate_author_bridge(p,packet)
+        self.assertFalse(marker.exists(),'validation executed author clean filter')
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_attribute_conversion_cannot_hide_tracked_bytes(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        info=Path(self.git('rev-parse','--git-path','info'));info=info if info.is_absolute() else self.repo/info
+        (info/'attributes').write_text('proof.py text\n')
+        tracked=self.repo/'proof.py';tracked.write_bytes(tracked.read_bytes().replace(b'\n',b'\r\n'))
+        self.git('add','proof.py')
+        self.assertEqual('',self.git('status','--porcelain'),'fixture must normalize altered bytes')
+        with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+            w.validate_author_bridge(p,packet)
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_bridge_rejects_unsupported_submodules(self):
+        self.git('update-index','--add','--cacheinfo','160000,'+self.git('rev-parse','HEAD')+',nested')
+        self.git('commit','-qm','AA-1: add fixture gitlink')
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        with self.assertRaisesRegex(w.q.QueueError,'submodules are unsupported'):
+            w.validate_author_bridge(p,packet)
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
     def test_author_bridge_checks_actual_checkout_before_adapter(self):
         self.git('remote','add','origin','https://github.com/fixture/project.git')
         p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
@@ -613,6 +658,11 @@ print(json.dumps(r))
                 w.validate_author_bridge(p,{**packet,'snapshot':{**s,**change}})
         (self.repo/'dirty').write_text('must not start on an unclean checkout')
         with self.assertRaises(w.q.QueueError):w.validate_author_bridge(p,packet)
+        (self.repo/'dirty').unlink()
+        tracked=self.repo/'proof.py';original=tracked.read_bytes()
+        tracked.write_text('staged unrelated edit\n');self.git('add','proof.py');tracked.write_bytes(original)
+        with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+            w.validate_author_bridge(p,packet)
 
     def test_real_process_pass_and_fresh_query(self):
         j=self.prepare();p=self.call('run',j['id'])
@@ -943,6 +993,26 @@ def identity_proof(author_uid, reviewer_uid, parent):
             rejected=invoke_bridge()
             assert rejected.returncode!=0 and 'must be clean' in rejected.stderr,rejected.stderr
             (author/'repo/proof.txt').chmod(0o644)
+            attributes=author/'repo/.git/info/attributes'
+            attributes.write_text('proof.txt filter=hide\n')
+            hook=author/'clean-filter';marker=author/'clean-filter-ran'
+            blob=git(author/'repo','rev-parse','HEAD:proof.txt')
+            hook.write_text('#!/bin/sh\ntouch '+str(marker)+'\n/usr/bin/git cat-file blob '+blob+'\n')
+            hook.chmod(0o755);git(author/'repo','config','filter.hide.clean',str(hook))
+            (author/'repo/proof.txt').write_text('hidden code\n')
+            git(author/'repo','-c','core.fsmonitor=false','add','proof.txt')
+            assert git(author/'repo','-c','core.fsmonitor=false','status','--porcelain')==''
+            marker.unlink();rejected=invoke_bridge()
+            assert rejected.returncode!=0 and 'author-defined filters' in rejected.stderr,rejected.stderr
+            assert not marker.exists(),'validation executed author clean filter'
+            git(author/'repo','config','--unset','filter.hide.clean')
+            attributes.write_text('proof.txt text\n')
+            (author/'repo/proof.txt').write_bytes(b'synthetic fixture\r\n')
+            git(author/'repo','-c','core.fsmonitor=false','add','proof.txt')
+            assert git(author/'repo','-c','core.fsmonitor=false','status','--porcelain')==''
+            rejected=invoke_bridge()
+            assert rejected.returncode!=0 and 'tracked bytes differ' in rejected.stderr,rejected.stderr
+            attributes.unlink();(author/'repo/proof.txt').write_text('synthetic fixture\n')
             result=invoke_bridge()
             assert result.returncode==0,result.stderr
             receipt=json.loads(result.stdout)
@@ -988,6 +1058,7 @@ def identity_proof(author_uid, reviewer_uid, parent):
                 'author_git_hook_runs_only_as_author':True,'reviewer_git_metadata_separate':True,
                 'author_path_git_not_executed':True,
                 'author_git_hook_disabled_during_validation':True,'hidden_dirty_checkouts_rejected':True,
+                'author_clean_filters_not_executed':True,'raw_tracked_bytes_verified':True,
                 'hidden_executable_changes_rejected':True,'concealing_index_flags_rejected':True,'missing_policy_journal_commands_blocked':True,
                 'author_denied_reviewer_credentials_and_journal':True,'duplicate_roles_blocked':True,
                 'surviving_author_retains_job':True,'release_after_verified_stop':True,

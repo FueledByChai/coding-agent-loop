@@ -8,6 +8,7 @@ sandbox. The future merge gate must run under a separate OS/service identity.
 import argparse
 from contextlib import contextmanager
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -137,13 +138,45 @@ def validate_author_bridge(policy, packet):
                                        text=True,stderr=subprocess.PIPE).strip()
     q.require(checked_git('remote','get-url','origin').removesuffix('.git').rstrip('/')==
               'https://github.com/'+policy['repo'], 'author repository remote mismatch')
+    keys=checked_git('config','--name-only','--list','-z').split('\0')
+    q.require(not any(key.lower().startswith('filter.') and
+                      key.rsplit('.',1)[-1].lower() in ('clean','smudge','process') for key in keys),
+              'author-defined filters are unsupported in isolated author checkouts')
     # Status deliberately trusts these index bits; reject them before accepting its evidence.
     entries=checked_git('ls-files','-v','-z').split('\0')
     q.require(all(not entry or (not entry[0].islower() and entry[0]!='S') for entry in entries),
               'author worktree has concealing index flags (assume-unchanged or skip-worktree)')
     q.require(checked_git('rev-parse','HEAD')==snapshot['head'] and
-              checked_git('branch','--show-current')==snapshot['branch'] and
-              not checked_git('status','--porcelain','--untracked-files=all','--ignore-submodules=none'),
+              checked_git('branch','--show-current')==snapshot['branch'],
+              'author worktree must be clean at assigned branch/head')
+    # Compare raw filesystem bytes with commit blob IDs, without index stat caches or
+    # attribute conversion. Isolated checkouts deliberately require canonical bytes.
+    for entry in checked_git('ls-tree','-r','-z','--full-tree',snapshot['head']).split('\0'):
+        if not entry:continue
+        metadata,name=entry.split('\t',1);mode,kind,oid=metadata.split(' ')
+        relative=Path(name)
+        q.require(not relative.is_absolute() and all(part not in ('.','..') for part in relative.parts),
+                  'invalid tracked path in author checkout')
+        q.require(kind=='blob' and mode in ('100644','100755','120000'),
+                  'isolated author checkouts support regular files and symlinks only; submodules are unsupported')
+        path=tree/relative
+        q.require(all(not parent.is_symlink() for parent in path.parents if parent!=tree and tree in parent.parents),
+                  'author worktree must be clean: tracked parent is a symlink')
+        try:
+            actual=path.lstat()
+            if mode=='120000':
+                q.require(stat.S_ISLNK(actual.st_mode),'author worktree must be clean: tracked symlink changed')
+                data=os.fsencode(os.readlink(path))
+            else:
+                q.require(stat.S_ISREG(actual.st_mode) and bool(actual.st_mode & stat.S_IXUSR)==(mode=='100755'),
+                          'author worktree must be clean: tracked file mode changed')
+                data=path.read_bytes()
+        except OSError as exc:
+            raise q.QueueError('author worktree must be clean: tracked file unavailable') from exc
+        digest=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+        q.require(digest==oid,'author worktree must be clean: tracked bytes differ from assigned head')
+    q.require(not checked_git('diff-index','--cached','--raw','--no-ext-diff','--no-renames',snapshot['head'],'--') and
+              not checked_git('ls-files','--others','--exclude-standard','-z'),
               'author worktree must be clean at assigned branch/head')
     return tree
 

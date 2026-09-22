@@ -557,9 +557,15 @@ Checkout validation uses the root-owned `/usr/bin/git` executable (including its
 target and ancestors) and a clean system environment, so author tool-path shims cannot
 forge the validation results. The repair adapter still receives its configured environment.
 Validation ignores system/HOME Git configuration, disables fsmonitor, untracked cache and
-hooks, pins the actual worktree, and explicitly checks untracked files and submodule changes.
+hooks, pins the actual worktree, and explicitly checks staged and untracked files.
 It enables executable-bit, symlink and full stat checks regardless of author configuration.
 Validation also rejects assume-unchanged and skip-worktree index flags, which can conceal tracked edits.
+It rejects configured clean/smudge/process filters and compares raw tracked bytes and modes
+with the assigned commit, independently of Git status and attribute conversion. Staged
+changes and untracked files are checked separately through Git plumbing. Isolated
+author checkouts must use canonical commit bytes: converted line endings, LFS/smudge
+checkouts and submodules are unsupported and stop before adapter launch. Ordinary files
+and symlinks are supported; legacy single-identity mode is unchanged.
 Isolated mode requires Git 2.36 or later; older versions interpret boolean fsmonitor
 settings differently ([Git configuration reference](https://git-scm.com/docs/git-config)).
 Configure sudo only for the exact protected command/arguments; never allow an arbitrary

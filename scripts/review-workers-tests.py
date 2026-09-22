@@ -456,6 +456,21 @@ print(json.dumps(r))
         finally:db.close()
 
     @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_bridge_rejects_checkout_when_path_git_lies(self):
+        self.git('remote','add','origin','https://github.com/other/repo.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        s=snapshot(head=self.git('rev-parse','HEAD'))
+        marker=self.root/'fake-git-executed'
+        shim=self.bin/'git'
+        shim.write_text('#!/bin/sh\ntouch '+str(marker)+'\ncase "$3" in\nremote) echo https://github.com/fixture/project.git;;\nrev-parse) echo '+s['head']+';;\nbranch) echo ticket/AA-1;;\nstatus) :;;\nesac\n')
+        shim.chmod(0o755)
+        packet={'protocol':1,'role':'author','snapshot':s,'worktree':str(self.repo.resolve())}
+        with mock.patch.dict(os.environ,PATH=str(self.bin)+':/usr/bin:/bin'):
+            with self.assertRaisesRegex(w.q.QueueError,'repository remote mismatch'):
+                w.validate_author_bridge(p,packet)
+        self.assertFalse(marker.exists(),'validation executed author PATH shim')
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
     def test_author_bridge_checks_actual_checkout_before_adapter(self):
         self.git('remote','add','origin','https://github.com/fixture/project.git')
         p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
@@ -711,9 +726,11 @@ def identity_proof(author_uid, reviewer_uid, parent):
         interpreter=str(Path(sys.executable).resolve())
         bridge.write_text(json.dumps({'author_uid':author_uid,'repo':'fixture/project',
             'worktrees':{'AA-1':str(author/'repo')},'command':[interpreter,'-I',str(adapter)],
-            'env':{'HOME':str(author)}}));bridge.chmod(0o644)
+            'env':{'HOME':str(author),'PATH':str(author/'bin')+':/usr/bin:/bin'}}));bridge.chmod(0o644)
         def author_setup():
             git(author/'repo','remote','set-url','origin','https://github.com/fixture/project.git')
+            (author/'bin').mkdir()
+            shim=author/'bin/git';shim.write_text('#!/bin/sh\ntouch '+str(author/'fake-git-executed')+'\nexit 99\n');shim.chmod(0o755)
             hook=author/'hostile-git-hook'
             hook.write_text('#!/bin/sh\n/usr/bin/id -u > '+str(author/'hook-uid')+'\nprintf "token\\000"\n');hook.chmod(0o755)
             git(author/'repo','config','core.fsmonitor',str(hook))
@@ -752,6 +769,7 @@ def identity_proof(author_uid, reviewer_uid, parent):
             receipt=json.loads(result.stdout)
             assert receipt['executed_uid']==author_uid and receipt['head']==head
             assert (author/'hook-uid').read_text().strip()==str(author_uid)
+            assert not (author/'fake-git-executed').exists()
             return True
         assert run_as(author_uid,author_run)
         # A group contains a reviewer guardian and an author child. The reviewer can kill
@@ -789,6 +807,7 @@ def identity_proof(author_uid, reviewer_uid, parent):
         assert run_as(reviewer_uid,release)
         return {'synthetic_identity_proof':'passed','author_uid':author_uid,'reviewer_uid':reviewer_uid,
                 'author_git_hook_runs_only_as_author':True,'reviewer_git_metadata_separate':True,
+                'author_path_git_not_executed':True,
                 'author_denied_reviewer_credentials_and_journal':True,'duplicate_roles_blocked':True,
                 'surviving_author_retains_job':True,'release_after_verified_stop':True,
                 'github_calls':0,'model_calls':0,'services_started':False}

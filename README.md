@@ -548,6 +548,9 @@ The root-owned bridge policy pins the actual adapter and author environment:
 The bridge accepts protocol-1 author packets only. It verifies UID, assigned path,
 HTTPS origin repository, ticket branch, full starting head and clean worktree under the
 **author** identity, then runs the adapter in the inherited guardian process group.
+Checkout validation uses the root-owned `/usr/bin/git` executable (including its resolved
+target and ancestors) and a clean system environment, so author tool-path shims cannot
+forge the validation results. The repair adapter still receives its configured environment.
 Configure sudo only for the exact protected command/arguments; never allow an arbitrary
 shell or interpreter invocation. Disable PTY/session creation for this fixed command and
 prove actual process-group retention on the target host. The kit does not install grants.

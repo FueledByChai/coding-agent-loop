@@ -123,10 +123,17 @@ def validate_author_bridge(policy, packet):
               snapshot['branch']=='ticket/'+snapshot['ticket'], 'author target identity mismatch')
     tree=author_tree({'isolation':{'author_worktrees':policy['worktrees']}},snapshot,packet['worktree'])
     q.require(tree.resolve()==tree and tree.stat().st_uid==os.getuid(), 'author worktree must be canonical and author-owned')
-    q.require(git(tree,'remote','get-url','origin').removesuffix('.git').rstrip('/')==
+    binary=protected_worker_path(Path('/usr/bin/git').resolve(),{0})
+    def checked_git(*args):
+        # Author tools are allowed for repairs, but cannot supply checkout-validation evidence.
+        env={'PATH':'/usr/bin:/bin','HOME':os.environ.get('HOME','/nonexistent'),
+             'LANG':'C','GIT_TERMINAL_PROMPT':'0'}
+        return subprocess.check_output([str(binary),'-C',str(tree),*args],env=env,
+                                       text=True,stderr=subprocess.PIPE).strip()
+    q.require(checked_git('remote','get-url','origin').removesuffix('.git').rstrip('/')==
               'https://github.com/'+policy['repo'], 'author repository remote mismatch')
-    q.require(git(tree,'rev-parse','HEAD')==snapshot['head'] and
-              git(tree,'branch','--show-current')==snapshot['branch'] and not git(tree,'status','--porcelain'),
+    q.require(checked_git('rev-parse','HEAD')==snapshot['head'] and
+              checked_git('branch','--show-current')==snapshot['branch'] and not checked_git('status','--porcelain'),
               'author worktree must be clean at assigned branch/head')
     return tree
 

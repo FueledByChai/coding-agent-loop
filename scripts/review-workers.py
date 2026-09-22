@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3 -I
 """Durable local author/acceptance workers. No CI dispatch, statuses or merge commands.
 
 Only trusted operator configuration may select commands and credentials. Foreground POSIX
@@ -697,33 +697,29 @@ def main():
     sub.add_parser('author-bridge')
     args=parser.parse_args()
     if args.self_test:
-        result = subprocess.call([sys.executable,str(Path(__file__).with_name('review-workers-tests.py')),'--self-test'])
+        result = subprocess.call([sys.executable,'-I',str(Path(__file__).with_name('review-workers-tests.py')),'--self-test'])
         if result == 0: print('review-workers self-test passed')
         return result
     if args.command=='author-bridge':
         q.require(args.policy,'fixed author bridge policy required')
         return author_bridge(args.policy)
     q.require(args.state and args.command,'choose a command and --state outside the checkout')
+    q.require(args.policy,'--policy outside the checkout is required for every journal command')
     root=args.root.absolute()
-    policy=None
-    if args.policy:
-        policy=load_policy(args.policy,root)
-        if policy.get('isolation'):
-            # Configure observation before Git/Beads helpers or child Python startup.
-            os.environ.clear();os.environ.update(observation_env(policy))
-            protected_worker_path(args.policy)
-            protected_worker_path(args.state)
-            for value in policy['isolation']['author_worktrees'].values():
-                tree=literal_path(value)
-                q.require(tree!=args.state and tree not in args.state.parents and args.state not in tree.parents,
-                          'author checkout overlaps worker journal')
+    policy=load_policy(args.policy,root)
+    if policy.get('isolation'):
+        # Configure observation before Git/Beads helpers or child Python startup.
+        os.environ.clear();os.environ.update(observation_env(policy))
+        protected_worker_path(args.policy)
+        protected_worker_path(args.state)
+        for value in policy['isolation']['author_worktrees'].values():
+            tree=literal_path(value)
+            q.require(tree!=args.state and tree not in args.state.parents and args.state not in tree.parents,
+                      'author checkout overlaps worker journal')
     state=trusted_path(args.state,root)
     db=Journal(state)
     try:
         bind_state(root,state)
-        if args.command in ('prepare','advance','acceptance','run','_execute'):
-            q.require(args.policy,'--policy outside the checkout is required')
-            policy=load_policy(args.policy,root)
         if args.command in ('prepare','advance','acceptance'):
             q.require(args.pr>0,'positive PR number required')
             q.identity(args.repo,'unused')

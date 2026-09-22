@@ -278,6 +278,22 @@ class WorkersTest(unittest.TestCase):
 
 
 class IsolationTest(unittest.TestCase):
+    def test_launchers_ignore_inherited_startup_code(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);marker=root/'executed'
+            for name in ('bash','dirname','python3'):
+                shim=root/name;shim.write_text('#!/bin/sh\nprintf injected > "$ATTACK_MARKER"\nexit 98\n');shim.chmod(0o755)
+            startup=root/'startup';startup.write_text('printf startup > "$ATTACK_MARKER"\n')
+            (root/'sitecustomize.py').write_text('import os;open(os.environ["ATTACK_MARKER"],"w").write("python startup")\n')
+            env=dict(os.environ,PATH=str(root),BASH_ENV=str(startup),ENV=str(startup),
+                     PYTHONPATH=str(root),ATTACK_MARKER=str(marker))
+            for entry in (Path(w.__file__),Path(w.__file__).with_suffix('.sh')):
+                with self.subTest(entry=entry.name):
+                    marker.unlink(missing_ok=True)
+                    p=subprocess.run([str(entry),'--help'],env=env,capture_output=True,text=True)
+                    self.assertFalse(marker.exists(),'launcher executed inherited startup code')
+                    self.assertEqual(0,p.returncode,p.stderr)
+
     def test_author_tree_is_opaque_to_reviewer_git(self):
         policy={'isolation':{'author_worktrees':{'AA-1':'/author/AA-1'}}}
         with mock.patch.object(w,'git',side_effect=AssertionError('reviewer entered author Git')):
@@ -316,6 +332,21 @@ class IsolationTest(unittest.TestCase):
         with mock.patch.object(w,'git',side_effect=AssertionError('Git before UID check')):
             with self.assertRaisesRegex(w.q.QueueError,'configured non-root author UID'):
                 w.validate_author_bridge(p,{'protocol':1,'role':'author','snapshot':snapshot(),'worktree':'/author/AA-1'})
+
+    def test_every_journal_command_requires_policy_before_git(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);tools=root/'tools';tools.mkdir();marker=root/'git-ran'
+            shim=tools/'git';shim.write_text('#!/bin/sh\ntouch '+str(marker)+'\nexit 99\n');shim.chmod(0o755)
+            for command in (['status'],['show','unknown'],['reconcile','unknown']):
+                with self.subTest(command=command):
+                    marker.unlink(missing_ok=True)
+                    p=subprocess.run([sys.executable,'-I',str(Path(w.__file__)),
+                        '--root',str(root/'repo'),'--state',str(root/'state'),*command],
+                        env={'PATH':str(tools)+':/usr/bin:/bin'},capture_output=True,text=True)
+                    self.assertNotEqual(0,p.returncode)
+                    self.assertFalse(marker.exists(),'missing-policy command executed inherited Git')
+                    self.assertIn('--policy',p.stderr)
+                    self.assertFalse((root/'state').exists())
 
 
 class RuntimeTest(unittest.TestCase):
@@ -562,7 +593,8 @@ print(json.dumps(r))
     def test_second_journal_cannot_bypass_repository_ownership(self):
         self.prepare()
         other=self.root/'other-state'
-        p=subprocess.run([sys.executable,str(self.cli),'--root',str(self.repo),'--state',str(other),'status'],env=self.env,capture_output=True,text=True)
+        p=subprocess.run([sys.executable,str(self.cli),'--root',str(self.repo),'--state',str(other),
+                          '--policy',str(self.policy),'status'],env=self.env,capture_output=True,text=True)
         self.assertNotEqual(0,p.returncode)
         self.assertIn('another worker journal',p.stderr)
 
@@ -722,6 +754,11 @@ def identity_proof(author_uid, reviewer_uid, parent):
         tools=root/'tools';tools.mkdir()
         for name in ('gh','bd'):
             tool=tools/name;tool.write_text('#!/bin/sh\nexit 99\n');tool.chmod(0o755)
+        untrusted=root/'untrusted-tools';untrusted.mkdir(mode=0o755);os.chown(untrusted,author_uid,author_uid)
+        marker=root/'unexpected-reviewer-git';marker.write_text('');marker.chmod(0o666)
+        shim=untrusted/'git'
+        shim.write_text('#!/bin/sh\n/usr/bin/id -u > '+str(marker)+'\nexit 99\n')
+        shim.chmod(0o755);os.chown(shim,author_uid,author_uid)
         # Python is a fixed protected executable; this root-owned config pins its script argument.
         interpreter=str(Path(sys.executable).resolve())
         bridge.write_text(json.dumps({'author_uid':author_uid,'repo':'fixture/project',
@@ -757,6 +794,16 @@ def identity_proof(author_uid, reviewer_uid, parent):
                 return w.packet(j)
             finally:db.close()
         packet=run_as(reviewer_uid,prepare_reviewer)
+        def missing_policy_commands():
+            for command in (['status'],['show','unknown'],['reconcile','unknown']):
+                result=subprocess.run([interpreter,'-I',str(code/'review-workers.py'),
+                    '--root',str(reviewer/'repo'),'--state',str(reviewer/'state'),*command],
+                    env={'PATH':str(untrusted)+':/usr/bin:/bin','HOME':str(reviewer)},
+                    capture_output=True,text=True,timeout=10)
+                assert result.returncode!=0 and '--policy' in result.stderr,result.stderr
+                assert marker.read_text()=='','reviewer executed author Git without policy'
+            return True
+        assert run_as(reviewer_uid,missing_policy_commands)
         def author_run():
             for path in (reviewer/'credential',reviewer/'state/workers.sqlite'):
                 try:path.read_bytes()
@@ -808,6 +855,7 @@ def identity_proof(author_uid, reviewer_uid, parent):
         return {'synthetic_identity_proof':'passed','author_uid':author_uid,'reviewer_uid':reviewer_uid,
                 'author_git_hook_runs_only_as_author':True,'reviewer_git_metadata_separate':True,
                 'author_path_git_not_executed':True,
+                'missing_policy_journal_commands_blocked':True,
                 'author_denied_reviewer_credentials_and_journal':True,'duplicate_roles_blocked':True,
                 'surviving_author_retains_job':True,'release_after_verified_stop':True,
                 'github_calls':0,'model_calls':0,'services_started':False}

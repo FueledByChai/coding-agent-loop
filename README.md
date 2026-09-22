@@ -420,7 +420,12 @@ Provision an operator-owned policy file **outside the checkout**, a private stat
 ```
 
 Adapters read one JSON packet from stdin and emit one JSON receipt on stdout; diagnostics go
-to stderr. `show <job-id>` exposes the snapshot and identity; the private `<job-id>.request.json`
+to stderr. Every journal command requires `--policy`, including `status`, `show` and
+`reconcile`; missing policy is rejected before any Git command or journal initialization.
+Supply the same protected isolation policy for observation and cleanup as for dispatch.
+The executable entry points pin system interpreters and disable inherited Bash/Python startup hooks
+before reading that policy. Isolated observation then uses the policy's protected tools.
+`show <job-id>` exposes the snapshot and identity; the private `<job-id>.request.json`
 artifact contains role instructions and the exact receipt shape. Author jobs follow the
 installed `respond-to-review` prompt. Receipts include the durable job ID, resulting full head,
 criteria hash and policy hash. Each open thread needs a disposition and a reply verified through

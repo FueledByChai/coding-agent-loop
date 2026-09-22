@@ -629,9 +629,12 @@ def load_policy(path):
         q.require(type(a['timeout']) is int and 1<=a['timeout']<=900,'bounded adapter timeout required')
         q.require(isinstance(a['env'],dict) and all(isinstance(k,str) and isinstance(v,str) for k,v in a['env'].items()),'explicit adapter environment required')
         q.require(not any(k in a['env'] for k in ('GH_TOKEN','GITHUB_TOKEN')),'controller adapters must not receive App tokens')
+    q.require(q.integer(p.get('author_uid')),'author_uid must be a positive integer')
     q.require(p['author_uid']!=os.getuid(),'controller must be separate from author')
-    if mode=='workers':q.require(p['reviewer_uid']!=os.getuid() and p['reviewer_uid']!=p['author_uid'],
-              'dedicated controller, author and independent reviewer OS identities required')
+    if mode=='workers':
+        q.require(q.integer(p.get('reviewer_uid')),'reviewer_uid must be a positive integer')
+        q.require(p['reviewer_uid']!=os.getuid() and p['reviewer_uid']!=p['author_uid'],
+                  'dedicated controller, author and independent reviewer OS identities required')
     return p
 
 

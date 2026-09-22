@@ -34,6 +34,8 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | `scripts/review-workers.py` | isolated command environments, local process guardian and worker receipt validation |
 | `scripts/review-workers-tests.py` | offline concurrency, process crash, timeout, freshness and reply-evidence fixtures |
 | `scripts/queue-handoff.sh` | Existing-agent nomination, selected-refresh signal and revision-bound acceptance; never grants merge authority. |
+| `scripts/queue-handoff.py` | GitHub handoff implementation using existing agent credentials, without the controller App key. |
+| `scripts/queue-handoff-tests.py` | Offline nomination, acceptance, selected-refresh and restart fixtures for the V1 handoff. |
 | `scripts/queue-controller.sh` | opt-in App controller: one admitted run, fresh final gate, expected-head merge and conservative recovery |
 | `scripts/queue-controller.py` | protected live journal, App authentication, independent receipt bridge and live protection preflight |
 | `scripts/queue-controller-tests.py` | offline controller crash/race fixtures and execution of the shipped CI admission gate |

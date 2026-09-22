@@ -16,6 +16,28 @@ f.c=c
 
 
 class HandoffTests(unittest.TestCase):
+    def test_uid_types_cannot_defeat_controller_identity_separation(self):
+        adapter=dict(command=['/protected/adapter'],timeout=60,env={'PATH':'/usr/bin:/bin'})
+        p=dict(repo='fixture/project',base='trunk',app_id=10,installation_id=11,app_actor_id=12,
+               workflow_id=13,author_uid=502,reviewer_uid=601,acceptance=adapter,refresh=adapter,
+               nominator_ids=[42],acceptance_actor_ids=[42],shared_account_workflow_trust=True)
+        source=mock.Mock()
+        with mock.patch.object(c,'secure_file',return_value=source),mock.patch.object(c.os,'getuid',return_value=600):
+            for mode in ('workers','github-v1'):
+                p['handoff']=mode
+                source.read_text.side_effect=lambda:c.q.encoded(p)
+                c.load_policy(Path('/not-read'))
+                for field in (('author_uid','reviewer_uid') if mode=='workers' else ('author_uid',)):
+                    original=p[field]
+                    for invalid in ('600','502',600.0,502.0,True,False,None,0,-1):
+                        p[field]=invalid
+                        with self.subTest(mode=mode,field=field,value=invalid),self.assertRaises(c.q.QueueError):
+                            c.load_policy(Path('/not-read'))
+                    p[field]=original
+                p['author_uid']=600
+                with self.assertRaises(c.q.QueueError):c.load_policy(Path('/not-read'))
+                p['author_uid']=502
+
     def setUp(self):
         self.s=f.snapshot()
         self.s['reviews']=[dict(id=99,body='Independent assessment: all criteria met',state='COMMENTED',commit_id=self.s['head'])]

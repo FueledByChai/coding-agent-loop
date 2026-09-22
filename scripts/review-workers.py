@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3 -I
 """Durable local author/acceptance workers. No CI dispatch, statuses or merge commands.
 
 Only trusted operator configuration may select commands and credentials. Foreground POSIX
@@ -8,11 +8,13 @@ sandbox. The future merge gate must run under a separate OS/service identity.
 import argparse
 from contextlib import contextmanager
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
 import signal
+import stat
 import shutil
 import sqlite3
 import subprocess
@@ -35,10 +37,191 @@ def outside(path, root):
     return path
 
 
+def protected_worker_path(path, owners=None):
+    """Reject symlinks and writable ancestors before running tools across an identity boundary."""
+    path=Path(path)
+    q.require(path.is_absolute(), 'protected worker path must be absolute')
+    allowed={0,os.getuid()} if owners is None else set(owners)
+    for node in (path,*path.parents):
+        st=node.lstat()
+        q.require(not stat.S_ISLNK(st.st_mode) and st.st_uid in allowed and not st.st_mode & 0o022,
+                  'unprotected worker path: '+str(node))
+    return path
+
+
+def literal_path(value):
+    q.require(nonempty(value) and value.startswith('/') and str(Path(value))==value and
+              '..' not in Path(value).parts, 'canonical absolute worker path required')
+    return Path(value)
+
+
+def author_tree(policy, snapshot, tree):
+    # The reviewer must not resolve Git metadata, hooks or filters in the author checkout.
+    tree=literal_path(str(tree))
+    allowed=policy['isolation']['author_worktrees']
+    q.require(str(tree)==allowed.get(snapshot['ticket']), 'author worktree is not assigned in protected policy')
+    return tree
+
+
+def isolated_policy(policy, root):
+    isolation=policy.get('isolation')
+    if isolation is None: return
+    q.require(isinstance(isolation,dict), 'invalid isolation policy')
+    author,reviewer=isolation.get('author_uid'),isolation.get('reviewer_uid')
+    q.require(type(author) is int and type(reviewer) is int and author>0 and reviewer>0 and
+              author!=reviewer and reviewer==os.getuid(), 'isolated workers require the configured non-root reviewer UID')
+    read_path=policy.get('read_path','')
+    q.require(nonempty(read_path), 'isolated worker read_path required')
+    for directory in read_path.split(':'): protected_worker_path(literal_path(directory))
+    for tool in ('git','gh','bd'):
+        binary=shutil.which(tool,path=read_path)
+        q.require(binary is not None, 'missing isolated observation tool: '+tool)
+        protected_worker_path(Path(binary).resolve())
+    os.environ.clear();os.environ.update(observation_env(policy))
+    protected_worker_path(root)
+    protected_worker_path(common_dir(root))
+    home=literal_path(policy['roles']['acceptance']['env']['HOME'])
+    protected_worker_path(home)
+    q.require(home.stat().st_uid==reviewer and not home.stat().st_mode & 0o077, 'reviewer HOME must be private')
+    paths=isolation.get('author_worktrees')
+    q.require(isinstance(paths,dict) and paths and len(set(paths.values()))==len(paths), 'distinct assigned author worktrees required')
+    for ticket,value in paths.items():
+        q.require(q.re.fullmatch(r'[A-Z][A-Z0-9]*-[a-z0-9]+',ticket), 'invalid assigned ticket')
+        tree=literal_path(value)
+        for protected in (root,common_dir(root),home):
+            q.require(tree!=protected and tree not in protected.parents and protected not in tree.parents,
+                      'author checkout overlaps protected reviewer storage')
+    for role in ('author','acceptance'):
+        command=policy['roles'][role]['command']
+        q.require(isinstance(command,list) and len(command)==1, 'isolated roles need one fixed root-owned wrapper')
+        protected_worker_path(command[0],{0})
+    bridge=protected_worker_path(literal_path(isolation['bridge_policy']),{0})
+    bridge_data=json.loads(bridge.read_text())
+    q.require(bridge_data.get('author_uid')==author and bridge_data.get('worktrees')==paths,
+              'worker and bridge assignment policies differ')
+    env=policy['roles']['acceptance']['env']
+    q.require(not set(env)-{'HOME','PATH','CODEX_HOME','LANG','LC_ALL','LC_CTYPE','TZ'},
+              'unsupported isolated reviewer environment')
+    for directory in env.get('PATH',policy['read_path']).split(':'):
+        protected_worker_path(literal_path(directory))
+    if 'CODEX_HOME' in env:
+        codex_home=protected_worker_path(literal_path(env['CODEX_HOME']))
+        q.require(codex_home.stat().st_uid==reviewer and not codex_home.stat().st_mode & 0o077,
+                  'reviewer Codex home must be private')
+
+
+def observation_env(policy):
+    return {'PATH':policy['read_path'],'HOME':policy['roles']['acceptance']['env']['HOME'],
+            'LANG':'en_US.UTF-8','GH_PROMPT_DISABLED':'1','GIT_TERMINAL_PROMPT':'0'}
+
+
+def validate_author_bridge(policy, packet):
+    q.require(type(policy.get('author_uid')) is int and os.getuid()==policy['author_uid'] and os.getuid()>0,
+              'author bridge must run under the configured non-root author UID')
+    q.require(packet.get('protocol')==1 and packet.get('role')=='author', 'author bridge accepts author jobs only')
+    snapshot=packet['snapshot']
+    q.require(snapshot['repository']==policy['repo'] and q.sha(snapshot['head']) and
+              snapshot['branch']=='ticket/'+snapshot['ticket'], 'author target identity mismatch')
+    tree=author_tree({'isolation':{'author_worktrees':policy['worktrees']}},snapshot,packet['worktree'])
+    q.require(tree.resolve()==tree and tree.stat().st_uid==os.getuid(), 'author worktree must be canonical and author-owned')
+    binary=protected_worker_path(Path('/usr/bin/git').resolve(),{0})
+    def checked_git(*args):
+        # Author tools are allowed for repairs, but cannot supply checkout-validation evidence.
+        env={'PATH':'/usr/bin:/bin','HOME':os.environ.get('HOME','/nonexistent'),
+             'LANG':'C','GIT_TERMINAL_PROMPT':'0','GIT_CONFIG_NOSYSTEM':'1',
+             'GIT_CONFIG_GLOBAL':'/dev/null','GIT_ATTR_NOSYSTEM':'1','GIT_NO_REPLACE_OBJECTS':'1'}
+        return subprocess.check_output([str(binary),'-C',str(tree),'--work-tree='+str(tree),
+                                       '-c','core.fsmonitor=false','-c','core.untrackedCache=false',
+                                       '-c','core.hooksPath=/dev/null','-c','core.fileMode=true',
+                                       '-c','core.symlinks=true','-c','core.ignoreStat=false',
+                                       '-c','core.trustCtime=true','-c','core.checkStat=default',*args],env=env,
+                                       text=True,stderr=subprocess.PIPE).strip()
+    q.require(checked_git('remote','get-url','origin').removesuffix('.git').rstrip('/')==
+              'https://github.com/'+policy['repo'], 'author repository remote mismatch')
+    keys=checked_git('config','--name-only','--list','-z').split('\0')
+    q.require(not any(key.lower().startswith('filter.') and
+                      key.rsplit('.',1)[-1].lower() in ('clean','smudge','process') for key in keys),
+              'author-defined filters are unsupported in isolated author checkouts')
+    # Status deliberately trusts these index bits; reject them before accepting its evidence.
+    entries=checked_git('ls-files','-v','-z').split('\0')
+    q.require(all(not entry or (not entry[0].islower() and entry[0]!='S') for entry in entries),
+              'author worktree has concealing index flags (assume-unchanged or skip-worktree)')
+    q.require(checked_git('rev-parse','HEAD')==snapshot['head'] and
+              checked_git('branch','--show-current')==snapshot['branch'],
+              'author worktree must be clean at assigned branch/head')
+    # Compare raw filesystem bytes with commit blob IDs, without index stat caches or
+    # attribute conversion. Isolated checkouts deliberately require canonical bytes.
+    for entry in checked_git('ls-tree','-r','-z','--full-tree',snapshot['head']).split('\0'):
+        if not entry:continue
+        metadata,name=entry.split('\t',1);mode,kind,oid=metadata.split(' ')
+        relative=Path(name)
+        q.require(not relative.is_absolute() and all(part not in ('.','..') for part in relative.parts),
+                  'invalid tracked path in author checkout')
+        q.require(kind=='blob' and mode in ('100644','100755','120000'),
+                  'isolated author checkouts support regular files and symlinks only; submodules are unsupported')
+        path=tree/relative
+        q.require(all(not parent.is_symlink() for parent in path.parents if parent!=tree and tree in parent.parents),
+                  'author worktree must be clean: tracked parent is a symlink')
+        try:
+            actual=path.lstat()
+            if mode=='120000':
+                q.require(stat.S_ISLNK(actual.st_mode),'author worktree must be clean: tracked symlink changed')
+                data=os.fsencode(os.readlink(path))
+            else:
+                q.require(stat.S_ISREG(actual.st_mode) and bool(actual.st_mode & stat.S_IXUSR)==(mode=='100755'),
+                          'author worktree must be clean: tracked file mode changed')
+                data=path.read_bytes()
+        except OSError as exc:
+            raise q.QueueError('author worktree must be clean: tracked file unavailable') from exc
+        digest=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+        q.require(digest==oid,'author worktree must be clean: tracked bytes differ from assigned head')
+    q.require(not checked_git('diff-index','--cached','--raw','--no-ext-diff','--no-renames',snapshot['head'],'--') and
+              not checked_git('ls-files','--others','-z'),
+              'author worktree must be clean at assigned branch/head')
+    return tree
+
+
+def author_bridge(path):
+    # Called only by the fixed UID-switch wrapper. No arbitrary CLI command or environment.
+    protected_worker_path(path,{0})
+    policy=json.loads(Path(path).read_text())
+    command=policy.get('command')
+    q.require(isinstance(command,list) and command and all(nonempty(v) for v in command), 'author adapter argv required')
+    protected_worker_path(command[0],{0})
+    q.require(type(policy.get('author_uid')) is int and os.getuid()==policy['author_uid'] and os.getuid()>0,
+              'author bridge must run under the configured non-root author UID')
+    env=policy.get('env')
+    q.require(isinstance(env,dict) and all(isinstance(k,str) and isinstance(v,str) for k,v in env.items()) and
+              nonempty(env.get('HOME')) and Path(env['HOME']).is_absolute(), 'explicit author environment required')
+    os.environ.clear();os.environ.update({'PATH':'/usr/bin:/bin','LANG':'en_US.UTF-8',**env})
+    raw=sys.stdin.buffer.read(1024*1024+1)
+    q.require(len(raw)<=1024*1024, 'author packet too large')
+    packet=json.loads(raw)
+    q.require(type(packet.get('guardian_pgid')) is int and packet['guardian_pgid']>1 and
+              os.getpgrp()==packet['guardian_pgid'] and os.getpgrp()!=os.getpid(),
+              'author bridge must remain inside the guardian process group')
+    tree=validate_author_bridge(policy,packet)
+    # Replace instructions with the installed policy, never accept caller-supplied authority.
+    packet['instructions']=instructions('author')
+    with packet_stdin(packet) as stdin:
+        return subprocess.call(command,cwd=tree,env={'PATH':'/usr/bin:/bin','LANG':'en_US.UTF-8',**env},
+                               stdin=stdin,close_fds=True)
+
+
+def packet_stdin(packet):
+    # Anonymous temporary file avoids both shell parsing and a second process/session.
+    import tempfile
+    stream=tempfile.TemporaryFile()
+    stream.write(q.encoded(packet).encode());stream.seek(0)
+    return stream
+
+
 def load_policy(path, root):
-    path = trusted_path(path, root)
+    path = outside(path, root)
     q.require(path.stat().st_uid == os.getuid() and not path.stat().st_mode & 0o022, 'policy must be operator-owned and not writable by others')
     p = json.loads(path.read_text())
+    isolated_policy(p,root)
+    trusted_path(path,root)
     q.require(nonempty(p.get('revision')), 'operator policy revision required')
     q.require(type(p.get('timeout')) is int and 1 <= p['timeout'] <= 86400, 'timeout must be 1..86400 seconds')
     q.require(type(p.get('max_attempts')) is int and 1 <= p['max_attempts'] <= 10, 'max_attempts must be 1..10')
@@ -56,7 +239,7 @@ def load_policy(path, root):
         q.require(isinstance(env, dict) and all(isinstance(k,str) and isinstance(v,str) for k,v in env.items()), 'explicit environment required')
         home = env.get('HOME')
         q.require(nonempty(home) and Path(home).is_absolute(), 'each role needs an explicit HOME')
-        home = str(trusted_path(home, root))
+        home = str(literal_path(home) if p.get('isolation') and role=='author' else trusted_path(home, root))
         q.require(home not in homes, 'roles must use separate homes/sessions')
         homes.add(home)
     return p
@@ -89,6 +272,9 @@ def policy_hash(policy):
     prompt = root/'loop/prompts/respond-to-review.md'
     if not prompt.exists(): prompt = root/'prompts/respond-to-review.md'
     if prompt.exists(): sources.append(prompt)
+    if policy.get('isolation'):
+        sources.extend(Path(policy['roles'][role]['command'][0]) for role in ('author','acceptance'))
+        if policy['isolation'].get('bridge_policy'): sources.append(Path(policy['isolation']['bridge_policy']))
     return q.digest(dict(policy=policy, implementation=[q.hashlib.sha256(p.read_bytes()).hexdigest() for p in sources]))
 
 
@@ -142,7 +328,7 @@ class Journal:
         if role == 'acceptance':
             q.require(snapshot['review_evidence'] and not snapshot['changes_requested'] and
                       all(t['resolved'] for t in snapshot['threads']), 'code review must complete before acceptance')
-        worktree = str(Path(worktree).resolve())
+        worktree = str(author_tree(policy,snapshot,worktree) if policy.get('isolation') and role=='author' else Path(worktree).resolve())
         ph = policy_hash(policy)
         key = q.digest(dict(binding=binding(snapshot), role=role, worktree=worktree, policy=ph))
         with self.transaction():
@@ -448,7 +634,7 @@ def packet(job):
                    reply_url='verified GitHub reply URL',commit='full published SHA for fix',evidence='test/requirement proof',
                    rationale='for dispute or follow-up',ticket='follow-up ID when needed')],blocker='required when blocked')
     return dict(protocol=1,role=job['role'],instructions=instructions(job['role']),snapshot=job['snapshot'],
-                result_schema=shape,worktree=job['worktree'])
+                result_schema=shape,worktree=job['worktree'],guardian_pgid=job.get('pgid'))
 
 
 def execute_guardian(db, jid, policy_path, root, lock_fd):
@@ -467,15 +653,20 @@ def execute_guardian(db, jid, policy_path, root, lock_fd):
         fresh=Observer(root).snapshot(job['repo'],job['number'])
         q.require(binding(fresh)==binding(job['snapshot']),'job became stale before dispatch')
         tree=Path(job['worktree'])
+        external=bool(policy.get('isolation') and job['role']=='author')
+        if external: author_tree(policy,fresh,tree)
+        if policy.get('isolation') and job['role']=='acceptance':
+            git(root,'fetch','--no-tags','origin',fresh['head'])
         if job['role']=='acceptance' and not tree.exists():
             subprocess.run(['git','-C',str(root),'worktree','add','--detach',str(tree),fresh['head']],check=True,stdout=subprocess.DEVNULL)
-        q.require(common_dir(tree)==common_dir(root), 'worktree belongs to another repository')
-        q.require(git(tree,'rev-parse','HEAD')==fresh['head'] and not git(tree,'status','--porcelain'), 'worktree must be clean at the observed head')
-        if job['role']=='author':
-            q.require(git(tree,'branch','--show-current')==fresh['branch'],'author must own the matching ticket branch')
-        else: q.require(not git(tree,'branch','--show-current'),'acceptance needs a separate detached worktree')
+        if not external:
+            q.require(common_dir(tree)==common_dir(root), 'worktree belongs to another repository')
+            q.require(git(tree,'rev-parse','HEAD')==fresh['head'] and not git(tree,'status','--porcelain'), 'worktree must be clean at the observed head')
+            if job['role']=='author':
+                q.require(git(tree,'branch','--show-current')==fresh['branch'],'author must own the matching ticket branch')
+            else: q.require(not git(tree,'branch','--show-current'),'acceptance needs a separate detached worktree')
         config=policy['roles'][job['role']]
-        env={'PATH':'/usr/bin:/bin','LANG':'en_US.UTF-8',**config['env']}
+        env=observation_env(policy) if external else {'PATH':'/usr/bin:/bin','LANG':'en_US.UTF-8',**config['env']}
         # Never inherit the controller environment or a future App credential.
         out=db.state/(jid+'.stdout')
         err=db.state/(jid+'.stderr')
@@ -483,7 +674,7 @@ def execute_guardian(db, jid, policy_path, root, lock_fd):
         request.write_text(q.encoded(packet(job)))
         os.chmod(request,0o600)
         with request.open('rb') as stdin, out.open('wb') as stdout, err.open('wb') as stderr:
-            child=subprocess.Popen(config['command'],cwd=tree,env=env,stdin=stdin,stdout=stdout,stderr=stderr,close_fds=True)
+            child=subprocess.Popen(config['command'],cwd=root if external else tree,env=env,stdin=stdin,stdout=stdout,stderr=stderr,close_fds=True)
             deadline=time.monotonic()+policy['timeout']
             while child.poll() is None:
                 if time.monotonic() >= deadline or max(out.stat().st_size,err.stat().st_size)>1024*1024:
@@ -520,7 +711,7 @@ def execute_guardian(db, jid, policy_path, root, lock_fd):
 def run_job(db, jid, policy_path, root):
     with job_lock(db.state,jid) as fd:
         db.start(jid)
-        cmd=[sys.executable,str(Path(__file__).resolve()),'--state',str(db.state),'--root',str(root),
+        cmd=[sys.executable,'-I',str(Path(__file__).resolve()),'--state',str(db.state),'--root',str(root),
              '--policy',str(policy_path),'_execute',jid,'--lock-fd',str(fd)]
         child=subprocess.Popen(cmd,pass_fds=(fd,),start_new_session=True)
         child.wait()
@@ -546,20 +737,32 @@ def main():
         p=sub.add_parser(action); p.add_argument('job')
         if action=='_execute':p.add_argument('--lock-fd',type=int,required=True)
     sub.add_parser('status')
+    sub.add_parser('author-bridge')
     args=parser.parse_args()
     if args.self_test:
-        result = subprocess.call([sys.executable,str(Path(__file__).with_name('review-workers-tests.py')),'--self-test'])
+        result = subprocess.call([sys.executable,'-I',str(Path(__file__).with_name('review-workers-tests.py')),'--self-test'])
         if result == 0: print('review-workers self-test passed')
         return result
+    if args.command=='author-bridge':
+        q.require(args.policy,'fixed author bridge policy required')
+        return author_bridge(args.policy)
     q.require(args.state and args.command,'choose a command and --state outside the checkout')
-    root=args.root.resolve()
+    q.require(args.policy,'--policy outside the checkout is required for every journal command')
+    root=args.root.absolute()
+    policy=load_policy(args.policy,root)
+    if policy.get('isolation'):
+        # Configure observation before Git/Beads helpers or child Python startup.
+        os.environ.clear();os.environ.update(observation_env(policy))
+        protected_worker_path(args.policy)
+        protected_worker_path(args.state)
+        for value in policy['isolation']['author_worktrees'].values():
+            tree=literal_path(value)
+            q.require(tree!=args.state and tree not in args.state.parents and args.state not in tree.parents,
+                      'author checkout overlaps worker journal')
     state=trusted_path(args.state,root)
     db=Journal(state)
     try:
         bind_state(root,state)
-        if args.command in ('prepare','advance','acceptance','run','_execute'):
-            q.require(args.policy,'--policy outside the checkout is required')
-            policy=load_policy(args.policy,root)
         if args.command in ('prepare','advance','acceptance'):
             q.require(args.pr>0,'positive PR number required')
             q.identity(args.repo,'unused')
@@ -570,8 +773,11 @@ def main():
                 return 0 if evidence else 1
             role=args.role if args.command=='prepare' else ('acceptance' if snapshot['review_evidence'] and not snapshot['changes_requested'] and all(t['resolved'] for t in snapshot['threads']) else 'author')
             snapshot['git_common_dir']=str(common_dir(root))
-            tree=args.worktree.resolve()
-            q.require(common_dir(tree)==common_dir(root) and git(tree,'rev-parse','HEAD')==snapshot['head'], 'assigned author worktree must belong to repository and match PR head')
+            tree=literal_path(str(args.worktree)) if policy.get('isolation') else args.worktree.resolve()
+            if policy.get('isolation'):
+                author_tree(policy,snapshot,tree)
+            else:
+                q.require(common_dir(tree)==common_dir(root) and git(tree,'rev-parse','HEAD')==snapshot['head'], 'assigned author worktree must belong to repository and match PR head')
             if role=='acceptance':
                 tree=db.state/('review-'+q.digest([snapshot['repository'],snapshot['number'],snapshot['head']])[:24])
             job=db.prepare(snapshot,role,tree,policy,args.retry)

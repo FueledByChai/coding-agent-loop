@@ -1,5 +1,6 @@
-#!/usr/bin/env bash
+#!/bin/bash -p
 # Durable foreground author/acceptance workers; no CI or merge authority.
 set -euo pipefail
-SCRIPT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-exec python3 "$SCRIPT_ROOT/scripts/review-workers.py" "$@"
+unset BASH_ENV ENV CDPATH PYTHONPATH PYTHONHOME PYTHONUSERBASE
+script_dir="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)"
+exec /usr/bin/python3 -I "$script_dir/review-workers.py" "$@"

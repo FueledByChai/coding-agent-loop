@@ -420,7 +420,12 @@ Provision an operator-owned policy file **outside the checkout**, a private stat
 ```
 
 Adapters read one JSON packet from stdin and emit one JSON receipt on stdout; diagnostics go
-to stderr. `show <job-id>` exposes the snapshot and identity; the private `<job-id>.request.json`
+to stderr. Every journal command requires `--policy`, including `status`, `show` and
+`reconcile`; missing policy is rejected before any Git command or journal initialization.
+Supply the same protected isolation policy for observation and cleanup as for dispatch.
+The executable entry points pin system interpreters and disable inherited Bash/Python startup hooks
+before reading that policy. Isolated observation then uses the policy's protected tools.
+`show <job-id>` exposes the snapshot and identity; the private `<job-id>.request.json`
 artifact contains role instructions and the exact receipt shape. Author jobs follow the
 installed `respond-to-review` prompt. Receipts include the durable job ID, resulting full head,
 criteria hash and policy hash. Each open thread needs a disposition and a reply verified through
@@ -496,3 +501,98 @@ Do not store the future GitHub App merge credential on this worker account or fi
 merge enforcement needs separate service/OS credentials and a trusted publisher (LK-e9y); no
 worker receipt, including imported or manually edited local data, is itself merge authorization.
 No global model, login, credential or agent settings are changed by installation.
+
+### Workers under separate OS accounts
+
+Use isolated mode (0022) before granting a worker receipt live gate significance. Keep
+one canonical journal, policy and observation clone under the reviewer UID, inaccessible
+to the author. The author keeps its own clone/worktrees and credentials. Do not share
+writable Git metadata between those accounts. The reviewer never runs Git commands in
+an author checkout; it fetches the exact published head into its own mirror for acceptance.
+
+Add the following to the external worker policy (replace all example paths and UIDs):
+
+```json
+{
+  "read_path": "/opt/queue-tools:/usr/bin",
+  "isolation": {
+    "author_uid": 1001,
+    "reviewer_uid": 1002,
+    "bridge_policy": "/etc/queue-workers/author-bridge.json",
+    "author_worktrees": {"AB-12": "/srv/queue-author/AB-12"}
+  }
+}
+```
+
+Keep the other policy fields shown above. The configured reviewer UID must run the
+worker CLI; root is rejected. Protect the reviewer HOME (0700), mirror, journal, policy
+and observation tools through their ancestors. The isolated author's `command` contains
+exactly one root-owned executable wrapper, without caller-supplied arguments. The acceptance
+role also uses a single root-owned wrapper. Both wrapper bytes and the root-owned bridge
+policy contents are included in receipt policy hashes. Its initial
+environment is the reviewer's explicit observation environment, not the author's role env.
+The wrapper must clear that environment and switch UID before invoking this fixed command:
+
+```sh
+/usr/bin/python3 -I /opt/queue-kit/scripts/review-workers.py \
+  --policy /etc/queue-workers/author-bridge.json author-bridge
+```
+
+The root-owned bridge policy pins the actual adapter and author environment:
+
+```json
+{
+  "author_uid": 1001,
+  "repo": "owner/project",
+  "worktrees": {"AB-12": "/srv/queue-author/AB-12"},
+  "command": ["/opt/queue-adapters/author"],
+  "env": {"HOME": "/srv/queue-author", "PATH": "/opt/author-tools:/usr/bin"}
+}
+```
+
+The bridge accepts protocol-1 author packets only. It verifies UID, assigned path,
+HTTPS origin repository, ticket branch, full starting head and clean worktree under the
+**author** identity, then runs the adapter in the inherited guardian process group.
+Checkout validation uses the root-owned `/usr/bin/git` executable (including its resolved
+target and ancestors) and a clean system environment, so author tool-path shims cannot
+forge the validation results. The repair adapter still receives its configured environment.
+Validation ignores system/HOME Git configuration, disables fsmonitor, untracked cache and
+hooks, pins the actual worktree, and explicitly checks staged and untracked files.
+It enables executable-bit, symlink and full stat checks regardless of author configuration.
+Validation also rejects assume-unchanged and skip-worktree index flags, which can conceal tracked edits.
+It rejects configured clean/smudge/process filters and compares raw tracked bytes and modes
+with the assigned commit, independently of Git status and attribute conversion. Staged
+changes and **all** untracked files, including Git-ignored files, are checked separately
+through Git plumbing. Use dedicated worker checkouts and keep state, caches and local
+configuration outside them; generated files must be cleaned before the next author job
+(0024). Validation refuses dirty starts and does not delete their files. Isolated
+author checkouts must use canonical commit bytes: converted line endings, LFS/smudge
+checkouts and submodules are unsupported and stop before adapter launch. Ordinary files
+and symlinks are supported; legacy single-identity mode is unchanged.
+Isolated mode requires Git 2.36 or later; older versions interpret boolean fsmonitor
+settings differently ([Git configuration reference](https://git-scm.com/docs/git-config)).
+Configure sudo only for the exact protected command/arguments; never allow an arbitrary
+shell or interpreter invocation. Disable PTY/session creation for this fixed command and
+prove actual process-group retention on the target host. The kit does not install grants.
+A timeout or crash with a surviving author retains ownership until an operator stops it;
+`reconcile` must prove stop before releasing. Do not retry by deleting a journal.
+
+The standard `--worktree` argument names the policy-assigned author path for either role;
+acceptance ignores its Git metadata and creates its detached tree in private reviewer state.
+Registration remains one canonical journal, including any existing author clones after a
+stopped migration. Back up and verify the old journal before rebinding; old state is not a
+second runnable lane. Changing paths, identities or policy invalidates old receipts.
+
+The normal worker self-test remains unprivileged. A separately requested synthetic OS
+proof is available for a host administrator, using existing UIDs and a root-owned parent:
+
+```sh
+sudo /usr/bin/python3 -I /opt/queue-kit/scripts/review-workers-tests.py \
+  --identity-proof --author-uid 1001 --reviewer-uid 1002 --proof-parent /opt
+```
+
+It creates and removes only its own temporary fixture, uses no real credentials or model
+calls, makes no GitHub requests and installs no service/sudo grant. It verifies separate
+Git metadata, author denial of reviewer state, bridge UID/target checks, duplicate-role
+ownership and retention while a different-UID child survives the guardian. This is
+component proof; the actual deployment wrapper and live workflow still need LK-e9y proof.

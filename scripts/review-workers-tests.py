@@ -277,6 +277,78 @@ class WorkersTest(unittest.TestCase):
         w.validate_result(j,dict(r,outcome='blocked',blocker='await reviewer',dispositions=[dispute]),fresh)
 
 
+class IsolationTest(unittest.TestCase):
+    def test_launchers_ignore_inherited_startup_code(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);marker=root/'executed'
+            for name in ('bash','dirname','python3'):
+                shim=root/name;shim.write_text('#!/bin/sh\nprintf injected > "$ATTACK_MARKER"\nexit 98\n');shim.chmod(0o755)
+            startup=root/'startup';startup.write_text('printf startup > "$ATTACK_MARKER"\n')
+            (root/'sitecustomize.py').write_text('import os;open(os.environ["ATTACK_MARKER"],"w").write("python startup")\n')
+            env=dict(os.environ,PATH=str(root),BASH_ENV=str(startup),ENV=str(startup),
+                     PYTHONPATH=str(root),ATTACK_MARKER=str(marker))
+            for entry in (Path(w.__file__),Path(w.__file__).with_suffix('.sh')):
+                with self.subTest(entry=entry.name):
+                    marker.unlink(missing_ok=True)
+                    p=subprocess.run([str(entry),'--help'],env=env,capture_output=True,text=True)
+                    self.assertFalse(marker.exists(),'launcher executed inherited startup code')
+                    self.assertEqual(0,p.returncode,p.stderr)
+
+    def test_author_tree_is_opaque_to_reviewer_git(self):
+        policy={'isolation':{'author_worktrees':{'AA-1':'/author/AA-1'}}}
+        with mock.patch.object(w,'git',side_effect=AssertionError('reviewer entered author Git')):
+            self.assertEqual('/author/AA-1',str(w.author_tree(policy,snapshot(),Path('/author/AA-1'))))
+        for path in ('/author/other','/author/AA-1/../AA-1'):
+            with self.assertRaises(w.q.QueueError):
+                w.author_tree(policy,snapshot(),path)
+
+    def test_isolated_prepare_does_not_read_author_git(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); tree=root/'hostile';tree.mkdir()
+            marker=root/'executed'; hook=root/'fsmonitor'
+            subprocess.run(['git','init','-q',str(tree)],check=True)
+            hook.write_text('#!/bin/sh\ntouch '+str(marker)+'\nprintf "token\\000"\n')
+            hook.chmod(0o755)
+            subprocess.run(['git','-C',str(tree),'config','core.fsmonitor',str(hook)],check=True)
+            p={'isolation':{'author_worktrees':{'AA-1':str(tree)}}}
+            self.assertEqual(tree,w.author_tree(p,snapshot(),tree))
+            self.assertFalse(marker.exists())
+
+    def test_cross_uid_permission_uncertainty_retains_ownership(self):
+        with mock.patch.object(w.os,'killpg',side_effect=PermissionError):
+            self.assertTrue(w.group_alive(4242))
+
+    def test_protected_paths_reject_links_and_author_owned_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            p=Path(td)/'file';p.write_text('fixture')
+            link=Path(td)/'link';link.symlink_to(p)
+            with self.assertRaises(w.q.QueueError):w.protected_worker_path(link)
+            with mock.patch.object(w.os,'getuid',return_value=os.getuid()+1):
+                with self.assertRaises(w.q.QueueError):w.protected_worker_path(p)
+
+    def test_bridge_rejects_wrong_identity_before_any_git_or_adapter(self):
+        p={'author_uid':os.getuid()+1,'repo':'fixture/project','worktrees':{'AA-1':'/author/AA-1'},
+           'command':['/usr/bin/false'],'env':{'HOME':'/author'}}
+        with mock.patch.object(w,'git',side_effect=AssertionError('Git before UID check')):
+            with self.assertRaisesRegex(w.q.QueueError,'configured non-root author UID'):
+                w.validate_author_bridge(p,{'protocol':1,'role':'author','snapshot':snapshot(),'worktree':'/author/AA-1'})
+
+    def test_every_journal_command_requires_policy_before_git(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);tools=root/'tools';tools.mkdir();marker=root/'git-ran'
+            shim=tools/'git';shim.write_text('#!/bin/sh\ntouch '+str(marker)+'\nexit 99\n');shim.chmod(0o755)
+            for command in (['status'],['show','unknown'],['reconcile','unknown']):
+                with self.subTest(command=command):
+                    marker.unlink(missing_ok=True)
+                    p=subprocess.run([sys.executable,'-I',str(Path(w.__file__)),
+                        '--root',str(root/'repo'),'--state',str(root/'state'),*command],
+                        env={'PATH':str(tools)+':/usr/bin:/bin'},capture_output=True,text=True)
+                    self.assertNotEqual(0,p.returncode)
+                    self.assertFalse(marker.exists(),'missing-policy command executed inherited Git')
+                    self.assertIn('--policy',p.stderr)
+                    self.assertFalse((root/'state').exists())
+
+
 class RuntimeTest(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(prefix='worker-runtime-')
@@ -387,6 +459,233 @@ print(json.dumps(r))
         self.assertEqual(0,p.returncode,p.stderr)
         return json.loads(p.stdout)
 
+    def test_isolated_guardian_never_runs_git_in_author_checkout(self):
+        foreign=self.root/'foreign-author'
+        subprocess.run(['git','clone','-q',str(self.repo),str(foreign)],check=True)
+        marker=self.root/'reviewer-ran-author-hook'
+        hook=self.root/'hostile-fsmonitor'
+        hook.write_text('#!/bin/sh\ntouch '+str(marker)+'\nprintf "token\\000"\n');hook.chmod(0o755)
+        subprocess.run(['git','-C',str(foreign),'config','core.fsmonitor',str(hook)],check=True)
+        p=json.loads(self.policy.read_text())
+        p['isolation']={'author_worktrees':{'AA-1':str(foreign)}}
+        p['read_path']=self.env['PATH']
+        with mock.patch.dict(os.environ,self.env,clear=True):
+            fresh=w.Observer(self.repo).snapshot('fixture/project',1)
+        db=w.Journal(self.state)
+        try:
+            j=db.prepare(fresh,'author',foreign,p);db.start(j['id'])
+            fd=os.open(str(self.state/(j['id']+'.lock')),os.O_CREAT|os.O_RDWR,0o600)
+            real_git=w.git
+            def reviewer_git(root,*args):
+                self.assertNotEqual(foreign,Path(root),'reviewer inspected author Git')
+                return real_git(root,*args)
+            with mock.patch.object(w,'load_policy',return_value=p), mock.patch.object(w.Observer,'snapshot',return_value=fresh), \
+                 mock.patch.object(w.os,'getpgrp',return_value=os.getpid()), mock.patch.object(w,'git',side_effect=reviewer_git):
+                w.execute_guardian(db,j['id'],self.policy,self.repo,fd)
+            self.assertEqual('finished',db.get(j['id'])['state'],db.get(j['id'])['result'])
+            self.assertFalse(marker.exists())
+        finally:db.close()
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_bridge_rejects_checkout_when_path_git_lies(self):
+        self.git('remote','add','origin','https://github.com/other/repo.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        s=snapshot(head=self.git('rev-parse','HEAD'))
+        marker=self.root/'fake-git-executed'
+        shim=self.bin/'git'
+        shim.write_text('#!/bin/sh\ntouch '+str(marker)+'\ncase "$3" in\nremote) echo https://github.com/fixture/project.git;;\nrev-parse) echo '+s['head']+';;\nbranch) echo ticket/AA-1;;\nstatus) :;;\nesac\n')
+        shim.chmod(0o755)
+        packet={'protocol':1,'role':'author','snapshot':s,'worktree':str(self.repo.resolve())}
+        with mock.patch.dict(os.environ,PATH=str(self.bin)+':/usr/bin:/bin'):
+            with self.assertRaisesRegex(w.q.QueueError,'repository remote mismatch'):
+                w.validate_author_bridge(p,packet)
+        self.assertFalse(marker.exists(),'validation executed author PATH shim')
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_config_cannot_hide_untracked_files(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        home=self.root/'author-home';home.mkdir()
+        (self.repo/'unrelated-local-content').write_text('must not be committed')
+        for source in ('repository','home'):
+            with self.subTest(source=source), mock.patch.dict(os.environ,HOME=str(home)):
+                if source=='repository':self.git('config','status.showUntrackedFiles','no')
+                else:(home/'.gitconfig').write_text('[status]\n showUntrackedFiles = no\n')
+                self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal the dirty file')
+                try:
+                    with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+                        w.validate_author_bridge(p,packet)
+                finally:
+                    if source=='repository':self.git('config','--unset','status.showUntrackedFiles')
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_fsmonitor_cannot_hide_tracked_changes(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        marker=self.root/'fsmonitor-ran';hook=self.root/'dishonest-fsmonitor'
+        hook.write_text('#!/bin/sh\ntouch '+str(marker)+'\nprintf "token\\000"\n');hook.chmod(0o755)
+        self.git('config','core.fsmonitor',str(hook))
+        self.git('status','--porcelain');self.git('status','--porcelain')
+        (self.repo/'proof.py').write_text('unrelated tracked edit\n')
+        self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal the tracked edit')
+        marker.unlink()
+        with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+            w.validate_author_bridge(p,packet)
+        self.assertFalse(marker.exists(),'validation executed the author fsmonitor')
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_index_flags_cannot_hide_tracked_changes(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        tracked=self.repo/'proof.py';original=tracked.read_bytes()
+        for flag in ('assume-unchanged','skip-worktree'):
+            with self.subTest(flag=flag):
+                self.git('update-index','--'+flag,'--','proof.py')
+                tracked.write_text('hidden tracked edit\n')
+                self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal the tracked edit')
+                try:
+                    with self.assertRaisesRegex(w.q.QueueError,'concealing index flags'):
+                        w.validate_author_bridge(p,packet)
+                finally:
+                    self.git('update-index','--no-'+flag,'--','proof.py')
+                    tracked.write_bytes(original)
+        self.assertEqual(self.repo.resolve(),w.validate_author_bridge(p,packet))
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_config_cannot_hide_executable_mode_change(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        self.git('config','core.fileMode','false')
+        tracked=self.repo/'proof.py';tracked.chmod(0o755)
+        self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal the mode change')
+        self.assertTrue(self.git('ls-files','-v','--','proof.py').startswith('H '))
+        with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+            w.validate_author_bridge(p,packet)
+        tracked.chmod(0o644)
+        self.assertEqual(self.repo.resolve(),w.validate_author_bridge(p,packet))
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_config_cannot_hide_symlink_replacement(self):
+        tracked=self.repo/'tracked-link';tracked.symlink_to('proof.py')
+        self.git('add','tracked-link');self.git('commit','-qm','AA-1: add fixture link')
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        self.assertEqual(self.repo.resolve(),w.validate_author_bridge(p,packet))
+        self.git('config','core.symlinks','false')
+        tracked.unlink();tracked.write_text('proof.py')
+        self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal the replaced symlink')
+        with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+            w.validate_author_bridge(p,packet)
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_stat_config_cannot_hide_same_size_replacement(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        tracked=self.repo/'proof.py';original=tracked.read_bytes()
+        os.utime(tracked,(946684800,946684800));self.git('update-index','--refresh')
+        self.git('config','core.trustCtime','false');self.git('config','core.checkStat','minimal')
+        replacement=self.repo/'replacement';replacement.write_bytes(b'x'*len(original))
+        os.utime(replacement,(946684800,946684800));replacement.replace(tracked)
+        self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal same-size replacement')
+        with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+            w.validate_author_bridge(p,packet)
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_clean_filter_cannot_hide_tracked_changes(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        blob=self.git('rev-parse','HEAD:proof.py')
+        info=Path(self.git('rev-parse','--git-path','info'));info=info if info.is_absolute() else self.repo/info
+        (info/'attributes').write_text('proof.py filter=hide\n')
+        marker=self.root/'clean-filter-ran';hook=self.root/'clean-filter'
+        hook.write_text('#!/bin/sh\ntouch '+str(marker)+'\n/usr/bin/git cat-file blob '+blob+'\n');hook.chmod(0o755)
+        self.git('config','filter.hide.clean',str(hook))
+        (self.repo/'proof.py').write_text('hidden source code\n');self.git('add','proof.py')
+        self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal filtered source change')
+        marker.unlink()
+        with self.assertRaisesRegex(w.q.QueueError,'author-defined filters'):
+            w.validate_author_bridge(p,packet)
+        self.assertFalse(marker.exists(),'validation executed author clean filter')
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_attribute_conversion_cannot_hide_tracked_bytes(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        info=Path(self.git('rev-parse','--git-path','info'));info=info if info.is_absolute() else self.repo/info
+        (info/'attributes').write_text('proof.py text\n')
+        tracked=self.repo/'proof.py';tracked.write_bytes(tracked.read_bytes().replace(b'\n',b'\r\n'))
+        self.git('add','proof.py')
+        self.assertEqual('',self.git('status','--porcelain'),'fixture must normalize altered bytes')
+        with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+            w.validate_author_bridge(p,packet)
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_bridge_rejects_unsupported_submodules(self):
+        self.git('update-index','--add','--cacheinfo','160000,'+self.git('rev-parse','HEAD')+',nested')
+        self.git('commit','-qm','AA-1: add fixture gitlink')
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        with self.assertRaisesRegex(w.q.QueueError,'submodules are unsupported'):
+            w.validate_author_bridge(p,packet)
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_exclusions_cannot_hide_untracked_files(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        (self.repo/'.gitignore').write_text('ignored-by-commit.py\n')
+        self.git('add','.gitignore');self.git('commit','-qm','AA-1: fixture ignore rule')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        info=Path(self.git('rev-parse','--git-path','info'));info=info if info.is_absolute() else self.repo/info
+        (info/'exclude').write_text('conftest.py\n')
+        global_exclude=self.root/'global-ignore';global_exclude.write_text('ignored-globally.py\n')
+        self.git('config','core.excludesFile',str(global_exclude))
+        for name in ('conftest.py','ignored-by-commit.py','ignored-globally.py'):
+            with self.subTest(name=name):
+                extra=self.repo/name;extra.write_text('untracked behavior-changing source\n')
+                self.assertEqual('',self.git('ls-files','--others','--exclude-standard'))
+                try:
+                    with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+                        w.validate_author_bridge(p,packet)
+                finally:extra.unlink()
+        self.assertEqual(self.repo.resolve(),w.validate_author_bridge(p,packet))
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_bridge_checks_actual_checkout_before_adapter(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        s=snapshot(head=self.git('rev-parse','HEAD'))
+        packet={'protocol':1,'role':'author','snapshot':s,'worktree':str(self.repo.resolve())}
+        self.assertEqual(self.repo.resolve(),w.validate_author_bridge(p,packet))
+        for change in ({'head':'a'*40},{'branch':'ticket/AA-2'},{'repository':'other/repo'}):
+            with self.subTest(change=change), self.assertRaises(w.q.QueueError):
+                w.validate_author_bridge(p,{**packet,'snapshot':{**s,**change}})
+        (self.repo/'dirty').write_text('must not start on an unclean checkout')
+        with self.assertRaises(w.q.QueueError):w.validate_author_bridge(p,packet)
+        (self.repo/'dirty').unlink()
+        tracked=self.repo/'proof.py';original=tracked.read_bytes()
+        tracked.write_text('staged unrelated edit\n');self.git('add','proof.py');tracked.write_bytes(original)
+        with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+            w.validate_author_bridge(p,packet)
+
     def test_real_process_pass_and_fresh_query(self):
         j=self.prepare();p=self.call('run',j['id'])
         self.assertEqual(0,p.returncode,p.stderr)
@@ -466,7 +765,8 @@ print(json.dumps(r))
     def test_second_journal_cannot_bypass_repository_ownership(self):
         self.prepare()
         other=self.root/'other-state'
-        p=subprocess.run([sys.executable,str(self.cli),'--root',str(self.repo),'--state',str(other),'status'],env=self.env,capture_output=True,text=True)
+        p=subprocess.run([sys.executable,str(self.cli),'--root',str(self.repo),'--state',str(other),
+                          '--policy',str(self.policy),'status'],env=self.env,capture_output=True,text=True)
         self.assertNotEqual(0,p.returncode)
         self.assertIn('another worker journal',p.stderr)
 
@@ -568,6 +868,247 @@ print(json.dumps(r))
         j=self.prepare()
         self.assertEqual('comment:9',j['snapshot']['review_evidence'])
 
+def identity_proof(author_uid, reviewer_uid, parent):
+    """Opt-in, root-run synthetic OS proof. No credentials, GitHub calls or service installation."""
+    import select
+    import shutil
+    import pwd
+    w.q.require(os.getuid()==0 and author_uid>0 and reviewer_uid>0 and author_uid!=reviewer_uid,
+                'identity proof requires root and two different non-root UIDs')
+    parent=w.protected_worker_path(Path(parent),{0})
+    root=Path(tempfile.mkdtemp(prefix='worker-identity-proof-',dir=parent));root.chmod(0o755)
+    children=set()
+    def drop(uid):
+        try:gid=pwd.getpwuid(uid).pw_gid
+        except KeyError:gid=uid
+        os.setgroups([]);os.setgid(gid);os.setuid(uid)
+        os.environ.clear();os.environ.update(PATH='/usr/bin:/bin',HOME=str(root/str(uid)))
+        os.chdir(os.environ['HOME']);os.umask(0o077)
+    def run_as(uid, fn):
+        rd,wr=os.pipe();pid=os.fork()
+        if pid==0:
+            os.close(rd);os.setpgid(0,0)
+            try:
+                drop(uid);value=fn();out={'ok':True,'value':value}
+            except BaseException as exc:out={'ok':False,'error':type(exc).__name__+': '+str(exc)}
+            os.write(wr,json.dumps(out).encode());os.close(wr);os._exit(0)
+        children.add(pid);os.close(wr)
+        try:
+            if not select.select([rd],[],[],30)[0]:raise AssertionError('identity fixture timed out')
+            raw=os.read(rd,1024*1024);os.waitpid(pid,0);children.remove(pid)
+            value=json.loads(raw);assert value['ok'],value
+            return value['value']
+        finally:os.close(rd)
+    def git(repo,*args):
+        return subprocess.check_output(['/usr/bin/git','-C',str(repo),*args],text=True,
+                                       stderr=subprocess.DEVNULL,timeout=10).strip()
+    try:
+        author=root/str(author_uid);reviewer=root/str(reviewer_uid)
+        for home,uid in ((author,author_uid),(reviewer,reviewer_uid)):
+            home.mkdir(mode=0o700);os.chown(home,uid,uid)
+        seed=root/'seed';seed.mkdir()
+        env={'PATH':'/usr/bin:/bin','HOME':str(root)}
+        for args in (['init','-q'],['config','user.name','Synthetic'],['config','user.email','fixture@example.invalid'],['checkout','-qb','ticket/AA-1']):
+            subprocess.run(['/usr/bin/git','-C',str(seed)]+args,env=env,check=True,stdout=subprocess.DEVNULL)
+        (seed/'proof.txt').write_text('synthetic fixture\n')
+        for args in (['add','.'],['commit','-qm','AA-1: synthetic']):
+            subprocess.run(['/usr/bin/git','-C',str(seed)]+args,env=env,check=True)
+        head=git(seed,'rev-parse','HEAD')
+        git(seed,'bundle','create',str(root/'seed.bundle'),'--all')
+        for uid,home in ((author_uid,author),(reviewer_uid,reviewer)):
+            run_as(uid,lambda home=home:subprocess.run(['/usr/bin/git','clone','-q',str(root/'seed.bundle'),str(home/'repo')],check=True).returncode)
+        bridge=root/'bridge.json';adapter=root/'adapter.py';code=root/'code';code.mkdir()
+        for name in ('review-workers.py','merge-queue.py'):
+            shutil.copyfile(Path(w.__file__).with_name(name),code/name)
+            (code/name).chmod(0o644)
+        adapter.write_text('import json,os,sys\np=json.load(sys.stdin);r=p["result_schema"];r.update(head=p["snapshot"]["head"],outcome="handled",dispositions=[],executed_uid=os.getuid());print(json.dumps(r))\n')
+        adapter.chmod(0o644)
+        tools=root/'tools';tools.mkdir()
+        for name in ('gh','bd'):
+            tool=tools/name;tool.write_text('#!/bin/sh\nexit 99\n');tool.chmod(0o755)
+        untrusted=root/'untrusted-tools';untrusted.mkdir(mode=0o755);os.chown(untrusted,author_uid,author_uid)
+        marker=root/'unexpected-reviewer-git';marker.write_text('');marker.chmod(0o666)
+        shim=untrusted/'git'
+        shim.write_text('#!/bin/sh\n/usr/bin/id -u > '+str(marker)+'\nexit 99\n')
+        shim.chmod(0o755);os.chown(shim,author_uid,author_uid)
+        # Python is a fixed protected executable; this root-owned config pins its script argument.
+        interpreter=str(Path(sys.executable).resolve())
+        bridge.write_text(json.dumps({'author_uid':author_uid,'repo':'fixture/project',
+            'worktrees':{'AA-1':str(author/'repo')},'command':[interpreter,'-I',str(adapter)],
+            'env':{'HOME':str(author),'PATH':str(author/'bin')+':/usr/bin:/bin'}}));bridge.chmod(0o644)
+        def author_setup():
+            git(author/'repo','remote','set-url','origin','https://github.com/fixture/project.git')
+            (author/'bin').mkdir()
+            shim=author/'bin/git';shim.write_text('#!/bin/sh\ntouch '+str(author/'fake-git-executed')+'\nexit 99\n');shim.chmod(0o755)
+            hook=author/'hostile-git-hook'
+            hook.write_text('#!/bin/sh\n/usr/bin/id -u > '+str(author/'hook-uid')+'\nprintf "token\\000"\n');hook.chmod(0o755)
+            git(author/'repo','config','core.fsmonitor',str(hook))
+            git(author/'repo','config','status.showUntrackedFiles','no')
+            return True
+        run_as(author_uid,author_setup)
+        def prepare_reviewer():
+            (reviewer/'credential').write_text('synthetic-read-only-credential')
+            git(reviewer/'repo','status','--porcelain')
+            p=policy();p['isolation']={'author_uid':author_uid,'reviewer_uid':reviewer_uid,
+                'bridge_policy':str(bridge),'author_worktrees':{'AA-1':str(author/'repo')}}
+            p['read_path']=str(tools)+':/usr/bin'
+            p['roles']['author']['env']={'HOME':str(author)}
+            p['roles']['acceptance']['env']={'HOME':str(reviewer)}
+            config=reviewer/'workers.json';config.write_text(json.dumps(p))
+            p=w.load_policy(config,reviewer/'repo')
+            s=snapshot(head=head,base_sha=head,commits=[head]);s['git_common_dir']=str(reviewer/'repo/.git')
+            db=w.Journal(reviewer/'state')
+            try:
+                j=db.prepare(s,'author',author/'repo',p)
+                assert db.prepare(s,'author',author/'repo',p)['id']==j['id']
+                try:db.prepare(s,'acceptance',reviewer/'review-tree',p)
+                except w.q.QueueError:pass
+                else:raise AssertionError('overlapping role acquired PR')
+                return w.packet(j)
+            finally:db.close()
+        packet=run_as(reviewer_uid,prepare_reviewer)
+        def missing_policy_commands():
+            for command in (['status'],['show','unknown'],['reconcile','unknown']):
+                result=subprocess.run([interpreter,'-I',str(code/'review-workers.py'),
+                    '--root',str(reviewer/'repo'),'--state',str(reviewer/'state'),*command],
+                    env={'PATH':str(untrusted)+':/usr/bin:/bin','HOME':str(reviewer)},
+                    capture_output=True,text=True,timeout=10)
+                assert result.returncode!=0 and '--policy' in result.stderr,result.stderr
+                assert marker.read_text()=='','reviewer executed author Git without policy'
+            return True
+        assert run_as(reviewer_uid,missing_policy_commands)
+        def author_run():
+            for path in (reviewer/'credential',reviewer/'state/workers.sqlite'):
+                try:path.read_bytes()
+                except PermissionError:pass
+                else:raise AssertionError('author read reviewer private state')
+            packet['guardian_pgid']=os.getpgrp()
+            def invoke_bridge():
+                return subprocess.run([interpreter,'-I',str(code/'review-workers.py'),'--policy',str(bridge),'author-bridge'],
+                                      input=json.dumps(packet),capture_output=True,text=True,timeout=15)
+            git(author/'repo','status','--porcelain');git(author/'repo','status','--porcelain')
+            assert (author/'hook-uid').read_text().strip()==str(author_uid)
+            (author/'hook-uid').unlink()
+            dirty=author/'repo/unrelated-local';dirty.write_text('untracked content')
+            rejected=invoke_bridge()
+            assert rejected.returncode!=0 and 'must be clean' in rejected.stderr,rejected.stderr
+            dirty.unlink()
+            git(author/'repo','status','--porcelain');git(author/'repo','status','--porcelain')
+            (author/'repo/proof.txt').write_text('unrelated tracked edit\n')
+            assert git(author/'repo','status','--porcelain')==''
+            assert (author/'hook-uid').read_text().strip()==str(author_uid)
+            (author/'hook-uid').unlink()
+            rejected=invoke_bridge()
+            assert rejected.returncode!=0 and 'must be clean' in rejected.stderr,rejected.stderr
+            (author/'repo/proof.txt').write_text('synthetic fixture\n')
+            for flag in ('assume-unchanged','skip-worktree'):
+                git(author/'repo','-c','core.fsmonitor=false','update-index','--'+flag,'--','proof.txt')
+                (author/'repo/proof.txt').write_text('hidden index-flag edit\n')
+                assert git(author/'repo','-c','core.fsmonitor=false','status','--porcelain')==''
+                rejected=invoke_bridge()
+                assert rejected.returncode!=0 and 'concealing index flags' in rejected.stderr,rejected.stderr
+                git(author/'repo','-c','core.fsmonitor=false','update-index','--no-'+flag,'--','proof.txt')
+                (author/'repo/proof.txt').write_text('synthetic fixture\n')
+            git(author/'repo','config','core.fileMode','false')
+            (author/'repo/proof.txt').chmod(0o755)
+            assert git(author/'repo','-c','core.fsmonitor=false','status','--porcelain')==''
+            rejected=invoke_bridge()
+            assert rejected.returncode!=0 and 'must be clean' in rejected.stderr,rejected.stderr
+            (author/'repo/proof.txt').chmod(0o644)
+            attributes=author/'repo/.git/info/attributes'
+            attributes.write_text('proof.txt filter=hide\n')
+            hook=author/'clean-filter';marker=author/'clean-filter-ran'
+            blob=git(author/'repo','rev-parse','HEAD:proof.txt')
+            hook.write_text('#!/bin/sh\ntouch '+str(marker)+'\n/usr/bin/git cat-file blob '+blob+'\n')
+            hook.chmod(0o755);git(author/'repo','config','filter.hide.clean',str(hook))
+            (author/'repo/proof.txt').write_text('hidden code\n')
+            git(author/'repo','-c','core.fsmonitor=false','add','proof.txt')
+            assert git(author/'repo','-c','core.fsmonitor=false','status','--porcelain')==''
+            marker.unlink();rejected=invoke_bridge()
+            assert rejected.returncode!=0 and 'author-defined filters' in rejected.stderr,rejected.stderr
+            assert not marker.exists(),'validation executed author clean filter'
+            git(author/'repo','config','--unset','filter.hide.clean')
+            attributes.write_text('proof.txt text\n')
+            (author/'repo/proof.txt').write_bytes(b'synthetic fixture\r\n')
+            git(author/'repo','-c','core.fsmonitor=false','add','proof.txt')
+            assert git(author/'repo','-c','core.fsmonitor=false','status','--porcelain')==''
+            rejected=invoke_bridge()
+            assert rejected.returncode!=0 and 'tracked bytes differ' in rejected.stderr,rejected.stderr
+            attributes.unlink();(author/'repo/proof.txt').write_text('synthetic fixture\n')
+            (author/'repo/.git/info/exclude').write_text('conftest.py\n')
+            ignored=author/'repo/conftest.py';ignored.write_text('hidden test configuration\n')
+            assert git(author/'repo','-c','core.fsmonitor=false','ls-files','--others','--exclude-standard')==''
+            rejected=invoke_bridge()
+            assert rejected.returncode!=0 and 'must be clean' in rejected.stderr,rejected.stderr
+            ignored.unlink()
+            result=invoke_bridge()
+            assert result.returncode==0,result.stderr
+            receipt=json.loads(result.stdout)
+            assert receipt['executed_uid']==author_uid and receipt['head']==head
+            assert not (author/'hook-uid').exists(),'validation executed the author fsmonitor'
+            assert not (author/'fake-git-executed').exists()
+            return True
+        assert run_as(author_uid,author_run)
+        # A group contains a reviewer guardian and an author child. The reviewer can kill
+        # itself but cannot kill the different-UID author. A fresh reviewer must retain ownership.
+        start_rd,start_wr=os.pipe();ready_rd,ready_wr=os.pipe();guard=os.fork()
+        if guard==0:
+            os.close(start_wr);os.close(ready_rd);os.setpgid(0,0);drop(reviewer_uid)
+            os.write(ready_wr,b'1');os.read(start_rd,1);os.killpg(os.getpgrp(),signal.SIGKILL);os._exit(9)
+        children.add(guard);os.close(start_rd);os.close(ready_wr)
+        assert select.select([ready_rd],[],[],5)[0];os.read(ready_rd,1);os.close(ready_rd)
+        ready_rd,ready_wr=os.pipe();linger=os.fork()
+        if linger==0:
+            os.close(ready_rd);os.close(start_wr);os.setpgid(0,guard);drop(author_uid)
+            os.write(ready_wr,b'1');os.close(ready_wr);time.sleep(60);os._exit(0)
+        children.add(linger);os.close(ready_wr)
+        assert select.select([ready_rd],[],[],5)[0];os.read(ready_rd,1);os.close(ready_rd)
+        os.write(start_wr,b'1');os.close(start_wr);os.waitpid(guard,0);children.remove(guard)
+        def hold():
+            assert w.group_alive(guard)
+            db=w.Journal(reviewer/'state')
+            try:
+                db.record(packet['result_schema']['job_id'],'failed',pgid=guard)
+                try:w.reconcile(db,packet['result_schema']['job_id'],reviewer/'repo')
+                except w.q.QueueError:pass
+                else:raise AssertionError('released surviving author')
+                assert db.get(packet['result_schema']['job_id'])['active']
+            finally:db.close()
+            return True
+        assert run_as(reviewer_uid,hold)
+        os.kill(linger,signal.SIGKILL);os.waitpid(linger,0);children.remove(linger)
+        def release():
+            db=w.Journal(reviewer/'state')
+            try:return not w.reconcile(db,packet['result_schema']['job_id'],reviewer/'repo')['active']
+            finally:db.close()
+        assert run_as(reviewer_uid,release)
+        return {'synthetic_identity_proof':'passed','author_uid':author_uid,'reviewer_uid':reviewer_uid,
+                'author_git_hook_runs_only_as_author':True,'reviewer_git_metadata_separate':True,
+                'author_path_git_not_executed':True,
+                'author_git_hook_disabled_during_validation':True,'hidden_dirty_checkouts_rejected':True,
+                'ignored_files_rejected':True,'author_clean_filters_not_executed':True,'raw_tracked_bytes_verified':True,
+                'hidden_executable_changes_rejected':True,'concealing_index_flags_rejected':True,'missing_policy_journal_commands_blocked':True,
+                'author_denied_reviewer_credentials_and_journal':True,'duplicate_roles_blocked':True,
+                'surviving_author_retains_job':True,'release_after_verified_stop':True,
+                'github_calls':0,'model_calls':0,'services_started':False}
+    finally:
+        for pid in children:
+            try:os.kill(pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            try:os.waitpid(pid,0)
+            except ChildProcessError:pass
+        shutil.rmtree(root)
+
 
 if __name__ == '__main__':
-    unittest.main(argv=[sys.argv[0]], verbosity=2)
+    if '--identity-proof' in sys.argv:
+        import argparse
+        parser=argparse.ArgumentParser()
+        parser.add_argument('--identity-proof',action='store_true')
+        parser.add_argument('--author-uid',type=int,required=True)
+        parser.add_argument('--reviewer-uid',type=int,required=True)
+        parser.add_argument('--proof-parent',required=True)
+        args=parser.parse_args()
+        print(json.dumps(identity_proof(args.author_uid,args.reviewer_uid,args.proof_parent),indent=2))
+    else:
+        unittest.main(argv=[sys.argv[0]], verbosity=2)

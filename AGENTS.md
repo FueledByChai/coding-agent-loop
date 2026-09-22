@@ -138,6 +138,8 @@ runs explicitly configured author/acceptance adapters with durable PR/worktree o
 It has no CI, status-publication or merge adapter; installation does not start workers.
 A separate opt-in `scripts/queue-controller.sh` supplies App-owned live adapters (0021),
 requiring protected operator setup and controlled migration in `templates/queue-operations.md`.
+The V1 existing-agent handoff (0026) uses `scripts/queue-handoff.sh` for nomination and
+independent acceptance under explicitly approved shared-account trust, without hosted workers.
 Its offline fixtures are not live rollout evidence. Installation starts no controller service. `./check.sh` is both the build and the test. A change to
 `scripts/*.sh` reaches a project only when it is tagged and that project's `kit_ref` moves;
 until then `scripts/loop-kit-sync.sh --check` fails there, which is the intended signal.

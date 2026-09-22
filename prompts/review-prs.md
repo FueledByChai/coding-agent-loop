@@ -4,6 +4,15 @@ not merge authorization. Waiting PRs may receive acceptance before CI, but no pa
 status. In durable worker mode, return the structured acceptance receipt only; the trusted
 controller owns final status publication. Never publish a status from an author worker.
 
+In the operator-enabled `github-v1` profile, use the existing independent review role instead
+of starting a worker. Follow the assessment and feedback rules below, then use
+`scripts/queue-handoff.sh --pr <number> inspect` and
+`scripts/queue-handoff.sh --pr <number> --binding <digest> --proof-url <your-submitted-review-url> accept`.
+Only a complete passing assessment may publish acceptance. Stop before legacy step 6:
+never publish `Agent review` or `Queue merge gate` in this profile. Do not claim the legacy
+coordinator or reset its statuses after V1 cutover; the App owns selection and final admission.
+Authors cannot act as their own reviewer even when both roles share an approved GitHub account.
+
 The queue is Beads (`bd`), a hard dependency. Settings come from `.loop.toml`:
 `scripts/loop-config.sh` names `check` (the full check), `default_branch` (this queue's base),
 and `review_context` (the final status, default "Agent review"). Inspect all open PRs targeting

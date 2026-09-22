@@ -187,7 +187,8 @@ Configure two active branch rulesets with exact include `["refs/heads/<base>"]`,
    human/security checks. **Never grant this App a bypass on this second ruleset.**
 
 Disable repository auto-merge and reconcile existing requests before controlled operation.
-The App lacks administration-write permission; this runtime never weakens or edits rulesets.
+Live verification requires the explicitly approved Administration-write authority (0027).
+This runtime only reads rulesets with GET requests; the credential itself can change them.
 `preflight` reads both configured rulesets, auto-merge setting, active workflow ID/path mapping
 and full workflow bytes. Admission check external IDs are versioned SHA256 digests of the
 complete run/head/base/App identity, avoiding repository-name dependent provider limits. Existing

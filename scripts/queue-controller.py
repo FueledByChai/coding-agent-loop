@@ -33,6 +33,9 @@ spec.loader.exec_module(w)
 q = w.q
 GATE = 'Queue merge gate'
 ADMISSION = 'Queue CI admission'
+SELECTION = 'Queue selected'
+ACCEPTANCE = 'Queue acceptance'
+NOMINATION = 'Queue nomination'
 
 
 class Pending(Exception):
@@ -142,7 +145,7 @@ class Controller:
         a.update(phase='blocked',reason=reason); self.db.save(a)
         # Revoke admission first. Never release a lane on an exception or elapsed time.
         pending=None
-        for name in (ADMISSION,GATE):
+        for name in ((SELECTION,) if a.get('selection_check_create_intent') else ())+(ADMISSION,GATE):
             try:self.p.check(a,name,'completed','failure')
             except CheckPending as exc:pending=exc
         self.p.cancel(a)
@@ -155,6 +158,9 @@ class Controller:
                 a=self.db.active();a['check_wait']=str(exc);self.db.save(a)
                 return a
     def _tick(self):
+        # GitHub nominations are requests only. The protected journal owns selection.
+        if getattr(self.p,'policy',{}).get('handoff')=='github-v1':
+            self.p.discover()
         a=self.db.active()
         if a and a['phase']=='merging':
             if self.p.verify_merge(a):
@@ -178,6 +184,16 @@ class Controller:
             self.db.save(a)
         try:
             q.require(a['policy']==self.policy_hash,'controller policy changed')
+            if a['phase']=='waiting_refresh':
+                s=self.p.observe(a['number'])
+                q.require(s['base_sha']==a['snapshot']['base_sha'],'base changed while waiting for selected refresh')
+                ready=self.p.ready(s)
+                if ready is not True:return a
+                # This mode never launches or owns an agent process. Only the branch
+                # transition is observed; fresh final-head review/acceptance is still required.
+                self.p.check(a,SELECTION,'completed','success')
+                a.update(phase='reviewing',snapshot=s,refresh_finished=True)
+                self.db.save(a)
             if a['phase']=='refreshing':
                 # A lost/timeout refresh response cannot prove its author worker stopped.
                 # Hold even if the remote branch now looks current. Never replay it.
@@ -191,6 +207,12 @@ class Controller:
                 if ready is None:return a
                 if not ready:
                     if a['phase']=='selected':
+                        if getattr(self.p,'policy',{}).get('handoff')=='github-v1':
+                            a['snapshot']=s
+                            self.p.check(a,SELECTION,'in_progress')
+                            a.update(phase='waiting_refresh',reason='selected author must refresh, finish review and record acceptance')
+                            self.db.save(a)
+                            return a
                         # Persist before mutation. Never replay a refresh whose outcome is unknown.
                         a.update(phase='refreshing',snapshot=s,refresh_finished=False); self.db.save(a)
                         result=self.p.refresh(a)
@@ -350,9 +372,11 @@ class App:
         jwt=(data+b'.'+enc(signature)).decode()
         info=request('GET','/app',jwt)
         q.require(info['id']==self.p['app_id'],'GitHub App identity mismatch')
+        permissions={'contents':'write','pull_requests':'write','checks':'write','actions':'write','administration':'read'}
+        if self.p.get('handoff')=='github-v1':permissions['statuses']='read'
         r=request('POST','/app/installations/'+str(self.p['installation_id'])+'/access_tokens',jwt,
                   {'repositories':[self.p['repo'].split('/')[1]],
-                   'permissions':{'contents':'write','pull_requests':'write','checks':'write','actions':'write','administration':'read'}})
+                   'permissions':permissions})
         self.cached=r['token']; self.until=now+2700
         return self.cached
     def api(self,method,path,data=None): return request(method,path,self.token(),data)
@@ -375,6 +399,19 @@ class Provider:
             result.extend(rows)
             if len(rows)<100 or (until and until(result)):return result
             page+=1
+    def discover(self):
+        candidates=[]
+        for pr in self.pages('/pulls?state=open&base='+quote(self.policy['base'],safe='')):
+            if pr['draft'] or not pr['head']['repo'] or pr['head']['repo']['full_name'].lower()!=self.policy['repo'].lower():continue
+            statuses=self.pages('/commits/'+pr['head']['sha']+'/statuses')
+            status=latest_status(statuses,NOMINATION)
+            if status and status['state']=='success' and status.get('description')=='queue-nomination-v1' and \
+                    status.get('creator',{}).get('id') in self.policy['nominator_ids']:
+                candidates.append((status['id'],pr['number']))
+        for _,number in sorted(candidates):
+            # Do not revive retired requests on every poll. Re-enqueue is explicit.
+            if not self.journal.db.execute('SELECT 1 FROM requests WHERE number=?',(number,)).fetchone():
+                self.journal.enqueue(number)
     def observe(self,n):
         # Validate every search directory and resolved binary before requesting credentials.
         read_path,binaries=protected_tools(self.policy['read_path'])
@@ -424,6 +461,21 @@ class Provider:
         q.require(len(result.stdout)<=1048576,'adapter response too large')
         return json.loads(result.stdout)
     def acceptance(self,s):
+        if self.policy.get('handoff')=='github-v1':
+            result=latest_status(self.pages('/commits/'+s['head']+'/statuses'),ACCEPTANCE)
+            binding=q.digest(w.binding(s))
+            q.require(result and result['state']=='success' and
+                      result.get('creator',{}).get('id') in self.policy['acceptance_actor_ids'] and
+                      result.get('description')=='queue-acceptance-v1:'+binding and
+                      isinstance(result.get('target_url'),str) and
+                      result['target_url'].startswith('https://github.com/'+s['repository']+'/pull/'+str(s['number'])+'#pullrequestreview-'),
+                      'fresh independent GitHub acceptance required')
+            review_id=result['target_url'].rsplit('-',1)[-1]
+            review=next((r for r in s['reviews'] if str(r['id'])==review_id),None)
+            q.require(review and review['commit_id']==s['head'] and w.nonempty(review['body']) and
+                      review['state']=='COMMENTED','acceptance must cite a submitted assessment of this head')
+            return dict(outcome='pass',job='github-status:'+str(result['id']),binding=binding,
+                        reviewer_identity='github:'+str(result['creator']['id']))
         result=self.command('acceptance',{'snapshot':s,'binding':q.digest(w.binding(s))})
         q.require(result.get('outcome')=='pass' and result.get('binding')==q.digest(w.binding(s)) and
                   w.nonempty(result.get('job')) and result.get('reviewer_identity')==self.policy['reviewer_identity'],
@@ -442,15 +494,21 @@ class Provider:
             raise q.QueueError('CI run must be bound before admission')
         if name==ADMISSION: external=admission_identity(a,self)
         identity=admission_id(external) if name==ADMISSION else q.encoded({'attempt':a['id'],'kind':name})
-        key='admission_check' if name==ADMISSION else 'gate_check'
+        if name==SELECTION:
+            selection=a.setdefault('selection',dict(attempt=a['id'],kind=name,repository=a['snapshot']['repository'],
+                number=a['number'],head=a['snapshot']['head'],base_sha=a['snapshot']['base_sha']))
+            head=selection['head']
+            identity='queue-selection-v1:'+q.digest(selection)
+        key={ADMISSION:'admission_check',GATE:'gate_check',SELECTION:'selection_check'}[name]
         intent_key=key+'_create_intent'
         target={'head':head,'external_id':identity}
         q.require(not a.get(intent_key) or a[intent_key]==target,'check creation identity changed')
         checks=self.pages('/commits/'+head+'/check-runs?filter=all',key='check_runs')
         matches=[r for r in checks if r['name']==name and r['app']['id']==self.policy['app_id'] and
-                 (r.get('external_id')==identity or r['id']==a.get('admission_check' if name==ADMISSION else 'gate_check'))]
+                 (r.get('external_id')==identity or r['id']==a.get(key))]
         q.require(len(matches)<=1,'ambiguous App check creation; operator reconciliation required')
         data={'status':status}
+        if name==SELECTION:data['output']={'title':'Refresh only this selected candidate','summary':q.encoded(selection)}
         if conclusion:data['conclusion']=conclusion
         if matches:
             a[key]=matches[0]['id'];a[intent_key]=target;self.journal.save(a)
@@ -557,16 +615,29 @@ def load_policy(path):
     q.identity(p['repo'],p['base'])
     for k in ('app_id','installation_id','app_actor_id','workflow_id'):
         q.require(q.integer(p[k]),'positive '+k+' required')
-    for role in ('acceptance','refresh'):
+    mode=p.get('handoff','workers')
+    q.require(mode in ('workers','github-v1'),'unknown handoff mode')
+    if mode=='github-v1':
+        for field in ('acceptance_actor_ids','nominator_ids'):
+            q.require(isinstance(p.get(field),list) and p[field] and all(q.integer(i) for i in p[field]),
+                      'explicit GitHub actor allowlist required: '+field)
+        q.require(p.get('shared_account_workflow_trust') is True,'V1 requires explicit shared-account trust acknowledgement')
+    for role in (() if mode=='github-v1' else ('acceptance','refresh')):
         a=p[role]
         q.require(isinstance(a['command'],list) and len(a['command'])==1 and w.nonempty(a['command'][0]),
                   'one protected adapter wrapper executable required; configure arguments inside it')
         q.require(type(a['timeout']) is int and 1<=a['timeout']<=900,'bounded adapter timeout required')
         q.require(isinstance(a['env'],dict) and all(isinstance(k,str) and isinstance(v,str) for k,v in a['env'].items()),'explicit adapter environment required')
         q.require(not any(k in a['env'] for k in ('GH_TOKEN','GITHUB_TOKEN')),'controller adapters must not receive App tokens')
-    q.require(p['author_uid']!=os.getuid() and p['reviewer_uid']!=os.getuid() and p['reviewer_uid']!=p['author_uid'],
+    q.require(p['author_uid']!=os.getuid(),'controller must be separate from author')
+    if mode=='workers':q.require(p['reviewer_uid']!=os.getuid() and p['reviewer_uid']!=p['author_uid'],
               'dedicated controller, author and independent reviewer OS identities required')
     return p
+
+
+def latest_status(statuses,context):
+    rows=[s for s in statuses if s.get('context')==context]
+    return max(rows,key=lambda s:s['id']) if rows else None
 
 
 def worker_receipt(args):

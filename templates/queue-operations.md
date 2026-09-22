@@ -6,7 +6,8 @@ of offline tests. `queue-controller.sh --self-test` is offline; `preflight` read
 
 ## Identities and protected installation
 
-Use three OS identities: controller, author and independent reviewer. A distinct HOME under
+Worker mode uses three OS identities: controller, author and independent reviewer.
+The V1 profile below uses a protected controller plus existing agent workflows. A distinct HOME under
 one shared UID is not isolation. Install reviewed kit files under a root/controller-owned
 path such as `/opt/coding-agent-loop`, protected through every ancestor. Keep a trusted
 observation mirror with Beads under the controller identity; never execute PR code there.
@@ -88,6 +89,71 @@ operator-written wrapper actually crosses that boundary: inspect the wrapper and
 and demonstrate that the author cannot read the key or alter the controller before activation.
 Do not clone the policy/key/journal to a second active host. Only one canonical journal/service
 owns a lane. Back up the stopped journal and audit trail together; do not reset it to retry CI.
+
+## V1 with existing agents
+
+Decision 0026 adds `handoff: "github-v1"` to private controller policy. Replace the worker
+`acceptance`, `refresh`, `reviewer_uid` and `reviewer_identity` settings with:
+
+```json
+{
+  "handoff": "github-v1",
+  "shared_account_workflow_trust": true,
+  "nominator_ids": [7119529],
+  "acceptance_actor_ids": [7119529]
+}
+```
+
+Use the operator-approved numeric GitHub actor IDs. The App additionally needs **Commit
+statuses: read**, never status-write. Agents use their existing `gh` login. The controller
+still needs protected code, mirror, journal, key, tools, workflow and rules. This mode uses
+no worker journal, sudo bridge or model-launch adapter. Shared-account author/reviewer
+separation is procedural: authors must not self-accept, but this profile cannot prevent an
+allowed account from impersonating either role. The operator must explicitly accept that trust.
+
+After completing Codex feedback, the author nominates the PR:
+
+```sh
+scripts/queue-handoff.sh --pr 123 nominate
+```
+
+The controller discovers nominations on each poll and preserves their order in its journal.
+Duplicate nominations retain position. Retired requests need explicit operator re-enqueue.
+Nomination grants no gate authority and starts no CI by itself.
+
+A stale branch may refresh only after verifying the current App selection:
+
+```sh
+scripts/queue-handoff.sh --pr 123 --app-id 5024825 selected
+```
+
+The result names the attempt, expected head and base. Missing, completed, foreign-App or stale
+selection fails. Verify those remote revisions immediately before the project's sanctioned
+refresh and its resulting head afterwards. RockBox uses `scripts/refresh-ticket.sh`; no new
+force-push path is authorized. Finish review again on the resulting head. The controller
+waits without starting an agent or replaying refresh. A changed base blocks the attempt.
+An unavailable author leaves a visible waiting lane, not a proven unattended worker service.
+
+The independent reviewer assesses all acceptance criteria and posts a substantive COMMENTED
+review, then inspects the post-comment snapshot:
+
+```sh
+scripts/queue-handoff.sh --pr 123 inspect
+scripts/queue-handoff.sh --pr 123 --binding HASH_FROM_INSPECT \
+  --proof-url https://github.com/OWNER/REPO/pull/123#pullrequestreview-REVIEW_ID accept
+```
+
+Assess the intent, criteria, diff, rules and feedback before accepting; `inspect` is not an
+assessment. The command verifies the binding and that the cited assessment belongs to the
+current login and exact head. It publishes `Queue acceptance`, not a merge gate. Unchanged
+publication reuses its status. The controller checks the latest status and allowed actor;
+changed head/base/criteria/feedback or a later failure/pending status invalidates acceptance.
+CI progress alone does not invalidate it.
+
+At cutover, existing author and independent reviewer automations adopt these commands.
+Replace the captain's post-CI acceptance and merge duties with pre-CI acceptance; keep repair
+in the author workflow. Preserve the legacy captain until the migration proof below succeeds.
+The stronger hosted-worker mode remains separate and retains its original identity rules.
 
 ## Workflow and rules
 

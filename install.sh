@@ -347,6 +347,8 @@ self_test() {
     || { echo "self-test: installed review workers self-test failed"; exit 1; }
   (cd "$dir" && scripts/queue-controller.sh --self-test | grep -q 'queue-controller self-test passed') \
     || { echo "self-test: installed queue-controller failed"; exit 1; }
+  (cd "$dir" && scripts/queue-handoff.sh --self-test | grep -q 'queue-handoff self-test passed') \
+    || { echo "self-test: installed queue-handoff failed"; exit 1; }
   # Installing again keeps what exists, and refreshes what is the kit's. The pair to prove is
   # .loop.toml against loop.toml.example: both are edited here, and only the example comes back
   # (LK-19).

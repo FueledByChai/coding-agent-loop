@@ -47,6 +47,43 @@ def result(job, **changes):
 
 
 class WorkersTest(unittest.TestCase):
+    def test_lifecycle_reply_cannot_forge_another_job_or_revision(self):
+        p=policy(); p['lifecycle']={'command':['/fixed/broker'],'timeout':30,'revision':'a'*64}
+        j=self.db.prepare(snapshot(),'author',self.tree,p)
+        proof=dict(job_id=j['id'],role=j['role'],phase='closed',revision='a'*64,
+                   fence=w.q.digest([j['id'],j['policy_hash'],w.binding(j['snapshot'])]))
+        for field,value in (('job_id','b'*64+'-1'),('role','acceptance'),('fence','c'*64),
+                            ('revision','d'*64),('phase','launched')):
+            reply=dict(protocol=1,result=dict(proof,**{field:value}))
+            proc=mock.Mock(returncode=0,stdout=json.dumps(reply))
+            with mock.patch.object(w.subprocess,'run',return_value=proc):
+                with self.assertRaises(w.q.QueueError): w.reconcile(self.db,j['id'])
+            self.assertTrue(self.db.get(j['id'])['active'])
+        proc=mock.Mock(returncode=0,stdout=json.dumps(dict(protocol=1,result=proof)))
+        with mock.patch.object(w.subprocess,'run',return_value=proc): w.reconcile(self.db,j['id'])
+        self.assertFalse(self.db.get(j['id'])['active'])
+
+    def test_domain_stop_proof_is_required_even_without_recorded_pgid(self):
+        p=policy(); p['lifecycle']={'command':['/fixed/broker'], 'timeout':30, 'revision':'a'*64}
+        j=self.db.prepare(snapshot(),'author',self.tree,p)
+        with mock.patch.object(w,'domain_call',side_effect=w.q.QueueError('domain populated')):
+            with self.assertRaisesRegex(w.q.QueueError,'populated'): w.reconcile(self.db,j['id'])
+        self.assertTrue(self.db.get(j['id'])['active'])
+        with mock.patch.object(w,'domain_call',return_value={'phase':'closed'}):
+            w.reconcile(self.db,j['id'])
+        self.assertFalse(self.db.get(j['id'])['active'])
+
+    def test_domain_intent_survives_restart_without_rewriting_history(self):
+        old=self.job(); w.reconcile(self.db,old['id'])
+        before=list(self.db.db.execute('SELECT * FROM worker_events WHERE job=?',(old['id'],)))
+        p=policy(); p['lifecycle']={'command':['/fixed/broker'], 'timeout':30, 'revision':'a'*64}
+        j=self.db.prepare(snapshot(number=2),'author',self.tree,p)
+        self.db.close(); self.db=w.Journal(self.state)
+        self.assertEqual('/fixed/broker',self.db.domain(j['id'])['command'][0])
+        self.assertEqual(2,self.db.db.execute('SELECT version FROM worker_metadata').fetchone()[0])
+        self.assertEqual([tuple(x) for x in before], [tuple(x) for x in self.db.db.execute(
+            'SELECT * FROM worker_events WHERE job=?',(old['id'],))])
+
     def test_author_packet_asks_for_resulting_head(self):
         j=self.job(role='author')
         example=w.packet(j)['result_schema']

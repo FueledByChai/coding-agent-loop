@@ -39,6 +39,16 @@ def load_policy(path, root):
     path = trusted_path(path, root)
     q.require(path.stat().st_uid == os.getuid() and not path.stat().st_mode & 0o022, 'policy must be operator-owned and not writable by others')
     p = json.loads(path.read_text())
+    if 'lifecycle' in p:
+        lifecycle=p['lifecycle']
+        q.require(isinstance(lifecycle,dict) and set(lifecycle)=={'command','timeout','revision'}, 'invalid lifecycle configuration')
+        q.require(isinstance(lifecycle.get('revision'),str) and q.re.fullmatch(r'[a-f0-9]{64}',lifecycle['revision']), 'pinned lifecycle revision required')
+        command=lifecycle['command']
+        q.require(isinstance(command,list) and len(command)==1 and nonempty(command[0]) and
+                  Path(command[0]).is_absolute(), 'lifecycle requires one fixed no-argument entry point')
+        trusted_path(command[0],root)
+        q.require(type(lifecycle['timeout']) is int and 1<=lifecycle['timeout']<=86400,
+                  'bounded lifecycle call timeout required')
     q.require(nonempty(p.get('revision')), 'operator policy revision required')
     q.require(type(p.get('timeout')) is int and 1 <= p['timeout'] <= 86400, 'timeout must be 1..86400 seconds')
     q.require(type(p.get('max_attempts')) is int and 1 <= p['max_attempts'] <= 10, 'max_attempts must be 1..10')
@@ -84,7 +94,7 @@ def binding(s):
 
 def policy_hash(policy):
     # Persist only the hash, never environment values (which can contain worker credentials).
-    sources = [Path(__file__),Path(__file__).with_name('merge-queue.py')]
+    sources = [Path(__file__),Path(__file__).with_name('merge-queue.py'),Path(__file__).with_name('worker-domain.py')]
     root = Path(__file__).resolve().parent.parent
     prompt = root/'loop/prompts/respond-to-review.md'
     if not prompt.exists(): prompt = root/'prompts/respond-to-review.md'
@@ -103,7 +113,7 @@ class Journal:
         with self.transaction():
             self.db.execute('CREATE TABLE IF NOT EXISTS worker_metadata(version INTEGER)')
             versions = list(self.db.execute('SELECT version FROM worker_metadata'))
-            q.require(not versions or [r[0] for r in versions] == [1], 'unsupported worker journal')
+            q.require(not versions or [r[0] for r in versions] in ([1],[2]), 'unsupported worker journal')
             if not versions: self.db.execute('INSERT INTO worker_metadata VALUES (1)')
             self.db.execute('''CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY, key TEXT, attempt INTEGER, repo TEXT, number INTEGER,
@@ -112,6 +122,7 @@ class Journal:
             self.db.execute('CREATE UNIQUE INDEX IF NOT EXISTS one_pr_worker ON jobs(repo,number) WHERE active=1')
             self.db.execute('CREATE UNIQUE INDEX IF NOT EXISTS one_tree_worker ON jobs(worktree) WHERE active=1')
             self.db.execute('CREATE TABLE IF NOT EXISTS worker_events (seq INTEGER PRIMARY KEY, job TEXT, at REAL, event TEXT, detail TEXT)')
+            self.db.execute('CREATE TABLE IF NOT EXISTS worker_domains (job TEXT PRIMARY KEY, config TEXT NOT NULL)')
 
     @contextmanager
     def transaction(self):
@@ -162,7 +173,16 @@ class Journal:
                             (jid,key,attempt,snapshot['repository'],snapshot['number'],role,worktree,ph,
                              q.encoded(snapshot),policy['roles'][role]['identity'],policy['roles']['author']['github_login'],'queued',1,None,None,time.time()))
             self.event(jid, 'prepared', {'role':role, 'retry':retry})
+            if 'lifecycle' in policy:
+                # Old binaries know only v1 and must refuse this journal: otherwise a rollback
+                # could ignore the domain intent and release a live job using its PGID alone.
+                self.db.execute('UPDATE worker_metadata SET version=2')
+                self.db.execute('INSERT INTO worker_domains VALUES (?,?)',(jid,q.encoded(policy['lifecycle'])))
             return self.get(jid)
+
+    def domain(self, job):
+        row=self.db.execute('SELECT config FROM worker_domains WHERE job=?',(job,)).fetchone()
+        return json.loads(row[0]) if row else None
 
     def record(self, job, state, result=None, **updates):
         with self.transaction():
@@ -249,6 +269,8 @@ def reconcile(db, jid, root=None):
         j = db.get(jid)
         if not j['active']: return j
         q.require(not group_alive(j['pgid']), 'worker process group still alive; slot retained')
+        if db.domain(jid):
+            domain_call(db,j,'seal')
         if j['state'] not in ('finished','blocked','failed'):
             db.record(jid,'failed',{'error':'worker stopped without a valid completion; explicit retry required'})
         tree = Path(j['worktree'])
@@ -263,8 +285,32 @@ def reconcile(db, jid, root=None):
                                check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             elif tree.exists():
                 shutil.rmtree(tree)  # partial add before registration; private runtime-owned path only
-        db.release(jid,'guardian lock free and no executing process-group members')
+        db.release(jid,'guardian lock free; whole-job domain sealed' if db.domain(jid) else
+                   'guardian lock free and no executing process-group members (foreground contract only)')
         return db.get(jid)
+
+
+def domain_call(db, job, action, payload=None):
+    config=db.domain(job['id'])
+    q.require(config is not None,'missing whole-job lifecycle intent')
+    request=dict(protocol=1,revision=config['revision'],action=action,job_id=job['id'],role=job['role'],
+                 fence=q.digest([job['id'],job['policy_hash'],binding(job['snapshot'])]))
+    if payload is not None: request['packet']=payload
+    # This entry point belongs to the trusted observer, outside the execution accounts.
+    # No controller environment, command string, UID, credential or path is selected by a model.
+    proc=subprocess.run(config['command'],input=q.encoded(request),text=True,capture_output=True,
+                        cwd='/',env={'PATH':'/usr/bin:/bin'},timeout=config['timeout'],check=False)
+    q.require(proc.returncode==0 and len(proc.stdout)<=2*1024*1024,
+              'whole-job lifecycle unavailable or stop unproven; slot retained')
+    reply=json.loads(proc.stdout)
+    q.require(reply.get('protocol')==1 and isinstance(reply.get('result'),dict),'invalid lifecycle response')
+    result=reply['result']
+    proof=result.get('proof') if action=='run' else result
+    q.require(isinstance(proof,dict) and all(proof.get(k)==request[k] for k in ('job_id','role','fence')),
+              'lifecycle identity mismatch')
+    q.require(proof.get('revision')==config['revision'],'lifecycle revision mismatch')
+    q.require(proof.get('phase')==('reserved' if action=='reserve' else 'closed'),'lifecycle stop not proven')
+    return result
 
 
 def validate_result(job, r, fresh):
@@ -482,19 +528,28 @@ def execute_guardian(db, jid, policy_path, root, lock_fd):
         request=db.state/(jid+'.request.json')
         request.write_text(q.encoded(packet(job)))
         os.chmod(request,0o600)
-        with request.open('rb') as stdin, out.open('wb') as stdout, err.open('wb') as stderr:
-            child=subprocess.Popen(config['command'],cwd=tree,env=env,stdin=stdin,stdout=stdout,stderr=stderr,close_fds=True)
-            deadline=time.monotonic()+policy['timeout']
-            while child.poll() is None:
-                if time.monotonic() >= deadline or max(out.stat().st_size,err.stat().st_size)>1024*1024:
-                    db.record(jid,'failed',{'error':'worker timeout/output limit; process group must be verified stopped'})
-                    # Guardian shares the group. Persist failure before terminating all members.
-                    os.killpg(os.getpgrp(),signal.SIGKILL)
-                time.sleep(0.05)
-            code=child.wait()
-        q.require(code==0,'worker exited unsuccessfully; inspect private stderr artifact')
-        q.require(max(out.stat().st_size,err.stat().st_size) <= 1024*1024,'worker output exceeds 1 MiB')
-        response=json.loads(out.read_text())
+        if db.domain(jid):
+            domain_call(db,job,'reserve')
+            execution=domain_call(db,job,'run',packet(job))
+            q.require(execution.get('exit_code')==0 and execution.get('failure') is None,
+                      'whole-job adapter failed; inspect protected lifecycle artifacts')
+            q.require(isinstance(execution.get('output'),str),'missing adapter output')
+            out.write_text(execution['output']); os.chmod(out,0o600)
+            response=json.loads(execution['output'])
+        else:
+            with request.open('rb') as stdin, out.open('wb') as stdout, err.open('wb') as stderr:
+                child=subprocess.Popen(config['command'],cwd=tree,env=env,stdin=stdin,stdout=stdout,stderr=stderr,close_fds=True)
+                deadline=time.monotonic()+policy['timeout']
+                while child.poll() is None:
+                    if time.monotonic() >= deadline or max(out.stat().st_size,err.stat().st_size)>1024*1024:
+                        db.record(jid,'failed',{'error':'worker timeout/output limit; process group must be verified stopped'})
+                        # Guardian shares the group. Persist failure before terminating all members.
+                        os.killpg(os.getpgrp(),signal.SIGKILL)
+                    time.sleep(0.05)
+                code=child.wait()
+            q.require(code==0,'worker exited unsuccessfully; inspect private stderr artifact')
+            q.require(max(out.stat().st_size,err.stat().st_size) <= 1024*1024,'worker output exceeds 1 MiB')
+            response=json.loads(out.read_text())
         fresh=Observer(root).snapshot(job['repo'],job['number'])
         q.require(policy_hash(load_policy(policy_path,root))==job['policy_hash'],'policy changed during work')
         if job['role']=='acceptance':

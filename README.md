@@ -33,6 +33,9 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | `scripts/review-workers.sh` | opt-in durable author/acceptance jobs, fresh evidence validation and crash reconciliation; no merge authority |
 | `scripts/review-workers.py` | isolated command environments, local process guardian and worker receipt validation |
 | `scripts/review-workers-tests.py` | offline concurrency, process crash, timeout, freshness and reply-evidence fixtures |
+| `scripts/worker-domain.sh` | opt-in whole-job lifecycle broker entry point and offline self-test |
+| `scripts/worker-domain.py` | protected provider-neutral domains: Linux cgroup v2 and dedicated macOS execution UIDs |
+| `scripts/worker-domain-tests.py` | lifecycle fences, failed-stop fixtures and explicit privileged host proof |
 | `scripts/pr-readiness.sh` | the six facts a merge waits on for every open pull request — the project's check ran on the head, no review conversation is unresolved, no changes are requested, the agent review's status is success, the branch is current and clean, and the branch and subject name one claimed Beads ticket; `--pr <number>` judges one, `--ready` lists the ones that pass all six |
 | `scripts/reference-check.sh` | the queue's own references: every ticket carries acceptance criteria, every `blocks` dependency and `story:` label resolves, no dependency cycle, and every decision cited is a record; another project's ids quoted in prose are left alone |
 | `scripts/with-test-postgres.sh` | runs a command against a disposable PostgreSQL: a uniquely named container, two ownership labels, the connection URL in the environment (`test_db_*` in `.loop.toml`), and a cleanup that removes only the container it created |
@@ -496,3 +499,46 @@ Do not store the future GitHub App merge credential on this worker account or fi
 merge enforcement needs separate service/OS credentials and a trusted publisher (LK-e9y); no
 worker receipt, including imported or manually edited local data, is itself merge authorization.
 No global model, login, credential or agent settings are changed by installation.
+
+
+## Whole-job supervision (opt-in)
+
+Decision 0025 adds an optional `lifecycle` object to worker policy:
+
+```json
+{"lifecycle":{"command":["/protected/fixed-broker-entry"],"timeout":900,"revision":"<64-character installed configuration/runtime SHA-256>"}}
+```
+
+The fixed entry point runs the protected broker with one fixed configuration; it accepts no
+command-line arguments. Never grant sudo for a caller-selected Python script, config, command,
+UID or filesystem path. The worker observer owns the canonical journal; the author and reviewer
+models run under separate execution accounts. A lifecycle-bound job stores its broker intent
+atomically with its claim. The first such job advances the journal format to v2, so older
+worker binaries refuse it rather than ignoring the new stop requirement. Reconciliation requires both the old launcher lock and a matching
+broker stop proof. It cannot fall back to process-group evidence when the broker fails.
+
+The broker supports `reserve`, `run`, `seal` and `stop`. Requests bind protocol version, installed
+revision, job ID, role and fence; `run` adds the existing worker packet. Replies carry the same
+identities. Closed jobs are permanent tombstones, and role lanes remain occupied until cleanup
+is proven. An ordinary `seal` refuses surviving commands; explicit `stop` kills only the owned
+domain and then verifies emptiness. An active launcher lock refuses either operation until the
+bounded launcher finishes or is known stopped. The execution timeout must fit inside the client
+call timeout. Timeout, crash and unavailable evidence retain the canonical job until reconciliation.
+The broker's root-private input/output/error files contain the job's diagnostic artifacts.
+
+Linux requires a root-owned cgroup v2 parent and `cgroup.kill`. macOS requires dedicated
+`_loop_exec_*` non-login accounts with private groups/HOMEs, no other jobs, no sudo rights, and
+no delegated launch/scheduling services. An inherited system sandbox denies launchd job
+creation, authorization grants and writes to the cron/at spool. The interactive author UID, observer UID and controller
+UID must not be execution domains. A root-owned config pins all runtime artifacts and fixed role
+commands. Every executed script/library must be included in that manifest, including interpreter
+and adapter files. No controller/App credentials belong in execution HOMEs. The broker does not
+install accounts, sudoers, a service, credentials or provider adapters.
+
+`scripts/worker-domain.sh --self-test` is offline and unprivileged. The explicit
+`worker-domain-tests.py --host-proof --author-uid UID --reviewer-uid UID` runs synthetic commands
+under dedicated proof identities; Linux also requires `--cgroup-parent` pointing to a disposable
+root-owned cgroup v2 parent. Run only through the prepared host-acceptance procedure; this is
+not a normal test-suite command. It tests separate sessions, orphan descendants, interrupted
+launchers, concurrent child creation, cleanup and repeat assignment. Failed proof artifacts
+are retained. A synthetic host pass is not a live Codex pass or authorization to enable the queue.

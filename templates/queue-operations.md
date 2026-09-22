@@ -23,7 +23,17 @@ Run the existing author/acceptance guardian under its configured service boundar
 fixes and completed Codex review still precede independent acceptance (0017–0018).
 
 Create/install a dedicated GitHub App only for the selected repository. Grant Checks, Contents,
-Actions and Pull requests write; Administration read; Metadata read. Store its PEM and policy
+Actions and Pull requests write; Metadata read. GitHub returns a ruleset's `bypass_actors`
+only to callers with write access to that ruleset. Therefore live protection verification
+requires explicit operator approval of Administration write (0027), both in the App installation
+and as `"ruleset_administration": "write"` in protected policy. The default token request
+remains read-only and preflight stops if GitHub omits the bypass list. This broader permission
+also lets the App modify repository settings and rules; the controller's ruleset adapter only
+performs GET requests, but credential authority is wider than that code behavior. Keep its
+key isolated and scope installation to the pilot repository. Do not substitute an absent
+bypass list with an empty list or treat a cached snapshot as current verification.
+See [GitHub's ruleset API](https://docs.github.com/en/rest/repos/rules#get-a-repository-ruleset).
+Store its PEM and policy
 as controller-owned mode 0600 files below a mode 0700 private directory. Do not place either in
 Git, Actions secrets, worker environments or the author/reviewer homes. The controller uses
 short-lived installation tokens scoped to this repository and never passes them to adapters.
@@ -70,6 +80,7 @@ Example policy (replace every example, inspect the resulting private file):
   "workflow_id": 1011, "workflow_path": ".github/workflows/queue.yml",
   "workflow_sha256": "SHA256_OF_COMPLETE_RENDERED_WORKFLOW",
   "ci_job": "Queue full check", "ruleset_ids": [1213, 1415],
+  "ruleset_administration": "write",
   "author_uid": 1002, "reviewer_uid": 1003,
   "reviewer_identity": "independent-acceptance-v1",
   "read_path": "/usr/local/bin:/usr/bin:/bin",

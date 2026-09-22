@@ -27,6 +27,14 @@ class HandoffTests(unittest.TestCase):
                 p['handoff']=mode
                 source.read_text.side_effect=lambda:c.q.encoded(p)
                 c.load_policy(Path('/not-read'))
+                for invalid in (True,None,'admin','WRITE',{},[]):
+                    p['ruleset_administration']=invalid
+                    with self.subTest(mode=mode,administration=invalid),self.assertRaises(c.q.QueueError):
+                        c.load_policy(Path('/not-read'))
+                for valid in ('read','write'):
+                    p['ruleset_administration']=valid
+                    c.load_policy(Path('/not-read'))
+                p.pop('ruleset_administration')
                 for field in (('author_uid','reviewer_uid') if mode=='workers' else ('author_uid',)):
                     original=p[field]
                     for invalid in ('600','502',600.0,502.0,True,False,None,0,-1):
@@ -133,6 +141,30 @@ class RefreshTests(unittest.TestCase):
         self.step();self.p.snapshots[1]['base_sha']='e'*40
         self.assertEqual(self.step()['phase'],'blocked')
         self.assertFalse(any(x[0] in ('refresh','dispatch') for x in self.p.calls))
+        self.assertEqual(self.db.next_number(),1)
+
+    def test_changed_stale_refresh_is_recoverable_and_unknown_readiness_waits(self):
+        self.p.policy={'handoff':'github-v1'};self.p.discover=lambda:None
+        readiness=[False];self.p.ready=lambda s:readiness[0]
+        old=self.step();self.assertEqual(old['phase'],'waiting_refresh')
+        self.p.snapshots[1]['head']='e'*40
+        readiness[0]=None
+        self.assertEqual(self.step()['phase'],'waiting_refresh')
+        readiness[0]=False
+        blocked=self.step();self.assertEqual(blocked['phase'],'blocked')
+        self.assertIn('stale head',blocked['reason'])
+        self.assertEqual(self.db.next_number(),1)
+        self.assertFalse(any(x[0] in ('refresh','dispatch') for x in self.p.calls))
+        self.assertTrue(self.p.stopped(blocked))
+        # The existing retry protocol can now retire this stopped attempt and
+        # produce a fresh selection on the new head without releasing another PR.
+        self.runner.block(blocked,blocked['reason'])
+        blocked.update(phase='retired',recovery_reason='retry selected refresh')
+        self.db.save(blocked,retire=True)
+        selected=self.step()
+        self.assertEqual(selected['phase'],'waiting_refresh')
+        self.assertEqual(selected['snapshot']['head'],'e'*40)
+        self.assertNotEqual(selected['id'],old['id'])
         self.assertEqual(self.db.next_number(),1)
 
 

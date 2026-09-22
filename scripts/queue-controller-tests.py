@@ -623,6 +623,19 @@ class ProtocolTests(unittest.TestCase):
             job['steps'][1]['conclusion']=outcome
             self.assertFalse(p.ci_success({},run))
 
+    def test_ruleset_administration_write_is_explicit_and_scoped(self):
+        for configured,expected in ((None,'read'),('read','read'),('write','write')):
+            p=dict(app_id=10,installation_id=11,repo='fixture/project',private_key='/not-read',handoff='github-v1')
+            if configured is not None:p['ruleset_administration']=configured
+            with self.subTest(configured=configured),mock.patch.object(c,'secure_file',return_value=Path('/not-read')),\
+                 mock.patch.object(c.subprocess,'run',return_value=mock.Mock(stdout=b'synthetic-signature')),\
+                 mock.patch.object(c,'request',side_effect=[{'id':10},{'token':'synthetic-token'}]) as request:
+                self.assertEqual(c.App(p).token(),'synthetic-token')
+                self.assertEqual(request.call_args.args[:2],('POST','/app/installations/11/access_tokens'))
+                self.assertEqual(request.call_args.args[3],{'repositories':['project'],'permissions':{
+                    'contents':'write','pull_requests':'write','checks':'write','actions':'write',
+                    'administration':expected,'statuses':'read'}})
+
     def test_rules_separate_exclusive_update_from_unbypassable_protections(self):
         p=dict(app_id=10,base='trunk')
         common=dict(enforcement='active',target='branch',conditions={'ref_name':{'include':['refs/heads/trunk'],'exclude':[]}})
@@ -632,6 +645,10 @@ class ProtocolTests(unittest.TestCase):
              'required_status_checks':[{'context':c.GATE,'integration_id':10}]}}])
         update=dict(common,bypass_actors=[{'actor_id':10,'actor_type':'Integration','bypass_mode':'always'}],rules=[{'type':'update'}])
         c.validate_rules([protection,update],p)
+        for missing in (0,1):
+            rules=json.loads(json.dumps([protection,update]));rules[missing].pop('bypass_actors')
+            with self.subTest(missing=missing),self.assertRaisesRegex(c.q.QueueError,'GitHub omitted the ruleset bypass list'):
+                c.validate_rules(rules,p)
         for mutate in (lambda r:r[0].update(bypass_actors=update['bypass_actors']),
                        lambda r:r[1]['bypass_actors'][0].update(actor_id=11),
                        lambda r:r[0]['rules'][-1]['parameters'].update(strict_required_status_checks_policy=False),

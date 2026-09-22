@@ -188,6 +188,8 @@ class Controller:
                 s=self.p.observe(a['number'])
                 q.require(s['base_sha']==a['snapshot']['base_sha'],'base changed while waiting for selected refresh')
                 ready=self.p.ready(s)
+                q.require(not (ready is False and s['head']!=a['snapshot']['head']),
+                          'selected refresh published a stale head; retire this stopped attempt explicitly')
                 if ready is not True:return a
                 # This mode never launches or owns an agent process. Only the branch
                 # transition is observed; fresh final-head review/acceptance is still required.
@@ -372,7 +374,9 @@ class App:
         jwt=(data+b'.'+enc(signature)).decode()
         info=request('GET','/app',jwt)
         q.require(info['id']==self.p['app_id'],'GitHub App identity mismatch')
-        permissions={'contents':'write','pull_requests':'write','checks':'write','actions':'write','administration':'read'}
+        administration=self.p.get('ruleset_administration','read')
+        q.require(administration in ('read','write'),'ruleset_administration must be read or write')
+        permissions={'contents':'write','pull_requests':'write','checks':'write','actions':'write','administration':administration}
         if self.p.get('handoff')=='github-v1':permissions['statuses']='read'
         r=request('POST','/app/installations/'+str(self.p['installation_id'])+'/access_tokens',jwt,
                   {'repositories':[self.p['repo'].split('/')[1]],
@@ -588,6 +592,8 @@ class Provider:
 def validate_rules(rules,p):
     protections=[]; exclusive=[]
     for rule in rules:
+        q.require(isinstance(rule.get('bypass_actors'),list),
+                  'GitHub omitted the ruleset bypass list; live verification requires operator-approved Administration write access')
         q.require(rule['enforcement']=='active' and rule['target']=='branch','inactive queue ruleset')
         refs=rule['conditions']['ref_name']
         q.require(refs['include']==['refs/heads/'+p['base']] and refs['exclude']==[], 'ruleset lane mismatch')
@@ -617,6 +623,8 @@ def load_policy(path):
         q.require(q.integer(p[k]),'positive '+k+' required')
     mode=p.get('handoff','workers')
     q.require(mode in ('workers','github-v1'),'unknown handoff mode')
+    q.require(p.get('ruleset_administration','read') in ('read','write'),
+              'ruleset_administration must be read or write')
     if mode=='github-v1':
         for field in ('acceptance_actor_ids','nominator_ids'):
             q.require(isinstance(p.get(field),list) and p[field] and all(q.integer(i) for i in p[field]),

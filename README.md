@@ -496,3 +496,80 @@ Do not store the future GitHub App merge credential on this worker account or fi
 merge enforcement needs separate service/OS credentials and a trusted publisher (LK-e9y); no
 worker receipt, including imported or manually edited local data, is itself merge authorization.
 No global model, login, credential or agent settings are changed by installation.
+
+### Workers under separate OS accounts
+
+Use isolated mode (0022) before granting a worker receipt live gate significance. Keep
+one canonical journal, policy and observation clone under the reviewer UID, inaccessible
+to the author. The author keeps its own clone/worktrees and credentials. Do not share
+writable Git metadata between those accounts. The reviewer never runs Git commands in
+an author checkout; it fetches the exact published head into its own mirror for acceptance.
+
+Add the following to the external worker policy (replace all example paths and UIDs):
+
+```json
+{
+  "read_path": "/opt/queue-tools:/usr/bin",
+  "isolation": {
+    "author_uid": 1001,
+    "reviewer_uid": 1002,
+    "bridge_policy": "/etc/queue-workers/author-bridge.json",
+    "author_worktrees": {"AB-12": "/srv/queue-author/AB-12"}
+  }
+}
+```
+
+Keep the other policy fields shown above. The configured reviewer UID must run the
+worker CLI; root is rejected. Protect the reviewer HOME (0700), mirror, journal, policy
+and observation tools through their ancestors. The isolated author's `command` contains
+exactly one root-owned executable wrapper, without caller-supplied arguments. The acceptance
+role also uses a single root-owned wrapper. Both wrapper bytes and the root-owned bridge
+policy contents are included in receipt policy hashes. Its initial
+environment is the reviewer's explicit observation environment, not the author's role env.
+The wrapper must clear that environment and switch UID before invoking this fixed command:
+
+```sh
+/usr/bin/python3 -I /opt/queue-kit/scripts/review-workers.py \
+  --policy /etc/queue-workers/author-bridge.json author-bridge
+```
+
+The root-owned bridge policy pins the actual adapter and author environment:
+
+```json
+{
+  "author_uid": 1001,
+  "repo": "owner/project",
+  "worktrees": {"AB-12": "/srv/queue-author/AB-12"},
+  "command": ["/opt/queue-adapters/author"],
+  "env": {"HOME": "/srv/queue-author", "PATH": "/opt/author-tools:/usr/bin"}
+}
+```
+
+The bridge accepts protocol-1 author packets only. It verifies UID, assigned path,
+HTTPS origin repository, ticket branch, full starting head and clean worktree under the
+**author** identity, then runs the adapter in the inherited guardian process group.
+Configure sudo only for the exact protected command/arguments; never allow an arbitrary
+shell or interpreter invocation. Disable PTY/session creation for this fixed command and
+prove actual process-group retention on the target host. The kit does not install grants.
+A timeout or crash with a surviving author retains ownership until an operator stops it;
+`reconcile` must prove stop before releasing. Do not retry by deleting a journal.
+
+The standard `--worktree` argument names the policy-assigned author path for either role;
+acceptance ignores its Git metadata and creates its detached tree in private reviewer state.
+Registration remains one canonical journal, including any existing author clones after a
+stopped migration. Back up and verify the old journal before rebinding; old state is not a
+second runnable lane. Changing paths, identities or policy invalidates old receipts.
+
+The normal worker self-test remains unprivileged. A separately requested synthetic OS
+proof is available for a host administrator, using existing UIDs and a root-owned parent:
+
+```sh
+sudo /usr/bin/python3 -I /opt/queue-kit/scripts/review-workers-tests.py \
+  --identity-proof --author-uid 1001 --reviewer-uid 1002 --proof-parent /opt
+```
+
+It creates and removes only its own temporary fixture, uses no real credentials or model
+calls, makes no GitHub requests and installs no service/sudo grant. It verifies separate
+Git metadata, author denial of reviewer state, bridge UID/target checks, duplicate-role
+ownership and retention while a different-UID child survives the guardian. This is
+component proof; the actual deployment wrapper and live workflow still need LK-e9y proof.

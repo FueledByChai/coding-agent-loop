@@ -538,6 +538,26 @@ print(json.dumps(r))
         self.assertFalse(marker.exists(),'validation executed the author fsmonitor')
 
     @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_index_flags_cannot_hide_tracked_changes(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        tracked=self.repo/'proof.py';original=tracked.read_bytes()
+        for flag in ('assume-unchanged','skip-worktree'):
+            with self.subTest(flag=flag):
+                self.git('update-index','--'+flag,'--','proof.py')
+                tracked.write_text('hidden tracked edit\n')
+                self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal the tracked edit')
+                try:
+                    with self.assertRaisesRegex(w.q.QueueError,'concealing index flags'):
+                        w.validate_author_bridge(p,packet)
+                finally:
+                    self.git('update-index','--no-'+flag,'--','proof.py')
+                    tracked.write_bytes(original)
+        self.assertEqual(self.repo.resolve(),w.validate_author_bridge(p,packet))
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
     def test_author_bridge_checks_actual_checkout_before_adapter(self):
         self.git('remote','add','origin','https://github.com/fixture/project.git')
         p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
@@ -865,6 +885,14 @@ def identity_proof(author_uid, reviewer_uid, parent):
             rejected=invoke_bridge()
             assert rejected.returncode!=0 and 'must be clean' in rejected.stderr,rejected.stderr
             (author/'repo/proof.txt').write_text('synthetic fixture\n')
+            for flag in ('assume-unchanged','skip-worktree'):
+                git(author/'repo','-c','core.fsmonitor=false','update-index','--'+flag,'--','proof.txt')
+                (author/'repo/proof.txt').write_text('hidden index-flag edit\n')
+                assert git(author/'repo','-c','core.fsmonitor=false','status','--porcelain')==''
+                rejected=invoke_bridge()
+                assert rejected.returncode!=0 and 'concealing index flags' in rejected.stderr,rejected.stderr
+                git(author/'repo','-c','core.fsmonitor=false','update-index','--no-'+flag,'--','proof.txt')
+                (author/'repo/proof.txt').write_text('synthetic fixture\n')
             result=invoke_bridge()
             assert result.returncode==0,result.stderr
             receipt=json.loads(result.stdout)
@@ -910,7 +938,7 @@ def identity_proof(author_uid, reviewer_uid, parent):
                 'author_git_hook_runs_only_as_author':True,'reviewer_git_metadata_separate':True,
                 'author_path_git_not_executed':True,
                 'author_git_hook_disabled_during_validation':True,'hidden_dirty_checkouts_rejected':True,
-                'missing_policy_journal_commands_blocked':True,
+                'concealing_index_flags_rejected':True,'missing_policy_journal_commands_blocked':True,
                 'author_denied_reviewer_credentials_and_journal':True,'duplicate_roles_blocked':True,
                 'surviving_author_retains_job':True,'release_after_verified_stop':True,
                 'github_calls':0,'model_calls':0,'services_started':False}

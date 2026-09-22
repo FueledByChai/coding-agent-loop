@@ -135,6 +135,10 @@ def validate_author_bridge(policy, packet):
                                        text=True,stderr=subprocess.PIPE).strip()
     q.require(checked_git('remote','get-url','origin').removesuffix('.git').rstrip('/')==
               'https://github.com/'+policy['repo'], 'author repository remote mismatch')
+    # Status deliberately trusts these index bits; reject them before accepting its evidence.
+    entries=checked_git('ls-files','-v','-z').split('\0')
+    q.require(all(not entry or (not entry[0].islower() and entry[0]!='S') for entry in entries),
+              'author worktree has concealing index flags (assume-unchanged or skip-worktree)')
     q.require(checked_git('rev-parse','HEAD')==snapshot['head'] and
               checked_git('branch','--show-current')==snapshot['branch'] and
               not checked_git('status','--porcelain','--untracked-files=all','--ignore-submodules=none'),

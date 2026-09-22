@@ -558,6 +558,7 @@ target and ancestors) and a clean system environment, so author tool-path shims 
 forge the validation results. The repair adapter still receives its configured environment.
 Validation ignores system/HOME Git configuration, disables fsmonitor, untracked cache and
 hooks, pins the actual worktree, and explicitly checks untracked files and submodule changes.
+Validation also rejects assume-unchanged and skip-worktree index flags, which can conceal tracked edits.
 Isolated mode requires Git 2.36 or later; older versions interpret boolean fsmonitor
 settings differently ([Git configuration reference](https://git-scm.com/docs/git-config)).
 Configure sudo only for the exact protected command/arguments; never allow an arbitrary

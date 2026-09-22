@@ -34,6 +34,61 @@ class Backend:
 
 
 class DomainTests(unittest.TestCase):
+    def test_mac_directory_groups_are_distinct_from_execution_groups(self):
+        with patch.object(d.sys,'platform','darwin'), patch.object(d.os,'getgrouplist',return_value=[602,12,61,701,702,333,100]):
+            d.validate_directory_groups('_loop_exec_author',602)
+        for groups in ([602,80],[602,0],[12,61]):
+            with patch.object(d.sys,'platform','darwin'), patch.object(d.os,'getgrouplist',return_value=groups):
+                with self.assertRaises(d.DomainError): d.validate_directory_groups('_loop_exec_author',602)
+        with patch.object(d.sys,'platform','linux'), patch.object(d.os,'getgrouplist',return_value=[602,100]):
+            with self.assertRaises(d.DomainError): d.validate_directory_groups('_loop_exec_author',602)
+    def test_drop_verifies_private_kernel_groups_before_execution(self):
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            calls=[]
+            for method in ('setgid','setgroups','setuid'):
+                stack.enter_context(patch.object(d.os,method,side_effect=lambda value,m=method:calls.append((m,value))))
+            for method in ('getuid','geteuid','getgid','getegid'):
+                stack.enter_context(patch.object(d.os,method,return_value=602))
+            with patch.object(d,'kernel_groups',return_value=[602]): d.drop(dict(uid=602,gid=602))
+            self.assertEqual(calls,[('setgid',602),('setgroups',[602]),('setuid',602)])
+            for groups in ([],[602,12],[0],[602,80]):
+                with patch.object(d,'kernel_groups',return_value=groups):
+                    with self.assertRaisesRegex(d.DomainError,'kernel groups'): d.drop(dict(uid=602,gid=602))
+    def test_interpreter_operand_must_be_protected_and_pinned(self):
+        script='/protected/adapter.py'; python='/usr/bin/python3'
+        with patch.object(d,'protected',side_effect=lambda p:Path(p)) as protected:
+            with self.assertRaises(d.DomainError): d.validate_adapter_command([python,'-I',script],{python:'hash'})
+            d.validate_adapter_command([python,'-I',script],{python:'hash',script:'hash'})
+            self.assertIn((script,),[c.args for c in protected.call_args_list])
+            for command in ([python,'-c','code'],[python,'-m','mutable'],[python,script],['/bin/sh','-c','mutable']):
+                with self.assertRaises(d.DomainError): d.validate_adapter_command(command,{python:'hash',script:'hash'})
+        with patch.object(d,'protected',side_effect=d.DomainError('writable operand')):
+            with self.assertRaises(d.DomainError): d.validate_adapter_command([python,'-I',script],{python:'hash',script:'hash'})
+    def test_load_config_rejects_missing_and_changed_script_artifacts(self):
+        # Account/root ownership calls are explicit fixtures; file contents and manifest
+        # validation run through load_config, not a replica of its validation logic.
+        binary=self.root/'python3'; binary.write_text('pinned interpreter')
+        adapter=self.root/'adapter.py'; adapter.write_text('pinned program')
+        state=self.root/'state'; state.mkdir(mode=0o700)
+        cg=self.root/'cg'; cg.mkdir(); (cg/'cgroup.controllers').write_text('pids')
+        config=dict(protocol=1,enabled=True,observer_uid=601,controller_uid=600,state=str(state),
+                    timeout=10,backend='linux-cgroup-v2',cgroup_parent=str(cg),
+                    artifacts={str(binary):hashlib.sha256(binary.read_bytes()).hexdigest()},
+                    roles={r:dict(uid=uid,command=[str(binary),'-I',str(adapter)])
+                           for r,uid in (('author',602),('acceptance',603))})
+        path=self.root/'config.json'
+        with patch.object(d.os,'getuid',return_value=0),patch.object(d.os,'geteuid',return_value=0), \
+             patch.dict(d.os.environ,{'SUDO_UID':'601'}),patch.object(d.sys,'platform','linux'), \
+             patch.object(d,'validate_account'),patch.object(d,'require_cgroup_mount'), \
+             patch.object(d,'protected',side_effect=lambda p,**kw:Path(p)) as protected:
+            path.write_text(json.dumps(config))
+            with self.assertRaisesRegex(d.DomainError,'not pinned'):d.load_config(path)
+            config['artifacts'][str(adapter)]=hashlib.sha256(adapter.read_bytes()).hexdigest()
+            path.write_text(json.dumps(config)); d.load_config(path)
+            self.assertIn((str(adapter),),[c.args for c in protected.call_args_list])
+            adapter.write_text('changed program')
+            with self.assertRaisesRegex(d.DomainError,'artifact changed'):d.load_config(path)
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
@@ -152,7 +207,9 @@ class DomainTests(unittest.TestCase):
 
 @contextmanager
 def host_fixture():
-    path=tempfile.mkdtemp(prefix='loop-domain-proof-')
+    # sudo may preserve a caller-private TMPDIR, whose ancestors are not traversable by
+    # execution accounts. The synthetic fixture must have a shared, canonical temp parent.
+    path=tempfile.mkdtemp(prefix='loop-domain-proof-',dir='/private/tmp' if sys.platform=='darwin' else '/tmp')
     try: yield path
     except BaseException:
         print('Failed host proof retained at '+path,file=sys.stderr)
@@ -180,8 +237,19 @@ def host_proof(author_uid, reviewer_uid, cgroup_parent=None):
         store=d.Store(state,'host-proof-v1',backend)
         config=dict(roles=roles,timeout=10)
         fixture=root/'fixture.py'
-        fixture.write_text("""import json,os,sys,time
+        shared=root/'directory-group-only'
+        shared.write_text('synthetic group access sentinel')
+        os.chown(shared,0,100); shared.chmod(0o640)
+        fixture.write_text("""import ctypes,json,os,sys,time
 packet=json.load(sys.stdin)
+api=ctypes.CDLL(None).getgroups
+api.argtypes=(ctypes.c_int,ctypes.POINTER(ctypes.c_uint32)); api.restype=ctypes.c_int
+count=api(0,None); groups=(ctypes.c_uint32*max(1,count))()
+assert count>=0 and api(count,groups)==count
+assert set(groups)=={os.getgid()}
+try: open('directory-group-only').read()
+except PermissionError: denied=True
+else: raise RuntimeError('inherited directory group granted file access')
 if packet.get('mode')=='detach':
     middle=os.fork()
     if middle==0:
@@ -200,9 +268,10 @@ if packet.get('mode')=='detach':
         time.sleep(60)
         os._exit(0)
     os.waitpid(middle,0)
-print(json.dumps(dict(uid=os.getuid(),pgid=os.getpgrp())),flush=True)
+print(json.dumps(dict(uid=os.getuid(),pgid=os.getpgrp(),kernel_groups=list(groups),shared_group_file_denied=denied)),flush=True)
 if packet.get('mode')=='detach': time.sleep(60)
 """)
+        fixture.chmod(0o444)  # installer uses umask 077; execution UIDs still need to read code
         evidence={}
         launched=[]
         try:
@@ -214,7 +283,9 @@ if packet.get('mode')=='detach': time.sleep(60)
                 pid=os.fork()
                 if pid==0:
                     try: d.run(store,req,config); os._exit(0)
-                    except BaseException: os._exit(125)
+                    except BaseException as exc:
+                        print('synthetic launcher: '+(str(exc) if isinstance(exc,d.DomainError) else type(exc).__name__),file=sys.stderr,flush=True)
+                        os._exit(125)
                 output=state/(req['job_id']+'.output')
                 deadline=time.monotonic()+10
                 while (not output.exists() or not output.read_text().strip()) and time.monotonic()<deadline:
@@ -230,7 +301,8 @@ if packet.get('mode')=='detach': time.sleep(60)
                 proof=store.seal(req,stop=True)
                 d.require(proof['phase']=='closed' and not backend.populated(req),'job stop unproven')
                 evidence[role]=dict(uid=observed['uid'],interrupted_launcher_retains_job=True,
-                                   detached_reparented_commands_stopped=True,children_during_shutdown_stopped=True)
+                                   detached_reparented_commands_stopped=True,children_during_shutdown_stopped=True,
+                                   kernel_groups=observed['kernel_groups'],shared_group_file_denied=observed['shared_group_file_denied'])
                 for attempt in range(2):
                     again=dict(job_id=hashlib.sha256((role+str(attempt)).encode()).hexdigest()+'-1',fence='b'*64,role=role)
                     again['packet']=dict(role=role,result_schema=dict(job_id=again['job_id']),worktree=str(root))

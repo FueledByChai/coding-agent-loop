@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import signal
 import shutil
+import stat
 import sqlite3
 import subprocess
 import sys
@@ -41,12 +42,13 @@ def load_policy(path, root):
     p = json.loads(path.read_text())
     if 'lifecycle' in p:
         lifecycle=p['lifecycle']
-        q.require(isinstance(lifecycle,dict) and set(lifecycle)=={'command','timeout','revision'}, 'invalid lifecycle configuration')
+        q.require(isinstance(lifecycle,dict) and set(lifecycle)=={'command','timeout','revision','entry_sha256'}, 'invalid lifecycle configuration')
         q.require(isinstance(lifecycle.get('revision'),str) and q.re.fullmatch(r'[a-f0-9]{64}',lifecycle['revision']), 'pinned lifecycle revision required')
         command=lifecycle['command']
         q.require(isinstance(command,list) and len(command)==1 and nonempty(command[0]) and
                   Path(command[0]).is_absolute(), 'lifecycle requires one fixed no-argument entry point')
         trusted_path(command[0],root)
+        verify_lifecycle_entry(lifecycle)
         q.require(type(lifecycle['timeout']) is int and 1<=lifecycle['timeout']<=86400,
                   'bounded lifecycle call timeout required')
     q.require(nonempty(p.get('revision')), 'operator policy revision required')
@@ -290,9 +292,27 @@ def reconcile(db, jid, root=None):
         return db.get(jid)
 
 
+def verify_lifecycle_entry(config):
+    command=config.get('command')
+    q.require(isinstance(command,list) and len(command)==1 and isinstance(command[0],str),'invalid lifecycle entry point')
+    path=Path(command[0])
+    q.require(path.is_absolute() and path.resolve()==path,'lifecycle entry must be canonical and absolute')
+    for part in (path,*path.parents):
+        info=part.lstat()
+        q.require(info.st_uid in (0,os.getuid()) and not info.st_mode & 0o022 and
+                  not stat.S_ISLNK(info.st_mode),'lifecycle entry and ancestors must be protected')
+    q.require(path.is_file() and os.access(path,os.X_OK),'lifecycle entry must be executable')
+    digest=config.get('entry_sha256')
+    q.require(isinstance(digest,str) and q.re.fullmatch(r'[a-f0-9]{64}',digest) and
+              q.hashlib.sha256(path.read_bytes()).hexdigest()==digest,'lifecycle executable digest changed or missing')
+
+
 def domain_call(db, job, action, payload=None):
     config=db.domain(job['id'])
     q.require(config is not None,'missing whole-job lifecycle intent')
+    # Recheck even for reconciliation: it uses the journal's pinned intent, not a freshly
+    # loaded policy file. A changed wrapper can never manufacture a successful stop proof.
+    verify_lifecycle_entry(config)
     request=dict(protocol=1,revision=config['revision'],action=action,job_id=job['id'],role=job['role'],
                  fence=q.digest([job['id'],job['policy_hash'],binding(job['snapshot'])]))
     if payload is not None: request['packet']=payload

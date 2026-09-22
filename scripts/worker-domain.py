@@ -223,6 +223,31 @@ def protected(path, directory=False):
     return path
 
 
+def validate_directory_groups(name, gid):
+    groups=set(os.getgrouplist(name,gid))
+    if sys.platform=='darwin':
+        # Directory Service expands everyone/localaccounts and nested service groups. That
+        # list is not the process credential installed by drop(). Still reject admin/wheel.
+        require(gid in groups and not groups.intersection({0,80}), 'execution account has privileged or invalid directory groups')
+    else:
+        require(groups=={gid}, 'execution account must have only its private directory group')
+
+
+def kernel_groups():
+    # Explicit POSIX symbol: modern macOS headers alias getgroups to $DARWIN_EXTSN,
+    # which queries Directory Service instead of the process credential. os.getgroups()
+    # can therefore report groups that setgroups deliberately excluded.
+    api=ctypes.CDLL(None,use_errno=True).getgroups
+    api.argtypes=(ctypes.c_int,ctypes.POINTER(ctypes.c_uint32))
+    api.restype=ctypes.c_int
+    count=api(0,None)
+    require(0<=count<=65536,'kernel group inventory unavailable')
+    values=(ctypes.c_uint32*max(1,count))()
+    copied=api(count,values)
+    require(copied==count,'kernel group inventory changed or failed')
+    return list(values)[:copied]
+
+
 def validate_account(account):
     uid, gid, name = account.get('uid'), account.get('gid'), account.get('name')
     require(type(uid) is int and uid>=600 and type(gid) is int and gid>=600 and
@@ -230,7 +255,7 @@ def validate_account(account):
     p = pwd.getpwnam(name)
     require(p.pw_uid==uid and p.pw_gid==gid and p.pw_dir==account.get('home') and
             p.pw_shell in ('/usr/bin/false','/bin/false','/usr/sbin/nologin','/sbin/nologin'), 'execution account mismatch')
-    require(set(os.getgrouplist(name,gid))=={gid}, 'execution account must have only its private group')
+    validate_directory_groups(name,gid)
     require(uid not in (os.getuid(), account.get('observer_uid'), account.get('controller_uid')), 'execution and trusted identities overlap')
     home = Path(p.pw_dir)
     require(home.is_absolute() and home.resolve()==home, 'canonical execution home required')
@@ -238,11 +263,24 @@ def validate_account(account):
 
 
 def drop(account):
-    os.setgroups([])
     os.setgid(account['gid'])
+    # On Darwin setgroups also opts out of memberd expansion; setuid preserves that opt-out.
+    os.setgroups([account['gid']])
     os.setuid(account['uid'])
     require(os.getuid()==account['uid'] and os.geteuid()==account['uid'] and
             os.getgid()==account['gid'] and os.getegid()==account['gid'], 'credential drop failed')
+    require(set(kernel_groups())=={account['gid']},'execution kernel groups are not private')
+
+
+def validate_adapter_command(command, artifacts):
+    require(isinstance(command,list) and command and all(isinstance(v,str) and v for v in command), 'fixed adapter argv required')
+    # A self-contained fixed wrapper, or an isolated Python script. Reject -c/-m and other
+    # program-bearing argument forms rather than attempting to infer arbitrary CLI semantics.
+    require(len(command)==1 or (len(command)==3 and command[1]=='-I' and
+            re.fullmatch(r'python3(?:\.[0-9]+)?',Path(command[0]).name)), 'use a fixed wrapper or an isolated pinned Python script')
+    for name in ([command[0]] if len(command)==1 else [command[0],command[2]]):
+        protected(name)
+        require(name in artifacts,'executable adapter component is not pinned')
 
 
 def require_cgroup_mount(parent, mountinfo=None):
@@ -280,9 +318,7 @@ def load_config(path):
         validate_account(dict(account, observer_uid=config['observer_uid'], controller_uid=config['controller_uid']))
         require(account['uid'] not in seen, 'execution roles must use distinct UIDs'); seen.add(account['uid'])
         cmd = account['command']
-        require(isinstance(cmd,list) and cmd and all(isinstance(v,str) and v for v in cmd), 'fixed adapter argv required')
-        protected(cmd[0])
-        require(cmd[0] in artifacts, 'adapter executable is not pinned')
+        validate_adapter_command(cmd,artifacts)
         env = account.get('env',{})
         require(isinstance(env,dict) and all(isinstance(k,str) and isinstance(v,str) for k,v in env.items()), 'invalid fixed environment')
         require(not any(k in env for k in ('HOME','USER','LOGNAME','SUDO_UID')), 'identity environment is broker-owned')

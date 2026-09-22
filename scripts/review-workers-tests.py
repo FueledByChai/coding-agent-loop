@@ -47,8 +47,41 @@ def result(job, **changes):
 
 
 class WorkersTest(unittest.TestCase):
+    def lifecycle_policy(self):
+        folder=tempfile.TemporaryDirectory(prefix='.loop-lifecycle-test-',dir=Path.home())
+        self.addCleanup(folder.cleanup)
+        self.broker=Path(folder.name)/'broker'
+        self.broker.write_text('#!/bin/sh\nexit 1\n'); self.broker.chmod(0o700)
+        p=policy();p['lifecycle']=dict(command=[str(self.broker)],timeout=30,revision='a'*64,
+                                     entry_sha256=w.q.hashlib.sha256(self.broker.read_bytes()).hexdigest())
+        return p
+
+    def test_mutable_or_replaced_lifecycle_entry_cannot_release_a_job(self):
+        p=self.lifecycle_policy();j=self.db.prepare(snapshot(),'author',self.tree,p)
+        for mutation in ('file-mode','parent-mode','digest'):
+            self.broker.chmod(0o700);self.broker.parent.chmod(0o700)
+            if mutation=='file-mode': self.broker.chmod(0o777)
+            elif mutation=='parent-mode': self.broker.parent.chmod(0o777)
+            else: self.broker.write_text('#!/bin/sh\necho forged\n')
+            with mock.patch.object(w.subprocess,'run') as execute:
+                with self.assertRaises(w.q.QueueError): w.reconcile(self.db,j['id'])
+                execute.assert_not_called()
+            self.assertTrue(self.db.get(j['id'])['active'])
+
+    def test_load_policy_requires_a_pinned_protected_lifecycle_entry(self):
+        p=self.lifecycle_policy();path=self.root/'policy.json'
+        path.write_text(json.dumps(p));path.chmod(0o600)
+        # Worktree-exclusion logic is covered elsewhere; exercise the real policy/entry
+        # validators against actual file modes and bytes without a provider fixture.
+        with mock.patch.object(w,'trusted_path',side_effect=lambda value,root:Path(value).resolve()):
+            w.load_policy(path,self.tree)
+            self.broker.chmod(0o777)
+            with self.assertRaisesRegex(w.q.QueueError,'protected'):w.load_policy(path,self.tree)
+            self.broker.chmod(0o700);self.broker.write_text('#!/bin/sh\necho changed\n')
+            with self.assertRaisesRegex(w.q.QueueError,'digest'):w.load_policy(path,self.tree)
+
     def test_lifecycle_reply_cannot_forge_another_job_or_revision(self):
-        p=policy(); p['lifecycle']={'command':['/fixed/broker'],'timeout':30,'revision':'a'*64}
+        p=self.lifecycle_policy()
         j=self.db.prepare(snapshot(),'author',self.tree,p)
         proof=dict(job_id=j['id'],role=j['role'],phase='closed',revision='a'*64,
                    fence=w.q.digest([j['id'],j['policy_hash'],w.binding(j['snapshot'])]))

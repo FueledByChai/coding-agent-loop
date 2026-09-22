@@ -506,9 +506,12 @@ No global model, login, credential or agent settings are changed by installation
 Decision 0025 adds an optional `lifecycle` object to worker policy:
 
 ```json
-{"lifecycle":{"command":["/protected/fixed-broker-entry"],"timeout":900,"revision":"<64-character installed configuration/runtime SHA-256>"}}
+{"lifecycle":{"command":["/protected/fixed-broker-entry"],"timeout":900,"revision":"<64-character installed configuration/runtime SHA-256>","entry_sha256":"<64-character fixed entry point SHA-256>"}}
 ```
 
+The entry point and every ancestor must be owned by root/the observer and non-writable by
+other users. Its digest is pinned in policy and rechecked on every lifecycle call, including
+reconciliation; a changed wrapper cannot return a forged stop proof.
 The fixed entry point runs the protected broker with one fixed configuration; it accepts no
 command-line arguments. Never grant sudo for a caller-selected Python script, config, command,
 UID or filesystem path. The worker observer owns the canonical journal; the author and reviewer
@@ -527,11 +530,20 @@ call timeout. Timeout, crash and unavailable evidence retain the canonical job u
 The broker's root-private input/output/error files contain the job's diagnostic artifacts.
 
 Linux requires a root-owned cgroup v2 parent and `cgroup.kill`. macOS requires dedicated
-`_loop_exec_*` non-login accounts with private groups/HOMEs, no other jobs, no sudo rights, and
+`_loop_exec_*` non-login accounts with private primary groups/HOMEs, no other jobs, no sudo rights, and
 no delegated launch/scheduling services. An inherited system sandbox denies launchd job
-creation, authorization grants and writes to the cron/at spool. The interactive author UID, observer UID and controller
+creation, authorization grants and writes to the cron/at spool. Mac directory membership may
+include everyone/localaccounts and nested service groups; admin/wheel membership is refused.
+Before execution, the broker installs only the private GID, disables dynamic group expansion
+through setgroups, drops UID and verifies the POSIX kernel group list. It deliberately avoids
+macOS's extended getgroups lookup, which reports directory membership instead of the process
+credential. The host proof also verifies that a shared-group-only file is inaccessible.
+The interactive author UID, observer UID and controller
 UID must not be execution domains. A root-owned config pins all runtime artifacts and fixed role
-commands. Every executed script/library must be included in that manifest, including interpreter
+commands. Commands must be a single fixed wrapper or an isolated Python invocation
+`["/protected/python3", "-I", "/protected/adapter.py"]`; both interpreter and script must be
+protected, canonical and digest-pinned. Inline code and module-search invocations are refused.
+Every executed script/library must be included in that manifest, including interpreter
 and adapter files. No controller/App credentials belong in execution HOMEs. The broker does not
 install accounts, sudoers, a service, credentials or provider adapters.
 

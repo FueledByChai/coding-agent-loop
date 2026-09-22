@@ -1,11 +1,12 @@
 # V1 queue handoff for existing agents
 
-The author fixes code and responds to review findings. A separate reviewer assesses the
-finished change. The protected queue controller selects one PR, validates its exact revision,
-runs queue CI, and verifies the merge. A waiting PR keeps its head and does not request CI.
-These roles work with any coding harness that can run the handoff commands and use the
-configured GitHub login. Codex remains the configured completed-head review provider for
-this pilot; that does not require the author to use the Codex harness.
+For the governing review, coordination and CI rules, follow decisions
+[0017](../decisions/0017-require-author-evidence-and-completed-head-review-before-acc.md),
+[0019](../decisions/0019-plan-merge-order-and-separate-acceptance-from-final-status-p.md) and
+[0020](../decisions/0020-request-ci-explicitly-and-reject-unrelated-labels-without-sk.md).
+The V1 existing-agent procedure and its trust limits are defined in
+[0026 in the reviewed controller release](https://github.com/FueledByChai/coding-agent-loop/blob/ea20eeccb07f8de74582a5d4438a562f3b67698a/docs/decisions/0026-use-existing-agent-acceptance-for-the-first-live-merge-queue.md).
+The steps below are an operator walkthrough of those records, not a separate policy.
 
 This guide describes the controlled coding-agent-loop pilot, not a completed rollout.
 The reviewed controller release is installed separately while PR #78 remains open. The

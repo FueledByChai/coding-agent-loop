@@ -562,7 +562,10 @@ It enables executable-bit, symlink and full stat checks regardless of author con
 Validation also rejects assume-unchanged and skip-worktree index flags, which can conceal tracked edits.
 It rejects configured clean/smudge/process filters and compares raw tracked bytes and modes
 with the assigned commit, independently of Git status and attribute conversion. Staged
-changes and untracked files are checked separately through Git plumbing. Isolated
+changes and **all** untracked files, including Git-ignored files, are checked separately
+through Git plumbing. Use dedicated worker checkouts and keep state, caches and local
+configuration outside them; generated files must be cleaned before the next author job
+(0024). Validation refuses dirty starts and does not delete their files. Isolated
 author checkouts must use canonical commit bytes: converted line endings, LFS/smudge
 checkouts and submodules are unsupported and stop before adapter launch. Ordinary files
 and symlinks are supported; legacy single-identity mode is unchanged.

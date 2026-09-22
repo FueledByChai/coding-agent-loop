@@ -176,7 +176,7 @@ def validate_author_bridge(policy, packet):
         digest=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
         q.require(digest==oid,'author worktree must be clean: tracked bytes differ from assigned head')
     q.require(not checked_git('diff-index','--cached','--raw','--no-ext-diff','--no-renames',snapshot['head'],'--') and
-              not checked_git('ls-files','--others','--exclude-standard','-z'),
+              not checked_git('ls-files','--others','-z'),
               'author worktree must be clean at assigned branch/head')
     return tree
 

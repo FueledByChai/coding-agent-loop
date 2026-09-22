@@ -141,7 +141,9 @@ until then `scripts/loop-kit-sync.sh --check` fails there, which is the intended
 
 ### The check
 
-`./check.sh` is the definition of done, and CI runs the same script. In order it runs every
+`./check.sh` is the definition of done, and CI runs the same script. The kit-only
+`.github/tests/queue_workflow_test.py` exercises its rendered queue workflow admission before
+checkout or setup; the legacy workflow and protections remain in force during bootstrap. In order it runs every
 script's `--self-test`, then `scripts/prompt-check.sh` (a prompt may not lose a rule), then
 `scripts/decisions.sh --check` (the kit's records answer to the same sections and index a project's
 check demands of them), then `scripts/reference-check.sh` (every ticket carries acceptance

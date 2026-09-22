@@ -127,13 +127,17 @@ def validate_author_bridge(policy, packet):
     def checked_git(*args):
         # Author tools are allowed for repairs, but cannot supply checkout-validation evidence.
         env={'PATH':'/usr/bin:/bin','HOME':os.environ.get('HOME','/nonexistent'),
-             'LANG':'C','GIT_TERMINAL_PROMPT':'0'}
-        return subprocess.check_output([str(binary),'-C',str(tree),*args],env=env,
+             'LANG':'C','GIT_TERMINAL_PROMPT':'0','GIT_CONFIG_NOSYSTEM':'1',
+             'GIT_CONFIG_GLOBAL':'/dev/null','GIT_ATTR_NOSYSTEM':'1','GIT_NO_REPLACE_OBJECTS':'1'}
+        return subprocess.check_output([str(binary),'-C',str(tree),'--work-tree='+str(tree),
+                                       '-c','core.fsmonitor=false','-c','core.untrackedCache=false',
+                                       '-c','core.hooksPath=/dev/null',*args],env=env,
                                        text=True,stderr=subprocess.PIPE).strip()
     q.require(checked_git('remote','get-url','origin').removesuffix('.git').rstrip('/')==
               'https://github.com/'+policy['repo'], 'author repository remote mismatch')
     q.require(checked_git('rev-parse','HEAD')==snapshot['head'] and
-              checked_git('branch','--show-current')==snapshot['branch'] and not checked_git('status','--porcelain'),
+              checked_git('branch','--show-current')==snapshot['branch'] and
+              not checked_git('status','--porcelain','--untracked-files=all','--ignore-submodules=none'),
               'author worktree must be clean at assigned branch/head')
     return tree
 

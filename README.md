@@ -556,6 +556,10 @@ HTTPS origin repository, ticket branch, full starting head and clean worktree un
 Checkout validation uses the root-owned `/usr/bin/git` executable (including its resolved
 target and ancestors) and a clean system environment, so author tool-path shims cannot
 forge the validation results. The repair adapter still receives its configured environment.
+Validation ignores system/HOME Git configuration, disables fsmonitor, untracked cache and
+hooks, pins the actual worktree, and explicitly checks untracked files and submodule changes.
+Isolated mode requires Git 2.36 or later; older versions interpret boolean fsmonitor
+settings differently ([Git configuration reference](https://git-scm.com/docs/git-config)).
 Configure sudo only for the exact protected command/arguments; never allow an arbitrary
 shell or interpreter invocation. Disable PTY/session creation for this fixed command and
 prove actual process-group retention on the target host. The kit does not install grants.

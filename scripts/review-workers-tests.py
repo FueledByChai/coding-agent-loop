@@ -502,6 +502,42 @@ print(json.dumps(r))
         self.assertFalse(marker.exists(),'validation executed author PATH shim')
 
     @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_config_cannot_hide_untracked_files(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        home=self.root/'author-home';home.mkdir()
+        (self.repo/'unrelated-local-content').write_text('must not be committed')
+        for source in ('repository','home'):
+            with self.subTest(source=source), mock.patch.dict(os.environ,HOME=str(home)):
+                if source=='repository':self.git('config','status.showUntrackedFiles','no')
+                else:(home/'.gitconfig').write_text('[status]\n showUntrackedFiles = no\n')
+                self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal the dirty file')
+                try:
+                    with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+                        w.validate_author_bridge(p,packet)
+                finally:
+                    if source=='repository':self.git('config','--unset','status.showUntrackedFiles')
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
+    def test_author_fsmonitor_cannot_hide_tracked_changes(self):
+        self.git('remote','add','origin','https://github.com/fixture/project.git')
+        p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
+        packet={'protocol':1,'role':'author','snapshot':snapshot(head=self.git('rev-parse','HEAD')),
+                'worktree':str(self.repo.resolve())}
+        marker=self.root/'fsmonitor-ran';hook=self.root/'dishonest-fsmonitor'
+        hook.write_text('#!/bin/sh\ntouch '+str(marker)+'\nprintf "token\\000"\n');hook.chmod(0o755)
+        self.git('config','core.fsmonitor',str(hook))
+        self.git('status','--porcelain');self.git('status','--porcelain')
+        (self.repo/'proof.py').write_text('unrelated tracked edit\n')
+        self.assertEqual('',self.git('status','--porcelain'),'fixture must conceal the tracked edit')
+        marker.unlink()
+        with self.assertRaisesRegex(w.q.QueueError,'must be clean'):
+            w.validate_author_bridge(p,packet)
+        self.assertFalse(marker.exists(),'validation executed the author fsmonitor')
+
+    @unittest.skipIf(os.getuid()==0, 'requires a real non-root checkout owner; root uses --identity-proof')
     def test_author_bridge_checks_actual_checkout_before_adapter(self):
         self.git('remote','add','origin','https://github.com/fixture/project.git')
         p={'author_uid':os.getuid(),'repo':'fixture/project','worktrees':{'AA-1':str(self.repo.resolve())}}
@@ -771,6 +807,7 @@ def identity_proof(author_uid, reviewer_uid, parent):
             hook=author/'hostile-git-hook'
             hook.write_text('#!/bin/sh\n/usr/bin/id -u > '+str(author/'hook-uid')+'\nprintf "token\\000"\n');hook.chmod(0o755)
             git(author/'repo','config','core.fsmonitor',str(hook))
+            git(author/'repo','config','status.showUntrackedFiles','no')
             return True
         run_as(author_uid,author_setup)
         def prepare_reviewer():
@@ -810,12 +847,29 @@ def identity_proof(author_uid, reviewer_uid, parent):
                 except PermissionError:pass
                 else:raise AssertionError('author read reviewer private state')
             packet['guardian_pgid']=os.getpgrp()
-            result=subprocess.run([interpreter,'-I',str(code/'review-workers.py'),'--policy',str(bridge),'author-bridge'],
-                                  input=json.dumps(packet),capture_output=True,text=True,timeout=15)
+            def invoke_bridge():
+                return subprocess.run([interpreter,'-I',str(code/'review-workers.py'),'--policy',str(bridge),'author-bridge'],
+                                      input=json.dumps(packet),capture_output=True,text=True,timeout=15)
+            git(author/'repo','status','--porcelain');git(author/'repo','status','--porcelain')
+            assert (author/'hook-uid').read_text().strip()==str(author_uid)
+            (author/'hook-uid').unlink()
+            dirty=author/'repo/unrelated-local';dirty.write_text('untracked content')
+            rejected=invoke_bridge()
+            assert rejected.returncode!=0 and 'must be clean' in rejected.stderr,rejected.stderr
+            dirty.unlink()
+            git(author/'repo','status','--porcelain');git(author/'repo','status','--porcelain')
+            (author/'repo/proof.txt').write_text('unrelated tracked edit\n')
+            assert git(author/'repo','status','--porcelain')==''
+            assert (author/'hook-uid').read_text().strip()==str(author_uid)
+            (author/'hook-uid').unlink()
+            rejected=invoke_bridge()
+            assert rejected.returncode!=0 and 'must be clean' in rejected.stderr,rejected.stderr
+            (author/'repo/proof.txt').write_text('synthetic fixture\n')
+            result=invoke_bridge()
             assert result.returncode==0,result.stderr
             receipt=json.loads(result.stdout)
             assert receipt['executed_uid']==author_uid and receipt['head']==head
-            assert (author/'hook-uid').read_text().strip()==str(author_uid)
+            assert not (author/'hook-uid').exists(),'validation executed the author fsmonitor'
             assert not (author/'fake-git-executed').exists()
             return True
         assert run_as(author_uid,author_run)
@@ -855,6 +909,7 @@ def identity_proof(author_uid, reviewer_uid, parent):
         return {'synthetic_identity_proof':'passed','author_uid':author_uid,'reviewer_uid':reviewer_uid,
                 'author_git_hook_runs_only_as_author':True,'reviewer_git_metadata_separate':True,
                 'author_path_git_not_executed':True,
+                'author_git_hook_disabled_during_validation':True,'hidden_dirty_checkouts_rejected':True,
                 'missing_policy_journal_commands_blocked':True,
                 'author_denied_reviewer_credentials_and_journal':True,'duplicate_roles_blocked':True,
                 'surviving_author_retains_job':True,'release_after_verified_stop':True,

@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import pwd
 import re
+import selectors
 import signal
 import stat
 import subprocess
@@ -338,6 +339,43 @@ def load_config(path):
     return config, Store(state, revision, backend)
 
 
+class BoundedOutput:
+    """Only the supervisor writes log files; adapter pipes cannot bypass the cap."""
+    def __init__(self, outputs):
+        self.selector = selectors.DefaultSelector()
+        self.pipes = [os.pipe() for _ in outputs]
+        self.outputs = outputs
+        self.sizes = [0 for _ in outputs]
+        self.overflow = False
+        for index,(reader,writer) in enumerate(self.pipes):
+            self.selector.register(reader, selectors.EVENT_READ, index)
+    def child(self):
+        for target,(reader,writer) in enumerate(self.pipes, 1):
+            os.dup2(writer,target)
+        for reader,writer in self.pipes:
+            os.close(reader); os.close(writer)
+    def parent(self):
+        for _,writer in self.pipes: os.close(writer)
+    def poll(self, timeout):
+        events = self.selector.select(timeout)
+        for key,_ in events:
+            data = os.read(key.fd,65536)
+            if not data:
+                self.selector.unregister(key.fd)
+                continue
+            index = key.data
+            remaining = LIMIT-self.sizes[index]
+            kept = data[:remaining]
+            self.outputs[index].write(kept)
+            self.outputs[index].flush()
+            self.sizes[index] += len(kept)
+            self.overflow |= len(data)>remaining
+        return bool(events)
+    def close(self):
+        self.selector.close()
+        for reader,_ in self.pipes: os.close(reader)
+
+
 def run(store, request, config):
     packet = request.get('packet')
     require(isinstance(packet,dict) and packet.get('role')==request['role'] and
@@ -354,6 +392,7 @@ def run(store, request, config):
             inp.write(encoded(packet).encode()); inp.flush(); inp.seek(0)
             env = {'PATH':'/usr/bin:/bin','LANG':'en_US.UTF-8', **account.get('env',{}),
                    'HOME':account['home'], 'USER':account['name'], 'LOGNAME':account['name']}
+            capture = BoundedOutput([out,err])
             pid = os.fork()
             if pid==0:
                 try:
@@ -362,29 +401,38 @@ def run(store, request, config):
                     store.backend.enroll(r)
                     drop(account)
                     os.chdir(cwd)  # never traverse repository-selected paths with root privilege
-                    for source, target in ((inp.fileno(),0),(out.fileno(),1),(err.fileno(),2)):
-                        os.dup2(source,target)
+                    os.dup2(inp.fileno(),0)
+                    capture.child()
                     argv=store.backend.command(account['command'])
                     os.execve(argv[0],argv,env)
                 except BaseException: os._exit(125)
-            deadline = time.monotonic()+config['timeout']
-            failure = None
-            while True:
-                ended, status = os.waitpid(pid,os.WNOHANG)
-                if ended: break
-                if time.monotonic()>=deadline or max(p.stat().st_size for p in paths[1:])>LIMIT:
-                    failure = 'timeout or output limit'
-                    store.backend.kill(r)
-                    # Do not block forever on an uninterruptible process. Retain ownership.
+            capture.parent()
+            try:
+                deadline = time.monotonic()+config['timeout']
+                failure = None
+                while True:
+                    capture.poll(.05)
                     ended, status = os.waitpid(pid,os.WNOHANG)
-                    require(ended==pid, 'stop incomplete; ownership retained')
-                    break
-                time.sleep(.05)
-            # Adapter exit is not job completion. Treat any remaining command as failure,
-            # stop the full domain, and require an explicit retry of the job.
-            if store.backend.populated(r):
-                failure = failure or 'adapter exited with surviving commands'
-                store.backend.kill(r)
+                    if capture.overflow or (not ended and time.monotonic()>=deadline):
+                        failure = 'timeout or output limit'
+                        store.backend.kill(r)
+                        if not ended:
+                            # Do not block forever on an uninterruptible process.
+                            stop_deadline = time.monotonic()+5
+                            while not ended and time.monotonic()<stop_deadline:
+                                ended, status = os.waitpid(pid,os.WNOHANG)
+                                if not ended: time.sleep(.01)
+                            require(ended==pid, 'stop incomplete; ownership retained')
+                        break
+                    if ended: break
+                # Adapter exit is not job completion. Drain surviving commands before logs.
+                if store.backend.populated(r):
+                    failure = failure or 'adapter exited with surviving commands'
+                    store.backend.kill(r)
+                require(not store.backend.populated(r),'stop incomplete; ownership retained')
+                while capture.poll(0): pass
+                if capture.overflow: failure = failure or 'output limit'
+            finally: capture.close()
             out.flush(); out.seek(0)
             output = out.read(LIMIT+1)
             require(len(output)<=LIMIT, 'adapter output exceeds limit')

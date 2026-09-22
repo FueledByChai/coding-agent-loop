@@ -528,6 +528,9 @@ domain and then verifies emptiness. An active launcher lock refuses either opera
 bounded launcher finishes or is known stopped. The execution timeout must fit inside the client
 call timeout. Timeout, crash and unavailable evidence retain the canonical job until reconciliation.
 The broker's root-private input/output/error files contain the job's diagnostic artifacts.
+Adapter stdout and stderr use bounded pipes; only the supervisor writes their log files,
+keeping each at or below 1 MiB even during a rapid output burst. Overflow fails the job and
+stops its whole domain before ownership can be released.
 
 Linux requires a root-owned cgroup v2 parent and `cgroup.kill`. macOS requires dedicated
 `_loop_exec_*` non-login accounts with private primary groups/HOMEs, no other jobs, no sudo rights, and

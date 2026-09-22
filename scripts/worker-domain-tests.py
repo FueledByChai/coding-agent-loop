@@ -10,6 +10,7 @@ import sys
 import time
 import hashlib
 import shutil
+import subprocess
 from contextlib import contextmanager
 import unittest
 from unittest.mock import patch
@@ -34,6 +35,55 @@ class Backend:
 
 
 class DomainTests(unittest.TestCase):
+    def test_fast_output_is_capped_before_file_write_for_both_streams(self):
+        paths=[self.root/'stdout',self.root/'stderr']
+        with paths[0].open('w+b') as out, paths[1].open('w+b') as err:
+            capture=d.BoundedOutput([out,err])
+            child=subprocess.Popen([sys.executable,'-I','-c',
+                'import os\nfor fd in (1,2):\n for _ in range(256): os.write(fd,b"x"*65536)'],
+                stdout=capture.pipes[0][1],stderr=capture.pipes[1][1])
+            capture.parent()
+            try:
+                deadline=time.monotonic()+10
+                while child.poll() is None:
+                    self.assertLess(time.monotonic(),deadline)
+                    capture.poll(.01)
+                    self.assertTrue(all(p.stat().st_size<=d.LIMIT for p in paths))
+                while capture.poll(0): pass
+                self.assertEqual(0,child.returncode)
+                self.assertTrue(capture.overflow)
+                self.assertEqual([d.LIMIT,d.LIMIT],[p.stat().st_size for p in paths])
+            finally:
+                if child.poll() is None:child.kill();child.wait()
+                capture.close()
+
+    def test_run_stops_noisy_adapter_and_preserves_small_output(self):
+        pid_file=self.root/'child-pid'
+        class OwnChildBackend:
+            def create(inner,record):pass
+            def command(inner,argv):return argv
+            def populated(inner,record):return False  # no detached commands in this fixture
+            def enroll(inner,record):
+                os.setsid();pid_file.write_text(str(os.getpid()))
+            def kill(inner,record):
+                try:os.killpg(int(pid_file.read_text()),signal.SIGKILL)
+                except ProcessLookupError:pass
+        backend=OwnChildBackend();store=d.Store(self.root,'fixture',backend)
+        for index,code in enumerate(('import sys; print("small"); print("error",file=sys.stderr)',
+                                    'import os,time\nfor _ in range(64):os.write(1,b"x"*65536)\ntime.sleep(5)')):
+            req=dict(self.req,job_id=str(index)*64+'-1')
+            req['packet']=dict(role='author',result_schema=dict(job_id=req['job_id']),worktree=str(self.root))
+            config=dict(timeout=5,roles={'author':dict(uid=os.getuid(),gid=os.getgid(),home=str(self.root),
+                         name='fixture',command=[sys.executable,'-I','-c',code])})
+            store.reserve(req)
+            with patch.object(d,'drop'): result=d.run(store,req,config)
+            self.assertEqual('closed',result['proof']['phase'])
+            if index:
+                self.assertIsNotNone(result['failure'])
+                self.assertEqual(d.LIMIT,(self.root/(req['job_id']+'.output')).stat().st_size)
+            else:
+                self.assertIsNone(result['failure']);self.assertEqual('small\n',result['output'])
+
     def test_mac_directory_groups_are_distinct_from_execution_groups(self):
         with patch.object(d.sys,'platform','darwin'), patch.object(d.os,'getgrouplist',return_value=[602,12,61,701,702,333,100]):
             d.validate_directory_groups('_loop_exec_author',602)

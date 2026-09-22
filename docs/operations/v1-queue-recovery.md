@@ -5,6 +5,11 @@ not claim that restart recovery has been proven live; LK-e9y owns that evidence.
 operator uses the installed, reviewed release and canonical private journal. Agents do not
 receive its App key. Repository checkout files are not substitutes for the protected runtime.
 
+The governing live recovery decision is [0021 in the reviewed controller release](https://github.com/FueledByChai/coding-agent-loop/blob/ea20eeccb07f8de74582a5d4438a562f3b67698a/docs/decisions/0021-fence-live-ci-admission-and-merge-authority-with-a-dedicated.md),
+with the existing-agent V1 profile defined in [0026](https://github.com/FueledByChai/coding-agent-loop/blob/ea20eeccb07f8de74582a5d4438a562f3b67698a/docs/decisions/0026-use-existing-agent-acceptance-for-the-first-live-merge-queue.md).
+Those records are part of the installed release awaiting PR #78, rather than this branch.
+The instructions below apply their recovery rules; this guide introduces no new policy.
+
 ## Observe before changing anything
 
 On the pilot Mac, inspect launchd without changing the service:

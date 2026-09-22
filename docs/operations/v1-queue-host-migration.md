@@ -9,6 +9,12 @@ This is an operator procedure, not evidence that a move has been performed. LK-e
 live rollout acceptance. Use the separately reviewed installed release during the kit pilot;
 this documentation PR does not supply or activate that runtime.
 
+Apply the governing controller policy in [0021](https://github.com/FueledByChai/coding-agent-loop/blob/ea20eeccb07f8de74582a5d4438a562f3b67698a/docs/decisions/0021-fence-live-ci-admission-and-merge-authority-with-a-dedicated.md),
+the V1 profile in [0026](https://github.com/FueledByChai/coding-agent-loop/blob/ea20eeccb07f8de74582a5d4438a562f3b67698a/docs/decisions/0026-use-existing-agent-acceptance-for-the-first-live-merge-queue.md),
+and the approved ruleset-read permission choice in [0027](https://github.com/FueledByChai/coding-agent-loop/blob/ea20eeccb07f8de74582a5d4438a562f3b67698a/docs/decisions/0027-require-explicit-permission-for-complete-live-ruleset-inspec.md).
+These links pin the reviewed installed release awaiting PR #78; the following steps apply
+those decisions rather than establishing a separate migration policy.
+
 ## Establish one stopped source
 
 1. Record the loaded source revision, file hashes, service identity, policy, workflow ID/hash,

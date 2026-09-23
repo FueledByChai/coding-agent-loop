@@ -55,9 +55,8 @@ setup. Do not register a different lane against the restored journal. Adjust hos
 paths, numeric identities and trusted tool paths only while no attempt is active; changes
 to implementation or policy invalidate old admission evidence. Preserve the repository,
 App identity, approved permission scope and expected workflow/protection configuration.
-The destination must explicitly request the approved Administration-write scope needed to
-read complete bypass lists; runtime GET-only behavior does not narrow that credential's
-technical authority.
+Verify the destination's requested permission scope and authority acknowledgement against
+the applicable decision 0027 cited above, or its accepted successor for the destination release.
 
 ## Verify, then enable one host
 

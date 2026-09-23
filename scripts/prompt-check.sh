@@ -94,6 +94,8 @@ review-prs.md	missing CI leaves the status unposted
 review-prs.md	same-head evidence changes
 review-prs.md	respond-to-review.md
 review-prs.md	If the Project rules name a project-owned readiness or status wrapper, use it exactly as documented
+review-prs.md	During staged rollout or legacy mode, preserve
+review-prs.md	Pending invalidations use that wrapper too
 grill-project.md	in a sentence
 grill-project.md	Who and where
 grill-project.md	The data

@@ -350,6 +350,24 @@ def bind_state(root, state):
     finally: os.close(fd)
 
 
+class ObservationChanged(q.QueueError):
+    """Separate provider reads saw changing source evidence; no snapshot was accepted."""
+
+
+def observed_feedback(feedback):
+    reviews,issue_comments,comments,threads=feedback
+    def slim(rows,keys):
+        result=[]
+        for row in rows:
+            item={key:row[key] for key in keys if key in row}
+            item['user']={'login':row['user']['login']}
+            result.append(item)
+        return result
+    comment_keys=('id','body','html_url','in_reply_to_id')
+    return (slim(reviews,('id','body','state','commit_id','submitted_at')),
+            slim(issue_comments,comment_keys),slim(comments,comment_keys),threads)
+
+
 class Observer(q.GitHub):
     def __init__(self,root,env=None,ticket_reader=None):
         super().__init__(root,env)
@@ -399,23 +417,27 @@ class Observer(q.GitHub):
         criteria = ticket.get('acceptance_criteria')
         q.require(ticket['status']=='in_progress' and ticket.get('assignee') and nonempty(criteria), 'claimed ticket with criteria required')
         commits = self.pages(path+'/commits?per_page=100')
-        q.require(commits and commits[-1]['sha']==head and commits[-1]['commit']['message'].startswith(match[1]+':'), 'head must name the ticket')
+        q.require(commits, 'PR commits unavailable')
+        if commits[-1]['sha']!=head:raise ObservationChanged('head changed during commit observation')
+        q.require(commits[-1]['commit']['message'].startswith(match[1]+':'), 'head must name the ticket')
         base = pr['base']['ref']
         base_path = endpoint+'/commits/'+q.quote(base,safe='')
         base_sha = self.get(base_path)['sha']
-        feedback = self.feedback(endpoint,path,number,pr['node_id'])
+        feedback = observed_feedback(self.feedback(endpoint,path,number,pr['node_id']))
         reviews, issue_comments, comments, threads = feedback
         evidence=q.review_evidence(reviews,head,issue_comments,lambda ref:self.get(endpoint+'/commits/'+ref)['sha'])
         def verify_source():
             final=self.get(path)
             again=self.ticket(match[1])
-            q.require((final['head']['sha'],final['base']['ref'],final['state'],final['draft'],final.get('body')) ==
+            stable=((final['head']['sha'],final['base']['ref'],final['state'],final['draft'],final.get('body')) ==
                       (head,base,'open',False,pr.get('body')) and self.get(base_path)['sha']==base_sha and
                       (again.get('acceptance_criteria'),again.get('description'),again.get('status'),again.get('assignee')) ==
                       (criteria,ticket.get('description'),ticket['status'],ticket['assignee']) and
-                      ticket_metadata(again) == metadata, 'source changed during observation')
+                      ticket_metadata(again) == metadata)
+            if not stable:raise ObservationChanged('source changed during observation')
         verify_source()
-        q.require(self.feedback(endpoint,path,number,pr['node_id']) == feedback, 'feedback changed during observation')
+        if observed_feedback(self.feedback(endpoint,path,number,pr['node_id']))!=feedback:
+            raise ObservationChanged('feedback changed during observation')
         verify_source()
         # Save only fields relevant to evidence, excluding mutable API reaction counters.
         slim=lambda c:{k:c[k] for k in ('id','body','html_url','user','in_reply_to_id') if k in c}

@@ -7,7 +7,7 @@ receive its App key. Repository checkout files are not substitutes for the prote
 
 The governing live recovery decision is [0021 in the reviewed controller release](https://github.com/FueledByChai/coding-agent-loop/blob/ea20eeccb07f8de74582a5d4438a562f3b67698a/docs/decisions/0021-fence-live-ci-admission-and-merge-authority-with-a-dedicated.md),
 with the existing-agent V1 profile defined in [0026](https://github.com/FueledByChai/coding-agent-loop/blob/ea20eeccb07f8de74582a5d4438a562f3b67698a/docs/decisions/0026-use-existing-agent-acceptance-for-the-first-live-merge-queue.md).
-Those records are part of the installed release awaiting PR #78, rather than this branch.
+Those records are also present in the kit after PR #78 merged.
 The instructions below apply their recovery rules; this guide introduces no new policy.
 
 ## Observe before changing anything
@@ -21,7 +21,8 @@ launchctl print system/com.fueledbychai.merge-queue.kit
 The public diagnostic log is `/usr/local/var/coding-agent-loop/kit-monitor/controller.log`.
 An idle tick prints `null`. Launchd running and idle output prove neither a successful merge
 nor a currently passing protection check. Canonical status comes from the controller journal,
-using administrator access to the controller identity:
+using administrator access to the controller identity. Replace the example release below
+with the exact release in the loaded service's `ProgramArguments` before running it:
 
 ```sh
 sudo -H -u _loop_gate /usr/bin/python3 -I \
@@ -58,6 +59,16 @@ permission to release it. A merge accepted by GitHub still needs landed PR, ance
 tree verification before the next candidate is admitted.
 
 ## Supported recovery commands
+
+With the LK-v4s repair installed, changing source/review evidence between reads before gate
+creation or dispatch waits automatically for a stable observation. The same selected attempt
+and queue position remain; cached acceptance is discarded. A first unstable read reports
+`observing` with no active attempt yet. Do not restart or run `retry` for this ordinary wait.
+Confirm the installed release carries the repair before relying on this behavior.
+
+Stable changed bases during external refresh, invalid evidence, uncertain mutations and
+post-admission changes still require the existing blocked-attempt handling below. Reaction
+counts alone do not invalidate evidence; edited findings, review verdicts and thread state do.
 
 For a blocked attempt, diagnose its reason first. With the canonical command prefix:
 

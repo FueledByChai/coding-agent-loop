@@ -277,6 +277,60 @@ class WorkersTest(unittest.TestCase):
         w.validate_result(j,dict(r,outcome='blocked',blocker='await reviewer',dispositions=[dispute]),fresh)
 
 
+class ObservationTest(unittest.TestCase):
+    def setUp(self):
+        self.head='a'*40
+        self.pr=dict(state='open',draft=False,merged=False,node_id='pr1',body='scope',user={'login':'author'},
+                     head={'sha':self.head,'ref':'ticket/AA-1','repo':{'full_name':'fixture/project'}},base={'ref':'trunk'})
+        self.ticket=dict(status='in_progress',assignee='author',description='intent',acceptance_criteria='proof',labels=[],dependencies=[])
+        self.base='b'*40
+        self.commit_head=self.head
+        self.feedback=([dict(id=1,body='review',state='COMMENTED',commit_id=self.head,submitted_at='2026-09-23',user={'login':w.q.REVIEWER})],
+                       [dict(id=2,body='discussion',user={'login':'author'})],
+                       [dict(id=3,body='finding',user={'login':'reviewer'})],
+                       [dict(id='thread',root=3,resolved=True)])
+        self.observer=w.Observer(Path('/fixture'),ticket_reader=lambda _:self.clone(self.ticket))
+        self.observer.command=lambda args:{'nameWithOwner':'fixture/project'}
+        self.observer.get=lambda path:({'sha':self.base} if path.endswith('/commits/trunk') else self.clone(self.pr))
+        self.observer.pages=lambda path:[{'sha':self.commit_head,'commit':{'message':'AA-1: proof'}}]
+        self.observer.feedback=lambda *args:self.clone(self.feedback)
+    def clone(self,value):return json.loads(json.dumps(value))
+    def observe(self):return self.observer.snapshot('fixture/project',1)
+
+    def test_reaction_and_profile_updates_do_not_change_evidence(self):
+        expected=self.observe()
+        changed=self.clone(self.feedback)
+        for rows in changed[:3]:
+            for row in rows:
+                row['reactions']={'total_count':1};row['user']['avatar_url']='changed profile'
+        self.observer.feedback=mock.Mock(side_effect=[self.clone(self.feedback),changed])
+        self.assertEqual(w.binding(expected),w.binding(self.observe()))
+
+    def test_meaningful_feedback_changes_are_typed_and_never_return_snapshots(self):
+        for group,field,value in ((0,'body','new review'),(0,'state','CHANGES_REQUESTED'),
+                                  (0,'user',{'login':'other-reviewer'}),(1,'body','new discussion'),
+                                  (2,'body','edited finding'),(2,'user',{'login':'other-author'}),
+                                  (3,'resolved',False)):
+            with self.subTest(group=group,field=field):
+                changed=self.clone(self.feedback);changed[group][0][field]=value
+                self.observer.feedback=mock.Mock(side_effect=[self.clone(self.feedback),changed])
+                with self.assertRaises(w.ObservationChanged):self.observe()
+
+    def test_source_and_commit_list_races_are_typed(self):
+        for field in ('head','base','criteria','commits'):
+            with self.subTest(field=field):
+                self.setUp()
+                if field=='commits':self.commit_head='c'*40
+                else:
+                    def feedback(*args):
+                        if field=='head':self.pr['head']['sha']='c'*40
+                        elif field=='base':self.base='c'*40
+                        else:self.ticket['acceptance_criteria']='new proof'
+                        return self.clone(self.feedback)
+                    self.observer.feedback=feedback
+                with self.assertRaises(w.ObservationChanged):self.observe()
+
+
 class RuntimeTest(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(prefix='worker-runtime-')

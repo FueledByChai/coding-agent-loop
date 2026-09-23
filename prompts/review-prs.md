@@ -17,7 +17,11 @@ Authors cannot act as their own reviewer even when both roles share an approved 
 
 The queue is Beads (`bd`), a hard dependency. Settings come from `.loop.toml`:
 `scripts/loop-config.sh` names `check` (the full check), `default_branch` (this queue's base),
-and `review_context` (the final status, default "Agent review"). Inspect all open PRs targeting
+and `review_context` (the final status, default "Agent review"). Before changing a pull-request
+gate, inspect the retained Project rules. If they mention queue rollout or a controller but do not
+explicitly distinguish staged/legacy operation from an active `github-v1` controller, stop without
+mutating gates and update the project's migration decision and standing contract first. Do not
+infer activation from installed queue files. Inspect all open PRs targeting
 that configured base: paginate `gh api --method GET repos/{owner}/{repo}/pulls -f state=open
 -f "base=<default_branch>" -F per_page=100 --paginate`, substituting the configured value.
 Read their current heads, review evidence and coordinating Beads notes. This inventory and
@@ -72,11 +76,11 @@ record matching this policy's content hash, current acceptance binding, selectio
 successful CI run and posted status id. Recheck step 6 even when that record matches. Missing
 readiness never means retaining an older success. Every status mutation in this legacy flow,
 including pending invalidation, uses a project-owned status wrapper when the Project rules require
-one. If that wrapper cannot express the required pending reset, stop and report the unsupported
-transition rather than bypassing it with the raw API. Before stopping, disable any armed
-auto-merge request for that PR and verify it is off, so stale success cannot merge. Otherwise use
-the status API in step 6.
-Verify each reset; failure stops admission.
+one. If that wrapper cannot express the required pending reset, or if any required wrapper/API
+reset fails, disable any armed auto-merge request for that PR and verify it is off before stopping
+and reporting the unsupported or failed transition. Never bypass the wrapper with the raw API.
+Otherwise use the status API in step 6. Verify each reset; failure stops admission only after that
+auto-merge fence is proved.
 Do this reconciliation before reusing an unchanged acceptance verdict. These status/auto-merge
 changes never authorize refreshing or requesting CI for a waiting PR. Workers perform none
 of these mutations; the controller owns the required gate.

@@ -30,6 +30,7 @@ next-ticket.md	loop:coordination
 next-ticket.md	selected candidate
 next-ticket.md	shadow plan is not admission
 next-ticket.md	During staged rollout or legacy mode, preserve
+next-ticket.md	Do not infer activation from installed queue files
 respond-to-review.md	full head SHA
 respond-to-review.md	all pages
 respond-to-review.md	fix, dispute, or separate ticket
@@ -66,6 +67,7 @@ grill-me.md	--stories
 grill-me.md	settings file and the Beads queue
 grill-me.md	this repository, a new one, or a sibling
 grill-me.md	During staged rollout or legacy mode, preserve
+grill-me.md	Do not infer activation from installed queue files
 review-prs.md	four questions
 review-prs.md	github-v1 skips legacy coordination and gate reconciliation
 review-prs.md	App selection replaces legacy coordinator selection
@@ -97,6 +99,7 @@ review-prs.md	respond-to-review.md
 review-prs.md	If the Project rules name a project-owned readiness or status wrapper, use it exactly as documented
 review-prs.md	During staged rollout or legacy mode, preserve
 review-prs.md	Pending invalidations use that wrapper too
+review-prs.md	Do not infer activation from installed queue files
 grill-project.md	in a sentence
 grill-project.md	Who and where
 grill-project.md	The data

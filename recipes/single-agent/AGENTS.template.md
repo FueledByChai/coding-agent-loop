@@ -5,8 +5,9 @@
 Beads is the durable backlog. Keep exactly one implementation ticket claimed and one
 implementation pull request open at a time.
 
-1. Run `bd dolt pull`, then inspect `bd list --status=in_progress --json`. Finish existing work
-   before inspecting `bd ready`; stories and epics are context, not implementation tickets.
+1. Run `bd dolt pull`, then inspect `bd list --status=in_progress --json` and
+   `gh pr list --state open`. Finish existing implementation work before inspecting `bd ready`;
+   stories and epics are context, not implementation tickets.
 2. Read the selected ticket with `bd show <id> --json`, then claim it with
    `bd update <id> --claim` and publish the claim with `bd dolt push`.
 3. Read the repository's default branch with

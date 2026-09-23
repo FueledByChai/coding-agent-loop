@@ -1,8 +1,9 @@
 # Single-agent delivery
 
-This recipe is the deliberately small alternative to the full ticket loop. It keeps Beads as
-the durable backlog and GitHub as the merge gate, but installs no coordinator, merge queue,
-review worker, acceptance journal, agent-review status, or kit synchronization.
+This recipe is the deliberately small alternative to the full ticket loop recorded by decision
+0028. It keeps Beads as the durable backlog and GitHub as the merge gate, but installs no
+coordinator, merge queue, review worker, acceptance journal, agent-review status, or kit
+synchronization.
 
 Use it when one agent needs to ship useful work before the project invests in parallel agents.
 The operating limit is one claimed implementation ticket and one open implementation pull

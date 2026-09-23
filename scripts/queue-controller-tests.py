@@ -405,6 +405,25 @@ class ProtocolTests(unittest.TestCase):
                 with self.assertRaises(c.q.QueueError):p.observe(1)
                 p.app.token.assert_not_called();run.assert_not_called();observer.assert_not_called()
 
+    def test_observation_rejects_unprotected_home_before_token_or_tools(self):
+        p=c.Provider.__new__(c.Provider)
+        p.root=Path('/trusted/mirror');p.app=mock.Mock()
+        p.policy={'read_path':'/trusted/bin','repo':'fixture/project','base':'trunk'}
+        home=Path('/controller/home')
+        for bad in (home,home.parent):
+            for uid,mode in ((c.os.getuid(),0o775),(c.os.getuid(),0o777),(999999,0o755)):
+                def stat(path,**kw):
+                    return mock.Mock(st_uid=uid if path==bad else c.os.getuid(),
+                                     st_mode=mode if path==bad else 0o755)
+                with self.subTest(path=bad,uid=uid,mode=mode),\
+                     mock.patch.object(Path,'home',return_value=home),\
+                     mock.patch.object(Path,'resolve',lambda path:path),mock.patch.object(Path,'stat',stat),\
+                     mock.patch.object(c,'protected_tools',return_value=('/trusted/bin',{'gh':'/trusted/bin/gh','bd':'/trusted/bin/bd'})),\
+                     mock.patch.object(c.subprocess,'run') as run,mock.patch.object(c.w,'Observer') as observer:
+                    observer.return_value.snapshot.return_value=snapshot()
+                    with self.assertRaises(c.q.QueueError):p.observe(1)
+                    p.app.token.assert_not_called();run.assert_not_called();observer.assert_not_called()
+
     def test_protected_observation_uses_canonical_path_and_bd_binary(self):
         p=c.Provider.__new__(c.Provider)
         p.root=Path('/trusted/mirror');p.app=mock.Mock()
@@ -414,21 +433,62 @@ class ProtocolTests(unittest.TestCase):
         def protect(path):
             paths.append(str(path))
             return Path(str(path).replace('/trusted/','/canonical/'))
-        with mock.patch.object(c,'protected_path',side_effect=protect),\
+        with mock.patch.object(Path,'home',return_value=Path('/trusted/home')),\
+             mock.patch.object(c,'protected_path',side_effect=protect),\
+             mock.patch.object(c.tempfile,'TemporaryDirectory') as config,\
              mock.patch.object(c.subprocess,'run') as run,mock.patch.object(c.w,'Observer') as observer,\
              mock.patch('shutil.which',side_effect=lambda name,**kw:'/canonical/bin/'+name):
+            config.return_value.__enter__.return_value='/canonical/home/queue-gh-private'
             observer.return_value.snapshot.return_value=snapshot()
             self.assertEqual(snapshot(),p.observe(1))
             self.assertIn('/canonical/bin/gh',paths);self.assertIn('/canonical/bin/bd',paths)
             self.assertEqual('/canonical/bin/bd',run.call_args.args[0][0])
             self.assertEqual('/canonical/bin',observer.call_args.args[1]['PATH'])
+            self.assertIn('/trusted/home',paths)
+            self.assertEqual('/canonical/home',observer.call_args.args[1]['HOME'])
+            self.assertEqual('/canonical/home/queue-gh-private',observer.call_args.args[1]['GH_CONFIG_DIR'])
+            self.assertEqual('/canonical/home',run.call_args.kwargs['env']['HOME'])
             self.assertNotIn('GH_TOKEN',run.call_args.kwargs['env'])
             reader=observer.call_args.kwargs['ticket_reader']
             run.return_value.stdout=json.dumps([{'id':'AA-1'}])
             self.assertEqual({'id':'AA-1'},reader('AA-1'))
             self.assertEqual(['/canonical/bin/bd','show','AA-1','--json','--readonly'],run.call_args.args[0])
             self.assertEqual('/canonical/bin',run.call_args.kwargs['env']['PATH'])
+            self.assertEqual('/canonical/home',run.call_args.kwargs['env']['HOME'])
             self.assertNotIn('GH_TOKEN',run.call_args.kwargs['env'])
+
+    def test_observation_ignores_existing_gh_config_and_cleans_private_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory);existing=home/'.config/gh'
+            existing.mkdir(parents=True)
+            poison=home/'attacker-config';poison.write_text('http_unix_socket: /attacker/socket\n')
+            (existing/'config.yml').symlink_to(poison)
+            p=c.Provider.__new__(c.Provider)
+            p.root=Path('/trusted/mirror');p.app=mock.Mock()
+            p.app.token.return_value='synthetic-token'
+            p.policy={'read_path':'/trusted/bin','repo':'fixture/project','base':'trunk'}
+            configs=[]
+            def observe(root,env,**kw):
+                config=Path(env['GH_CONFIG_DIR']);configs.append(config)
+                self.assertEqual(home,config.parent)
+                self.assertEqual(0o700,config.stat().st_mode&0o777)
+                self.assertEqual([],list(config.iterdir()))
+                self.assertEqual('synthetic-token',env['GH_TOKEN'])
+                self.assertEqual(str(home),env['HOME'])
+                result=mock.Mock(snapshot=mock.Mock(return_value=snapshot()))
+                if len(configs)==2:result.snapshot.side_effect=c.q.QueueError('changed feedback')
+                return result
+            with mock.patch.object(Path,'home',return_value=home),\
+                 mock.patch.object(c,'protected_path',side_effect=lambda path:Path(path)),\
+                 mock.patch.object(c,'protected_tools',return_value=('/trusted/bin',{'gh':'/trusted/bin/gh','bd':'/trusted/bin/bd'})),\
+                 mock.patch.dict(c.os.environ,{'GH_CONFIG_DIR':str(existing),'XDG_CONFIG_HOME':str(home/'.config')}),\
+                 mock.patch.object(c.subprocess,'run') as run,mock.patch.object(c.w,'Observer',side_effect=observe):
+                self.assertEqual(snapshot(),p.observe(1))
+                with self.assertRaisesRegex(c.q.QueueError,'changed feedback'):p.observe(1)
+                self.assertNotIn('GH_TOKEN',run.call_args.kwargs['env'])
+            self.assertEqual(2,len(configs))
+            self.assertTrue(all(not config.exists() for config in configs))
+            self.assertTrue((existing/'config.yml').is_symlink())
 
     def test_private_configuration_rejects_foreign_owned_ancestors(self):
         path=Path('/protected/foreign/policy.json')

@@ -32,6 +32,7 @@ next-ticket.md	shadow plan is not admission
 next-ticket.md	During staged rollout or legacy mode, preserve
 next-ticket.md	Do not infer activation from installed queue files
 next-ticket.md	does not explicitly declare either staged/legacy operation or `github-v1` as the active profile, stop before mutating gates
+next-ticket.md	including whether the PR opens as draft or ready and whether auto-merge is armed
 respond-to-review.md	full head SHA
 respond-to-review.md	all pages
 respond-to-review.md	fix, dispute, or separate ticket
@@ -70,6 +71,7 @@ grill-me.md	this repository, a new one, or a sibling
 grill-me.md	During staged rollout or legacy mode, preserve
 grill-me.md	Do not infer activation from installed queue files
 grill-me.md	does not explicitly declare either staged/legacy operation or `github-v1` as the active profile, stop before mutating gates
+grill-me.md	including whether the PR opens as draft or ready and whether auto-merge is armed
 review-prs.md	four questions
 review-prs.md	github-v1 skips legacy coordination and gate reconciliation
 review-prs.md	App selection replaces legacy coordinator selection
@@ -159,7 +161,7 @@ self_test() {
   local file phrase
   while IFS=$'\t' read -r file phrase; do
     case "$file:$phrase" in
-      respond-to-review.md:*|next-ticket.md:*|review-prs.md:*|grill-me.md:loop:coordination|grill-me.md:--type*|grill-me.md:merge\ order|grill-me.md:N*|grill-me.md:nine*|grill-me.md:ordering*|grill-me.md:single*|grill-me.md:waiting*|grill-me.md:does\ not*) ;;
+      respond-to-review.md:*|next-ticket.md:*|review-prs.md:*|grill-me.md:loop:coordination|grill-me.md:--type*|grill-me.md:merge\ order|grill-me.md:N*|grill-me.md:nine*|grill-me.md:ordering*|grill-me.md:single*|grill-me.md:waiting*|grill-me.md:does\ not*|grill-me.md:including\ whether*) ;;
       *) continue ;;
     esac
     # Remove this phrase independent of capitalization or line wrapping.

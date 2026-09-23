@@ -3,6 +3,174 @@
 What shipped, by release: the commits that carry a ticket id between two tags, with the
 ticket text read from Beads (scripts/release-notes.sh --archive).
 
+## v0.22.0 — 2026-09-22 (v0.21.1..HEAD)
+
+### scripts (LK)
+
+- **LK-6yn** Persist a fenced merge queue and inspect GitHub in shadow mode — 2026-09-20 · ca4e6c9 (persist a fenced shadow merge queue)
+- **LK-sm4** The kit has no prompt for the author's side of a review conversation — 2026-09-20 · b8133c2 (carry authors through evidence-backed review responses)
+- **LK-3pg** Run author repair and acceptance workers from durable queue jobs — 2026-09-20 · 6e55a5c (run durable author and acceptance workers)
+- **LK-og8** Repair reviewer cleanup and author receipt contract after PR73 merge — 2026-09-20 · 9cb57c7 (recover missing review trees and describe resulting author heads)
+- **LK-9r7** A day's pull requests have no merge order, so every merge re-tests all the others — 2026-09-20 · cedcb17 (plan merge order and defer final gates to the selected candidate)
+- **LK-kpe** Bind worker acceptance receipts to ticket dependencies and labels — 2026-09-21 · 0e56f7a (invalidate worker evidence when ticket graph metadata changes)
+- **LK-412** The CI skeleton runs the whole check on every push, and the obvious way to narrow it is a trap — 2026-09-21 · eea5785 (request consumer CI explicitly without skipped green checks)
+- **LK-pge** Install the kit queue CI workflow while retaining legacy gates — 2026-09-22 · 84a0dc9 (bootstrap App-admitted queue CI under legacy protections)
+- **LK-evm** Document V1 nomination and independent acceptance for the live queue pilot — 2026-09-22 · b5525e1 (document existing-agent queue handoff for the pilot)
+- **LK-d50** Document queue restart and blocked-attempt recovery for the live pilot — 2026-09-22 · c9696e0 (document queue restart and blocked-attempt recovery)
+- **LK-4l2** Document portable queue host migration and rollback for the live pilot — 2026-09-22 · 4e457c6 (document portable queue host migration and rollback)
+- **LK-e9y** Enforce one admitted CI candidate with a dedicated GitHub App gate — 2026-09-21 · dd0e7cf (add opt-in trusted App admission and merge controller)
+- **LK-af3** Document the controlled automatic-recovery queue proof — 2026-09-22 · c6d4fbf (document the controlled observation recovery proof)
+- **LK-v4s** Retry changing pre-admission review snapshots without manual queue recovery — 2026-09-22 · e803c9a (retry changing observations before CI admission)
+
+### scripts (LK): archived tickets
+
+#### LK-6yn Persist a fenced merge queue and inspect GitHub in shadow mode — 2026-09-20 · ca4e6c9
+
+Implement the first executable increment of the owner-approved merge queue. A reusable Python/SQLite controller records candidate identity, review and acceptance evidence, FIFO eligibility, one fenced promotion slot per repository and base branch, and an audit log. Ship a read-only GitHub scan and JSON status/plan commands; shadow mode must not rebase, comment, request CI, post checks or merge. Beads remains task tracking. This foundation serves LS-03 and enables LK-9r7, LK-sm4, LK-412 and the RockBox consumer RB-g6do. Follow-up adapters supply trusted acceptance, worker automation and an App-issued required gate.
+
+**Done when:** scripts/merge-queue.sh --self-test proves three-PR ordering with dependency blockers, exact head and acceptance revision invalidation, duplicate and out-of-order observations, restart persistence, atomic competing claims, fenced stale-worker refusal, explicit release and failure recovery, and no automatic lease stealing. A stub gh proves paginated read-only scanning, complete review-thread reads, errors fail closed, and no GitHub mutations. The installed script and helper pass the same tests in install.sh; the full kit check passes. A live read-only scan of the consumer is recorded without changing any workflow or merge protection.
+
+#### LK-sm4 The kit has no prompt for the author's side of a review conversation — 2026-09-20 · b8133c2
+
+review-prs.md is the reviewer's side: it reads a diff and posts a status. next-ticket.md is the
+author's side up to the pull request. Nothing in the kit covers what happens between them - the
+author reading a review finding and deciding what to do with it.
+
+That gap is where consumer projects lose the work. In rockbox-ghl the step exists as a chat
+prompt somebody typed into an orchestrating agent ("monitor the PRs for unresolved convos on each
+CI run until there are no unresolved convos"), which is why a reviewer existed, a gate existed,
+and the responder did not. The measured shape: a review app reviews every push, so a fresh head
+usually carries unresolved threads before anybody has read them; the project's own readiness gate
+then counts them and refuses to post the review status, and the pull request is green on CI and
+unmergeable with nothing in the repository that says who clears it.
+
+What the prompt has to decide, and what makes it more than a summary of review-prs.md:
+
+- The three answers to a finding are not the same act: a fix lands as a commit; a dispute is a
+  reply that says why the reading is wrong; a real finding outside the ticket's scope becomes its
+  own ticket and gets named in the reply. Without that, an author either chases something the
+  ticket does not cover or silently drops it.
+- A reply that answers a finding is not the same as resolving it, and a resolve on a head that
+  then moves is worth nothing. The prompt has to connect the answer to the head it is about.
+- Resolving a thread is a claim that somebody read it. The prompt should say who may make that
+  claim and when, since a reviewer that can resolve its own findings is not a reviewer.
+
+
+**Done when:** A prompt exists for the author of a pull request: it reads the open review threads on the head, decides for each whether to fix it, dispute it, or file it as its own ticket, says what it does instead of arguing with a finding it cannot disprove, and leaves the head and its status consistent with what it decided. The kit's prompts name it where next-ticket.md hands the pull request over, so an agent running the loop is pointed at it rather than discovering it.
+
+#### LK-3pg Run author repair and acceptance workers from durable queue jobs — 2026-09-20 · 6e55a5c
+
+Add durable job identities and a configurable coding-agent adapter to the merge queue, building on LK-6yn and the author-response prompt in LK-sm4. Dispatch or resume one owner per PR/worktree for verified findings. Collect independent acceptance evidence before CI, bound to full head, criteria hash and policy revision. Resolve clean Codex summary commits through trusted provider evidence rather than prefix-only matching. Keep worker credentials separate from the future merge gate.
+
+**Done when:** Fixture workers prove duplicate delivery and restart do not produce overlapping edits; findings get a fixing-commit/test reply or a supported rebuttal; incomplete or stale output never passes; every acceptance criterion maps to evidence; changed criteria/head invalidate evidence; exhausted or crashed jobs release only after verified stop and report the blocker. A controlled real author/reviewer run is recorded.
+
+#### LK-og8 Repair reviewer cleanup and author receipt contract after PR73 merge — 2026-09-20 · 9cb57c7
+
+PR73 auto-merged at 2026-09-21T00:01:15Z after another reviewer posted Agent review while Codex was still running. The completed Codex review at 00:02:44Z found two valid defects (4058525101 and 4058525106): missing detached reviewer directories retain Git registrations and break retries; author receipt examples incorrectly prefill the starting head despite validation requiring the resulting published head. Fixes and failing regressions were already in progress when merge was discovered. Keep this follow-up PR auto-merge disabled until completed exact-head Codex review and independent acceptance; do not change live consumer policy in this repair.
+
+**Done when:** A runtime fixture deletes a registered detached reviewer tree, reconciles the stopped job, proves its registration is gone and a retry finishes. A protocol fixture proves author packets request the resulting published head and validation accepts that post-fix head. All worker tests pass on macOS and isolated Linux; full kit/fresh-install checks pass. Record separate real author and reviewer sessions exercising the corrected receipt contract.
+
+#### LK-9r7 A day's pull requests have no merge order, so every merge re-tests all the others — 2026-09-20 · cedcb17
+
+The kit plans the day's work but never plans the order the pull requests merge in, and with a
+strict up-to-date required-status policy plus rebase-only merges that order is the whole cost.
+
+Measured in a consumer (rockbox-ghl, 2026-09-18): five ready pull requests stalled about five
+and a half hours; when the first merged at 12:21:47Z the other four were all rebased to new heads
+and went back to their checks, and when the second merged at 12:51:27Z the remaining three were
+behind again. A stack of N pull requests pays up to N(N-1)/2 extra full checks that no other run
+can overlap, each also re-triggering the review app and invalidating the review status on the new
+head.
+
+next-ticket.md takes one ticket at a time and says nothing about the others, so nothing in the
+kit tells an orchestrating agent that the fifth pull request it starts will be re-tested four
+times. The missing output is a merge order decided when the tickets are chosen, and the rule that
+follows from it: a pull request whose turn has not come does not rebase and does not ask for its
+check. That turns the stack into one check per ticket, in turn.
+
+Two things belong beside it and are the consumer's to do rather than the kit's: reserving
+version numbers for schema migrations so two branches cannot choose the same one (rockbox-ghl hit
+exactly that, two branches both taking Flyway V27, which only collides once both are on the same
+main), and rebasing through refresh-ticket.sh rather than any branch-update API.
+
+
+**Done when:** The kit names the merge order as a planning output beside the day's tickets, and says what changes when a pull request is not next in it: its rebase and its check wait until its predecessors have landed. A reader can tell, from the kit's own prompts, whether a given pull request should run its check now or wait. The guidance states the cost it removes in runs rather than in adjectives, and does not require any tool the kit does not already carry.
+
+#### LK-kpe Bind worker acceptance receipts to ticket dependencies and labels — 2026-09-21 · 0e56f7a
+
+Discovered during LK-9r7 PR75 review. The new legacy assessment protocol binds dependencies and labels, but scripts/review-workers.py GitHub.snapshot omits them, verify_source does not compare them, and binding excludes them. A new blocker or story-label change on an unchanged head/criteria can therefore reuse a worker receipt. An AST extraction of the current binding function confirms identical identity after these fields change. Fix this reusable runtime before unattended App-gate rollout; current bounded bootstrap must separately pin and compare full ticket metadata before and after acceptance. Serves LS-03.
+
+**Done when:** Worker self-tests prove adding/removing/changing a ticket blocker or label on the same head invalidates both prepared/running jobs and a stored acceptance receipt, including a mutation during final source verification. Normalize dependency edges and labels so provider ordering alone does not invalidate evidence. Include metadata in the worker packet and binding; full kit and fresh-install checks pass.
+
+#### LK-412 The CI skeleton runs the whole check on every push, and the obvious way to narrow it is a trap — 2026-09-21 · eea5785
+
+A default pull_request trigger includes synchronize, so every push to a ticket branch runs the
+whole check. In a consumer that iterates the way the kit's own loop iterates - push, review app
+comments, author answers, push again - that is the fix-review-fix loop paying full CI price on
+each round, and the push that answers a review finding is the one least likely to be the last.
+
+Measured in rockbox-ghl on 2026-09-18: one ticket's pull request spent three runs and 32m41s
+(11m29s, 9m55s, 11m17s) plus a 12m14s run on main after the merge, and the local full check of
+the same tree takes about four minutes.
+
+The trap this ticket exists to record, found while narrowing that consumer's trigger: a job
+GitHub skips still reports a check run, and GitHub's branch-protection documentation says
+required status checks "must have a successful, skipped, or neutral status". So narrowing the
+trigger to a request label with a job-level `if: github.event.label.name == ...` does not merely
+skip work - it lets any other label satisfy the required context with nothing having run. The
+consumer's fix is to trigger on the label event and let the job always run, one check per label
+change, which is cheap because labelling is rarer than pushing. Any kit guidance here has to say
+that, or the next consumer re-derives it the hard way.
+
+The related consumer-side observation, for whoever writes the guidance: ruleset-check.sh already
+requires every required context to name a job, and that check keeps passing under a
+label-triggered workflow because it reads job names rather than triggers.
+
+
+**Done when:** templates/ci/workflow.yml either triggers the check on request rather than on every push, or says in the file why every push is the right default for a kit consumer. If it changes, the required context keeps naming a job the workflow reports - the pair ci/ruleset.json and the workflow pass ruleset-check.sh - and the README says how an author asks for the check. The file records why a job-level if: on a label name must not be used to narrow the trigger.
+
+#### LK-pge Install the kit queue CI workflow while retaining legacy gates — 2026-09-22 · 84a0dc9
+
+Activation prerequisite discovered while auditing LK-e9y. The kit default branch has only legacy CI354963111 (.github/workflows/ci.yml); the App controller requires a dedicated workflow_dispatch file on main. Introduce the rendered queue workflow through a separate reviewed bootstrap PR using the existing legacy protections, so LK-e9y can obtain its controlled live proof without circularly requiring its own unfinished rollout to merge first. Use the reviewed controller workflow template, App5024825, the kit full check ./check.sh, pinned toolchain/Beads bootstrap after admission, exact-head checkout and read-only Actions permissions. Do not activate the queue, alter protections, enable auto-merge, or remove existing CI as part of this prerequisite. Coordinate with LK-44w; proposing this bootstrap ahead of PR78 is not merge admission.
+
+**Done when:** An independently reviewed bootstrap PR lands the queue workflow on main under existing required checks. The rendered workflow has no placeholders, embeds App5024825, and verifies exact run/head/base/attempt admission before checkout and all expensive setup; job and step names match the controller contract. Meaningful local fixtures prove missing, foreign and replayed admission fail before the full suite. Record the actual workflow ID/path and complete file SHA256 after merge. Legacy workflow triggers, required contexts, protections and existing PR merge settings remain unchanged by this ticket. Positive live controller admission and old/new gate migration remain LK-e9y acceptance, not claimed by bootstrap.
+
+#### LK-evm Document V1 nomination and independent acceptance for the live queue pilot — 2026-09-22 · b5525e1
+
+Add a concise operator guide for the existing-agent V1 nomination, selected refresh and independent acceptance handoff. Use this documentation-only PR as the first controlled live queue candidate; the protected runtime is the separately reviewed PR78 release. This ticket covers its own documentation proof, not the complete controller rollout.
+
+**Done when:** A documentation guide accurately names the shipped handoff commands, shared-account trust limit and fresh head/base acceptance requirement. Full kit check passes and independent review finds no unsupported activation claim. The parent LK-e9y retains ownership of live three-PR and migration acceptance.
+
+#### LK-d50 Document queue restart and blocked-attempt recovery for the live pilot — 2026-09-22 · c9696e0
+
+Add an operator guide for observing an idle or running V1 queue, restarting the same controller journal, and handling uncertain dispatch or merge outcomes without duplicate execution. Use this documentation-only PR as the second controlled queue candidate. The controller rollout acceptance remains LK-e9y.
+
+**Done when:** Guide distinguishes restart from retry, retains journal ownership for uncertain work, names supported status and recovery commands, and does not promise automatic recovery without proof. Full kit check and independent documentation review pass.
+
+#### LK-4l2 Document portable queue host migration and rollback for the live pilot — 2026-09-22 · 4e457c6
+
+Add an operator guide for moving the single-host V1 controller from this Mac to another server, preserving queue state and source/policy provenance and avoiding two active hosts. Use this documentation-only PR as the third controlled queue candidate. Live migration itself is outside this ticket; LK-e9y owns queue rollout acceptance.
+
+**Done when:** Guide specifies stopping and reconciling the old host, SQLite-consistent state backup, protected destination credentials/tools, one-host activation, verification and rollback without losing branch protection. Full kit check and independent documentation review pass.
+
+#### LK-e9y Enforce one admitted CI candidate with a dedicated GitHub App gate — 2026-09-21 · dd0e7cf
+
+Implement the trusted promotion/CI/merge adapters and supervised service after the shadow queue and worker evidence exist. Scope dispatch to one head/base/attempt, rebase only the selected PR, re-review after refresh, verify actual CI and merge with the expected head. Pin the required check to a dedicated GitHub App and keep its credentials outside authors/CI. Provide an opt-in migration from legacy required contexts and prompts, preserving protections until the new gate is proven. RockBox rollout remains RB-g6do.
+
+**Done when:** Three-PR and crash/race fixtures plus a controlled live PR prove waiting PRs get no rebase/full CI; an unchanged admitted attempt reuses its run; stale or unauthorized dispatch cannot spend the suite or satisfy the gate; App check fails closed on unread/reopened/changed evidence, non-success CI or changed base; merge verifies expected head and actual landed state; supervisor resumes without stealing active work. Migration verifies old and new gates before retiring duplicate push/label builds and legacy captain.
+
+#### LK-af3 Document the controlled automatic-recovery queue proof — 2026-09-22 · c6d4fbf
+
+Provide a small reviewed predecessor PR and a reusable operator procedure for the LK-v4s live proof. Its merge advances main while the recovery-fix PR waits untouched, so the subsequent App-selected refresh exercises the original observation-race path. Document bounded synthetic review activity, withheld acceptance, same-attempt recovery, final-head review, one admitted CI and verified merge; no live credential or service setting belongs in Git.
+
+**Done when:** A concise kit operations guide names the preconditions, selected-only refresh and bounded feedback-change procedure, expected observation retry evidence, unchanged waiting PRs, and the post-admission fail-closed boundary. Full kit check and independent review pass. The predecessor is merged by the App with one queue CI run; LK-v4s retains ownership of the actual automatic-recovery acceptance proof.
+
+#### LK-v4s Retry changing pre-admission review snapshots without manual queue recovery — 2026-09-22 · e803c9a
+
+Controlled V1 pilot PR83 refreshed through the sanctioned selected-only path. While Codex feedback changed during observer double-read, attempt9c4b8fab04c94c8aa149053e121fddf1 entered persistent blocked state before any gate/dispatch. The safe halt is correct, but ordinary review activity should return to observation automatically before authority exists; post-admission uncertainty must still revoke and hold. Inspect distinct typed observation-race handling and narrowly bounded phase checks, preserving the same lane and never starting CI on stale acceptance.
+
+**Done when:** Tests prove transient head/base/feedback changes during observation before admission wait and recover on stable evidence without operator retry or duplicate attempts; gate creation/dispatch intent or in-flight CI still fails closed and holds ownership. Full kit check and independent review pass. A controlled selected refresh with review activity proceeds without manual reset and waiting PRs remain untouched.
+
 ## v0.21.1 — 2026-09-17 (v0.21.0..HEAD)
 
 ### kit (LK)

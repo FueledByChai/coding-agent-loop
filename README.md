@@ -19,6 +19,7 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | Path | What it is |
 | --- | --- |
 | `recipes/single-agent/` | standalone one-agent profile: Beads, one application CI check, a minimal ruleset, and no coordination or required AI-review machinery |
+| `recipes/single-agent/validate.sh` | validates and mutation-tests the standalone profile's required context, label admission, draft refusal, and concurrency boundary |
 | `scripts/loop-config.sh` | reads `.loop.toml` (`<key>`, `--all`), with defaults |
 | `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views; `--plain` gives `--stories` and `--open` as tab-separated fields for a renderer; `--sprint-check` fails when the sprint and the open tickets disagree |
 | `scripts/sprint.sh` | edits the sprint in Beads: the `sprint_label` label and priorities (`add`, `remove`, `set`, `clear`) |

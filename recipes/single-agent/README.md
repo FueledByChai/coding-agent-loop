@@ -69,7 +69,8 @@ The operator can say: `Take the next product ticket and get it merged.` The agen
 
 1. Pulls Beads state and finishes any existing claimed ticket or open pull request.
 2. Selects one ready product ticket, reads it, claims it, and publishes the claim.
-3. Creates `ticket/<id>` from current `origin/main` in an isolated worktree.
+3. Reads the repository's default branch and creates `ticket/<id>` from its current remote head in
+   an isolated worktree.
 4. Implements the acceptance criteria and runs focused local proof.
 5. Reviews the diff once, commits, pushes, and opens a ready pull request without starting full CI.
 6. Gives the initial Codex review one bounded opportunity, reads every finding once, and batches
@@ -81,7 +82,8 @@ The operator can say: `Take the next product ticket and get it merged.` The agen
 If CI fails, fix the actual failure and push once, then remove and re-add `ci:run` for the new head.
 Do not start an unbounded review/re-review cycle. Unrelated label additions are deliberately rejected
 before checkout: a skipped required job can incorrectly satisfy protection, so the job must start
-and fail closed instead.
+and fail closed instead. Label-specific concurrency keeps that refusal from cancelling an admitted
+`ci:run` already in progress.
 
 ## Growing beyond one agent
 

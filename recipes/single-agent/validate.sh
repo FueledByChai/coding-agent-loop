@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 SELF_TEST_DIR=""
 
 validate_recipe() {
-  local root="$1" workflow_contexts gate
+  local root="$1" workflow_contexts pull_request_events gate
   for file in README.md AGENTS.template.md ci.yml ruleset.json validate.sh; do
     test -f "$root/$file" || { echo "missing recipe file: $file" >&2; return 1; }
   done
@@ -26,8 +26,15 @@ PY
   workflow_contexts=$(grep -Ec '^    name: Check \(scripts/check\.sh\)$' "$root/ci.yml" || true)
   test "$workflow_contexts" -eq 1 \
     || { echo "workflow must report exactly Check (scripts/check.sh)" >&2; return 1; }
+  pull_request_events=$(grep -Ec '^  pull_request:$' "$root/ci.yml" || true)
+  test "$pull_request_events" -eq 1 \
+    || { echo "workflow must use exactly one pull_request event" >&2; return 1; }
+  grep -Eq '^  pull_request_target:' "$root/ci.yml" \
+    && { echo "workflow must not use pull_request_target" >&2; return 1; }
   grep -Fqx '    types: [labeled]' "$root/ci.yml" \
     || { echo "workflow must run only for pull-request label additions" >&2; return 1; }
+  grep -Fqx '  group: ci-${{ github.event.pull_request.number }}-${{ github.event.label.name }}' "$root/ci.yml" \
+    || { echo "workflow concurrency must isolate unrelated labels from ci:run" >&2; return 1; }
 
   gate=$(sed -n '/# >>> single-agent admission/,/# <<< single-agent admission/p' "$root/ci.yml" \
     | sed '1d;$d;s/^          //')
@@ -41,6 +48,7 @@ PY
     echo "draft pull request passed single-agent CI admission" >&2; return 1
   fi
 
+  # README explains the excluded machinery; only executable/configuration templates must omit it.
   if grep -Eiq 'Agent review|merge[- ]queue|review worker|acceptance journal' \
       "$root/AGENTS.template.md" "$root/ci.yml" "$root/ruleset.json"; then
     echo "single-agent gate templates contain full-loop orchestration machinery" >&2
@@ -64,6 +72,11 @@ self_test() {
     || { echo "self-test: failed to mutate required-check integration" >&2; return 1; }
   if validate_recipe "$SELF_TEST_DIR" >/dev/null 2>&1; then
     echo "self-test: wrong required-check integration passed" >&2; return 1
+  fi
+  cp "$ROOT/ruleset.json" "$SELF_TEST_DIR/ruleset.json"
+  perl -0pi -e 's/-\$\{\{ github\.event\.label\.name \}\}//' "$SELF_TEST_DIR/ci.yml"
+  if validate_recipe "$SELF_TEST_DIR" >/dev/null 2>&1; then
+    echo "self-test: shared unrelated-label concurrency passed" >&2; return 1
   fi
   echo "single-agent recipe self-test passed"
 }

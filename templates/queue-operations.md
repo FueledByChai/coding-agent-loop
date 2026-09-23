@@ -11,6 +11,18 @@ The V1 profile below uses a protected controller plus existing agent workflows. 
 one shared UID is not isolation. Install reviewed kit files under a root/controller-owned
 path such as `/opt/coding-agent-loop`, protected through every ancestor. Keep a trusted
 observation mirror with Beads under the controller identity; never execute PR code there.
+
+Before any privileged controller command, including `preflight`, the trusted service setup
+must verify each executed or imported source file as required by 0021; checking its parent
+directory alone is insufficient. Validate the shell/Python entry points, `review-workers.py`,
+`merge-queue.py` and the complete reviewed release inventory against a pinned manifest or
+archive. Verify expected bytes, root/controller ownership, no group/other write permission,
+no symlinks, and protected ancestors before Python or Bash loads any of those files. Refuse
+to enable or upgrade the service when a file fails. Keep the bootstrap verifier and its
+interpreter inside the operator's trusted installation boundary as well. Runtime path checks
+cannot establish the trust of code that has already executed. The service example below
+assumes this installation verification has passed and those files remain protected.
+
 Launch the shell wrapper directly (its fixed privileged-mode Bash ignores startup hooks),
 or use `/usr/bin/python3 -I` as in the service unit below. Do not invoke it through an
 ambient `bash`/`python3` search or drop Python isolated mode at the privileged boundary.

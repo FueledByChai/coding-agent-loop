@@ -174,11 +174,13 @@ Never write to the default branch. From the main checkout:
 3. Commit the stories, records, and wireframes with the subject `Backlog: <XX-nn..XX-mm> <one-line
    summary>` and, when the config requires it, a `Co-Authored-By: <agent> <email>` trailer naming
    the agent and model.
-4. `git push -u origin backlog/<short-slug>` and open the PR as a draft with
-   `gh pr create --draft --fill`. Use the same selected-candidate handoff as code PRs:
-   verify auto-merge is disabled, then mark it ready for review. Follow
-   `respond-to-review.md` and `review-prs.md`; a documentation PR does not bypass admission,
-   completed review, independent acceptance or CI.
+4. `git push -u origin backlog/<short-slug>` and follow the Project rules' pull-request procedure.
+   Only when those rules say the live App controller is active, open the PR as a draft with
+   `gh pr create --draft --fill`, verify auto-merge is disabled, then mark it ready for review.
+   During staged rollout or legacy mode, preserve the project's existing backlog-PR and auto-merge
+   procedure. Use the same selected-candidate handoff as code PRs. Follow `respond-to-review.md`
+   and `review-prs.md`; a documentation PR does not bypass admission, completed review,
+   independent acceptance or CI.
 5. Report: the PR URL, the story ids and ticket ids added, the decision records written or
    superseded, what the first next-ticket run will pick up, and any question the owner deferred
    (record those as `bd update <id> --status blocked --append-notes "<the question>"` on the ticket

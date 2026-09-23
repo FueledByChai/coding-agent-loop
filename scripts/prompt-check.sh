@@ -65,6 +65,7 @@ grill-me.md	waiting PRs do not rebase or request CI
 grill-me.md	--stories
 grill-me.md	settings file and the Beads queue
 grill-me.md	this repository, a new one, or a sibling
+grill-me.md	During staged rollout or legacy mode, preserve
 review-prs.md	four questions
 review-prs.md	github-v1 skips legacy coordination and gate reconciliation
 review-prs.md	App selection replaces legacy coordinator selection

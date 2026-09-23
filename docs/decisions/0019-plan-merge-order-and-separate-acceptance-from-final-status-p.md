@@ -1,6 +1,6 @@
 # 0019 — Plan merge order and separate acceptance from final status publication
 
-Status: accepted, supersedes 0007
+Status: superseded by 0028
 Date: 2026-09-20
 
 ## Context

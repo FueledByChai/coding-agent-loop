@@ -404,7 +404,7 @@ if mode=='descendant':
  import subprocess
  marker=Path(os.environ['DESCENDANT_MARKER']);release=Path(os.environ['DESCENDANT_RELEASE'])
  subprocess.Popen([sys.executable,'-c',
-  'import sys,time;from pathlib import Path;marker=Path(sys.argv[1]);release=Path(sys.argv[2]);marker.write_text(str(__import__("os").getpid()));\nwhile not release.exists():time.sleep(.02)',
+  'import sys,time;from pathlib import Path;marker=Path(sys.argv[1]);release=Path(sys.argv[2]);marker.write_text(str(__import__("os").getpid()));deadline=time.monotonic()+30\nwhile not release.exists() and time.monotonic()<deadline:time.sleep(.02)',
   str(marker),str(release)])
  deadline=time.monotonic()+5
  while not marker.exists() and time.monotonic()<deadline:time.sleep(.02)
@@ -501,6 +501,9 @@ print(json.dumps(r))
             self.assertIn('group still alive',p.stderr)
             self.assertTrue((self.root/'descendant-started').exists())
             time.sleep(2.25)
+            blocked=self.call('reconcile',j['id'])
+            self.assertNotEqual(0,blocked.returncode)
+            self.assertIn('group still alive',blocked.stderr)
             self.assertTrue(json.loads(self.call('show',j['id']).stdout)['active'])
         finally:
             (self.root/'descendant-release').write_text('stop')

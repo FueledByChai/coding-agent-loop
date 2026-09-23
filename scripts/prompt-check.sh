@@ -24,6 +24,8 @@ next-ticket.md	--if-assignee
 next-ticket.md	bd dolt pull
 next-ticket.md	bd dolt push
 next-ticket.md	bootstrap coordination
+next-ticket.md	github-v1 profile, skip legacy coordination bootstrap in step 1
+next-ticket.md	In legacy mode only, for a standalone
 next-ticket.md	loop:coordination
 next-ticket.md	selected candidate
 next-ticket.md	shadow plan is not admission
@@ -63,6 +65,12 @@ grill-me.md	--stories
 grill-me.md	settings file and the Beads queue
 grill-me.md	this repository, a new one, or a sibling
 review-prs.md	four questions
+review-prs.md	github-v1 skips legacy coordination and gate reconciliation
+review-prs.md	App selection replaces legacy coordinator selection
+review-prs.md	**Synchronize legacy coordination.** In legacy mode only
+review-prs.md	**Legacy bootstrap coordination when needed.** In legacy mode only
+review-prs.md	**Reconcile existing merge gates before reviewing.** In legacy mode only
+review-prs.md	**Legacy coordinator relay only.** In legacy mode only
 review-prs.md	one status per head commit
 review-prs.md	Never run `scripts/open-ticket-pr.sh --update-all`
 review-prs.md	completed Codex review on the full head SHA

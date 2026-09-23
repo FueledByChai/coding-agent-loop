@@ -6,6 +6,11 @@ The queue is Beads (`bd`), so `bd` is a hard dependency. Settings come from `.lo
 check), `default_branch` (the branch pull requests target), `sprint_label` (the Beads label that
 marks the sprint) and `trailer_required` (whether commits sign with an agent trailer).
 
+In the operator-enabled github-v1 profile, skip legacy coordination bootstrap in step 1;
+keep the normal Beads ticket and Git branch claims. Follow `respond-to-review.md` to nominate
+reviewed work and verify App selection before a refresh. The App owns selection, CI admission
+and merging; hand off to the independent reviewer without creating or claiming a legacy coordinator.
+
 Steps:
 
 1. Refresh shared Beads state with `bd dolt pull`; resolve any synchronization failure before
@@ -26,11 +31,11 @@ Steps:
    overwrite a different owner, or delete an existing remote branch. A failed conditional
    update or rollback publication is an explicit reconciliation blocker; report the actual
    branch/claim state and responsible actor rather than leaving a silent published claim.
-   Read the merge order recorded in the coordinating Beads ticket's notes and the named
+   In legacy mode, read the merge order recorded in the coordinating Beads ticket's notes and the named
    coordinator's current selection (0019 in the kit). Ticket claim order is implementation
    scheduling, not merge admission. A shadow plan is not admission. If selection is missing or
    ambiguous, leave admission pending with that coordinator; do not select yourself.
-   For a standalone, existing or first-project ticket with no coordination link, bootstrap
+   In legacy mode only, for a standalone, existing or first-project ticket with no coordination link, bootstrap
    coordination before handoff: search `bd list --label loop:coordination --limit 0 --json`
    for this repository and configured base. Reuse the matching active record; if none exists,
    create `bd create "Merge coordination: <repo/base>" --type epic --labels loop:coordination
@@ -78,7 +83,7 @@ Steps:
    selected candidate, after its predecessors have actually merged and their commits landed,
    may use the project's sanctioned refresh procedure. Never batch-refresh the waiting PRs.
    A changed head needs completed Codex review and fresh independent acceptance before the
-   coordinator requests CI. The reviewer/controller rechecks final evidence before the merge
+   legacy coordinator or V1 App controller requests CI. The reviewer/controller rechecks final evidence before the merge
    gate; an earlier acceptance receipt cannot authorize a changed head or base.
 7. Finish with a short report: ticket id, the pull request URL, what was built, how it was
    verified, any new tickets added, anything the owner should look at. A green PR that is up to

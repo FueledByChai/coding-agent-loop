@@ -3,7 +3,7 @@
 What shipped, by release: the commits that carry a ticket id between two tags, with the
 ticket text read from Beads (scripts/release-notes.sh --archive).
 
-## v0.22.0 — 2026-09-22 (v0.21.1..HEAD)
+## v0.22.0 — 2026-09-23 (v0.21.1..HEAD)
 
 ### scripts (LK)
 
@@ -265,4 +265,3 @@ reference-check.sh parses BACKLOG.md and docs/PRODUCT_BACKLOG.md, which is BACKL
 The first main-push run after the Beads port went red: --reconcile reported every landed ticket as a false close (LK-40 to LK-44 closed in Beads but no commit reachable from origin/main names them). The cause is actions/checkout's shallow clone: git log origin/main sees only the tip, so the done derivation has no commits to match. The kit's own workflow and the workflow skeleton a project installs must check out the full history (fetch-depth: 0), which proof-gate already wants in CI.
 
 **Done when:** with fetch-depth 0 in .github/workflows/ci.yml and ci/workflow.yml, the main-push check reads the landed commits and --reconcile passes; install.sh --self-test still parses every spliced workflow with the check step last; scripts/ruleset-check.sh still passes for both pairs; and the PR's own CI run is green with the reconcile step reading the whole history.
-

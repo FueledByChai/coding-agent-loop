@@ -5,6 +5,11 @@ handed off through pull requests that merge on their own when CI is green. It is
 no particular model or harness: the instructions live in `AGENTS.md`, the prompts are plain
 Markdown, and every project-specific value sits in one settings file, `.loop.toml`.
 
+Projects that need useful single-agent delivery without the full coordination and review system
+can instead adopt the standalone [single-agent recipe](recipes/single-agent/README.md). It keeps
+Beads and application CI while installing no queue, review worker, acceptance journal, or required
+agent-review status.
+
 The only hosting assumption is GitHub: the hand-off uses `gh`, and merges are gated with a
 branch ruleset and auto-merge. Everything else is bash, git, perl, and the few `scripts/*.py`
 helpers a stack needs — a JaCoCo coverage figure today, the Beads import path next.
@@ -13,6 +18,8 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 
 | Path | What it is |
 | --- | --- |
+| `recipes/single-agent/` | standalone one-agent profile: Beads, one application CI check, a minimal ruleset, and no coordination or required AI-review machinery |
+| `recipes/single-agent/validate.sh` | validates and mutation-tests the standalone profile's required context, label admission, draft refusal, and concurrency boundary |
 | `scripts/loop-config.sh` | reads `.loop.toml` (`<key>`, `--all`), with defaults |
 | `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views; `--plain` gives `--stories` and `--open` as tab-separated fields for a renderer; `--sprint-check` fails when the sprint and the open tickets disagree |
 | `scripts/sprint.sh` | edits the sprint in Beads: the `sprint_label` label and priorities (`add`, `remove`, `set`, `clear`) |

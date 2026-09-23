@@ -153,14 +153,17 @@ until then `scripts/loop-kit-sync.sh --check` fails there, which is the intended
 
 `./check.sh` is the definition of done, and CI runs the same script. The kit-only
 `.github/tests/queue_workflow_test.py` exercises its rendered queue workflow admission before
-checkout or setup; the legacy workflow and protections remain in force during bootstrap. In order it runs every
+checkout or setup; the legacy workflow and protections remain in force during bootstrap. The
+standalone `recipes/single-agent/validate.sh` self-test executes that profile's label admission
+and rejects workflow/context or GitHub Actions integration drift. In order it runs every
 script's `--self-test`, then `scripts/prompt-check.sh` (a prompt may not lose a rule), then
 `scripts/decisions.sh --check` (the kit's records answer to the same sections and index a project's
 check demands of them), then `scripts/reference-check.sh` (every ticket carries acceptance
 criteria, every `blocks` dependency and `story:` label resolves, no dependency cycle, and every
 decision a ticket or a story cites is a record), then the two checks that compare what is written
 down more than once,
-`scripts/check-list.sh` and `scripts/ruleset-check.sh`, then `./install.sh --self-test`, which
+`scripts/check-list.sh`, `scripts/ruleset-check.sh`, and the single-agent recipe validator, then
+`./install.sh --self-test`, which
 installs into a fresh repository and runs the installed scripts' self-tests there, then
 `scripts/backlog-status.sh --sprint-check` (the sprint here is every open ticket, so an omission is
 a fault) and `scripts/backlog-status.sh --reconcile` (a ticket Beads has closed must have a landed

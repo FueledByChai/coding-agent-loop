@@ -33,7 +33,8 @@ scripts/check-list.sh --section AGENTS.md "The check" check.sh
 # `Check (check.sh)` and its ruleset also requires `Agent review`, which no workflow reports - the
 # loop posts it as a commit status - while the template a project installs reports
 # `Check (scripts/check.sh)` alone (decision 0006).
-scripts/ruleset-check.sh .github/ruleset.json .github/workflows/ci.yml ci/ruleset.json ci/workflow.yml
+scripts/ruleset-check.sh .github/ruleset.json .github/workflows/ci.yml ci/ruleset.json ci/workflow.yml recipes/single-agent/ruleset.json recipes/single-agent/ci.yml
+recipes/single-agent/validate.sh --self-test
 python3 .github/tests/queue_workflow_test.py
 ./install.sh --self-test
 # The sprint here is every open ticket (LK-15), so an open ticket without the sprint label is a

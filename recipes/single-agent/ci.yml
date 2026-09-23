@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [labeled]
 
 permissions:
   contents: read
@@ -16,6 +16,22 @@ jobs:
     name: Check (scripts/check.sh)
     runs-on: ubuntu-latest
     steps:
+      - name: Admit the final reviewed head
+        env:
+          REQUESTED_LABEL: ${{ github.event.label.name }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        shell: bash
+        run: |
+          # >>> single-agent admission (validate.sh executes this block as a fixture)
+          if [ "$REQUESTED_LABEL" != "ci:run" ]; then
+            echo "full CI requires the ci:run label" >&2
+            exit 1
+          fi
+          if [ "$PR_DRAFT" != "false" ]; then
+            echo "full CI requires a ready pull request" >&2
+            exit 1
+          fi
+          # <<< single-agent admission
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0

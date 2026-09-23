@@ -6,6 +6,12 @@ The queue is Beads (`bd`), so `bd` is a hard dependency. Settings come from `.lo
 check), `default_branch` (the branch pull requests target), `sprint_label` (the Beads label that
 marks the sprint) and `trailer_required` (whether commits sign with an agent trailer).
 
+Before changing a pull-request gate, inspect the entire retained `AGENTS.md` contract, including
+both its shared loop section and Project rules. If that contract mentions queue rollout or a
+controller and does not explicitly declare either staged/legacy operation or `github-v1` as the
+active profile, stop before mutating gates and update the project's migration decision and
+standing contract before using this prompt. Do not infer activation from installed queue files.
+
 In the operator-enabled github-v1 profile, skip legacy coordination bootstrap in step 1;
 keep the normal Beads ticket and Git branch claims. Follow `respond-to-review.md` to nominate
 reviewed work and verify App selection before a refresh. The App owns selection, CI admission
@@ -65,10 +71,14 @@ Steps:
    "<what fails and what you tried>"`) and stop.
 5. Commit with the ticket id first in the subject, a body that says what changed and how the done
    line is proven, and, when the config requires it, a `Co-Authored-By: <agent> <email>` trailer
-   naming the agent and model that did the work. Then `scripts/open-ticket-pr.sh <id> --draft` pushes the
-   branch and opens the pull request against the default branch (`--body-file` for a fuller report
-   than the commit body). Verify auto-merge is disabled before `gh pr ready <number>` starts
-   review, and keep it disabled through the final gate handoff. Never push the default branch.
+   naming the agent and model that did the work. Then follow the Project rules' pull-request
+   procedure (`--body-file` gives a fuller report than the commit body). When the Project rules
+   declare the live App controller active, use `scripts/open-ticket-pr.sh <id> --draft`, verify
+   auto-merge is disabled before `gh pr ready <number>` starts review, and keep it disabled
+   through the final gate handoff. During staged rollout or legacy mode, preserve the project's
+   complete legacy handoff, including whether the PR opens as draft or ready and whether auto-merge
+   is armed; staging queue files alone does not activate the controller. Never push the default
+   branch.
    The ticket stays claimed while the work is in flight; once its commit is on the default branch it is done, and it is closed in Beads
    (`bd close <id> --reason ...`) - `scripts/backlog-status.sh --reconcile` fails while a landed
    commit names a ticket Beads still has open. `scripts/release-notes.sh --archive` closes a

@@ -17,7 +17,12 @@ Authors cannot act as their own reviewer even when both roles share an approved 
 
 The queue is Beads (`bd`), a hard dependency. Settings come from `.loop.toml`:
 `scripts/loop-config.sh` names `check` (the full check), `default_branch` (this queue's base),
-and `review_context` (the final status, default "Agent review"). Inspect all open PRs targeting
+and `review_context` (the final status, default "Agent review"). Before changing a pull-request
+gate, inspect the entire retained `AGENTS.md` contract, including both its shared loop section and
+Project rules. If that contract mentions queue rollout or a controller and does not explicitly
+declare either staged/legacy operation or `github-v1` as the active profile, stop before mutating
+gates and update the project's migration decision and standing contract first. Do not infer
+activation from installed queue files. Inspect all open PRs targeting
 that configured base: paginate `gh api --method GET repos/{owner}/{repo}/pulls -f state=open
 -f "base=<default_branch>" -F per_page=100 --paginate`, substituting the configured value.
 Read their current heads, review evidence and coordinating Beads notes. This inventory and
@@ -61,14 +66,22 @@ single serialized reviewer invocation, otherwise stop admission and report the c
 
 **Reconcile existing merge gates before reviewing.** In legacy mode only, adoption must include
 existing PRs in the configured base lane, not just newly created drafts. The sole legacy
-coordinator inventories each in-scope PR's current-head status and auto-merge request. Disable each armed request with `gh pr merge
-<number> --disable-auto` and verify it is off before continuing. On first adoption, reset every
-existing successful `review_context` to pending using the status API in step 6; an old green
-status is not proof that this policy ran. On every subsequent pass, reset success for every
+coordinator inventories each in-scope PR's current-head status and auto-merge request. Only when
+the Project rules require disabled auto-merge for this active handoff, disable each armed request
+with `gh pr merge <number> --disable-auto` and verify it is off before continuing. During staged
+rollout or legacy mode, preserve the project's existing auto-merge procedure when its Project
+rules require it. On first adoption, reset every existing successful `review_context` to pending;
+an old green status is not proof that this policy ran. On every subsequent pass, reset success for every
 waiting or unselected candidate, and for a selected candidate without a verified final-gate
 record matching this policy's content hash, current acceptance binding, selection, head/base,
 successful CI run and posted status id. Recheck step 6 even when that record matches. Missing
-readiness never means retaining an older success. Verify each reset; failure stops admission.
+readiness never means retaining an older success. Every status mutation in this legacy flow,
+including pending invalidation, uses a project-owned status wrapper when the Project rules require
+one. If that wrapper cannot express the required pending reset, or if any required wrapper/API
+reset fails, disable any armed auto-merge request for that PR and verify it is off before stopping
+and reporting the unsupported or failed transition. Never bypass the wrapper with the raw API.
+Otherwise use the status API in step 6. Verify each reset; failure stops admission only after that
+auto-merge fence is proved.
 Do this reconciliation before reusing an unchanged acceptance verdict. These status/auto-merge
 changes never authorize refreshing or requesting CI for a waiting PR. Workers perform none
 of these mutations; the controller owns the required gate.
@@ -139,10 +152,15 @@ For each pull request needing assessment, following the recorded order:
    use the handoff helper to inspect fresh evidence and publish independent acceptance, then
    stop here. The App owns CI admission and merging; do not run legacy step 6.
 6. **Legacy coordinator relay only.** In legacy mode only, a substantive failure of one of the
-   four questions may be posted with `scripts/review-status.sh <sha> fail "<question and defect>"
-   --url <findings-url>`. Passing acceptance alone must not publish a passing status. Before
-   `scripts/review-status.sh <sha> pass "<independent proof>" --url <evidence-url>`, the independent
-   reviewer acting as the named coordinator must freshly verify all of the following:
+   four questions may be posted through the project's required status command. If the Project
+   rules name a project-owned readiness or status wrapper, use it exactly as documented and never
+   call the kit's `scripts/review-status.sh` directly. Otherwise use
+   `scripts/review-status.sh <sha> fail "<question and defect>" --url <findings-url>`.
+   Passing acceptance alone must not publish a passing status. Before publishing the legacy pass
+   through that same project-required wrapper, or through
+   `scripts/review-status.sh <sha> pass "<independent proof>" --url <evidence-url>` when no wrapper
+   is required, the independent reviewer acting as the named coordinator must freshly verify all
+   of the following:
    - This is the selected candidate, every recorded predecessor and every current ticket blocker
      actually landed, and current ticket dependencies/labels match the acceptance binding; no waiting PR is
      refreshed or given CI. Its base and full head still match the evidence under assessment.
@@ -158,7 +176,7 @@ For each pull request needing assessment, following the recorded order:
      job, stale check or green build on another commit is not proof. Recheck review evidence,
      head and base after CI and immediately before publishing the final status. Any change
      sends the candidate back to the relevant step, with fresh acceptance as needed.
-   Keep auto-merge disabled throughout this bootstrap handoff. A posted legacy status is not
+   Keep auto-merge in the state required by the Project rules throughout this handoff. A posted legacy status is not
    an atomic fence against new findings; the separate trusted-controller rollout supplies
    enforcement. Persist and publish a final-gate record after success: policy content hash,
    acceptance binding digest, selected PR/coordinator, full head/base, CI run id and the verified
@@ -167,8 +185,9 @@ For each pull request needing assessment, following the recorded order:
    state stay unchanged; pending resets or recovery are state changes and may require a new
    status. Changed evidence requires reassessment. Report missing readiness as
    pending/unposted, not as a fabricated defect or a passing gate. Existing passing statuses
-   must be invalidated by the coordinator when their evidence becomes stale: use `gh api
-   -X POST repos/{owner}/{repo}/statuses/<full-sha> -f state=pending -f context=<review_context>
+   must be invalidated by the coordinator when their evidence becomes stale. Pending invalidations
+   use that wrapper too when the Project rules require one. Otherwise use `gh api -X POST
+   repos/{owner}/{repo}/statuses/<full-sha> -f state=pending -f context=<review_context>
    -f description="Readiness evidence changed; reassessment required"` (quote the configured
    context as one argument). Pending invalidation is not a substantive failure verdict.
 

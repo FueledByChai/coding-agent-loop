@@ -34,8 +34,11 @@ below it are this project's own and are what the loop prompts mean when they say
   --claim`) and push `ticket/<id>` to origin with `scripts/open-ticket-pr.sh <id> --claim`;
   `backlog-status.sh --next` passes over claimed tickets, so several agents can hold several
   tickets. After the commit, `scripts/open-ticket-pr.sh <id>` pushes
-  the branch and opens the pull request. During queue rollout, use `--draft`, verify auto-merge
-  is disabled, then mark ready for review; retain any required human review for `review_paths`.
+  the branch and opens the pull request. When the Project rules say the live App controller is
+  active, use `--draft`, verify auto-merge is disabled, then mark ready for review; retain any
+  required human review for `review_paths`. During staged rollout or legacy mode, preserve the
+  project's complete existing handoff, including whether the PR opens as draft or ready and
+  whether auto-merge is armed; copied queue files do not activate the controller.
   Several agents can implement at once. In the legacy profile, the named coordinator records
   merge order and selects one candidate in Beads (0019). In operator-enabled `github-v1` (0026),
   the App selects the candidate and owns CI admission, the merge gate and merging. Existing

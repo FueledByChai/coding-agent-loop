@@ -96,13 +96,16 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   story's status from git (done when every serving ticket landed, open k/n, unticketed), `--open`
   is the pick list for the next sprint where the sprint is a subset, and `--show <id>` prints a
   ticket or a story in full.
-- **Hand-off** is a pull request from that branch, opened as a draft during queue rollout.
-  Verify auto-merge is disabled before marking ready for review. Keep required human review
+- **Hand-off** is a pull request from that branch. When the Project rules say the live App
+  controller is active, open it as a draft and verify auto-merge is disabled before marking ready
+  for review. During staged rollout or legacy mode, preserve the project's complete existing
+  handoff, including whether the PR opens as draft or ready and whether auto-merge is armed;
+  installing queue files does not activate the controller. Keep required human review
   for `review_paths`. The coordinator records merge order beside the day's tickets in Beads,
   with one selected candidate after predecessors land. Waiting PRs do not rebase or request CI;
   author fixes, Codex review and independent acceptance may proceed. Only the selected candidate
   gets a sanctioned refresh, renewed head review/acceptance, then CI. Never batch-refresh from
-  a review pass. Selection and final gates are described in `prompts/review-prs.md` and 0019.
+  a review pass. Selection and final gates are described in `prompts/review-prs.md` and 0028.
   Standalone and first-project tickets bootstrap a discoverable `loop:coordination` Beads epic;
   the next independent review run claims coordination and selects the candidate, so a missing
   interview plan does not strand the PR. Pull shared Beads state before discovery and push every
@@ -205,7 +208,8 @@ but acceptance is not merge authorization. Durable workers return receipts; a tr
 controller owns the final gate. During the legacy bootstrap, the named coordinator can relay
 independent acceptance as `review_context` only for the selected candidate after completed
 Codex review, resolved findings, fresh independent acceptance and successful final-head CI.
-Keep auto-merge disabled through that handoff. Missing readiness stays unposted, never green.
+Keep auto-merge in the state required by the Project rules through that handoff. Missing readiness
+stays unposted, never green.
 
 Review all open PRs and changed evidence, not just heads with no status. Legacy reviewers store
 an assessment binding in the coordinating Beads record and reuse it while unchanged, skipping
@@ -214,11 +218,14 @@ post-comment binding; CI progress alone does not create another acceptance revie
 criteria can invalidate acceptance without a push. A scheduled review may assess waiting PRs,
 but never runs `scripts/open-ticket-pr.sh --update-all`. Final status publication must recheck
 head, base, criteria, reviews and actual CI; the legacy status API cannot atomically fence new
-feedback. Decision 0019 replaces the old batch-refresh and immediate passing-status handoff;
+feedback. Decision 0028 retains 0019's merge order and evidence gates while making the mechanical
+draft, auto-merge and status path explicit per project profile;
 the trusted App gate and CI-admission rollout provide enforcement separately. Legacy adoption
-also disables existing auto-merge requests and resets old successes within the configured
-default-branch lane only; other-base PRs stay untouched and targets are rechecked before mutation; later passes keep every
+uses the Project rules for existing auto-merge requests and resets old successes within the
+configured default-branch lane only; other-base PRs stay untouched and targets are rechecked before mutation; later passes keep every
 waiting/unselected PR pending and require a matching final-gate record before retaining success.
+If a required project wrapper cannot reset stale success, the coordinator disables and verifies
+auto-merge before stopping.
 Assessment bindings include ticket dependencies and labels. A failed Git claim rolls back only
 the newly acquired Beads claim with ownership guards and publishes the recovery.
 
@@ -284,6 +291,12 @@ is written from it once and is the project's own, while the example is the kit's
 every install and by `loop-kit-sync.sh`, so what a project reads to learn what a setting means does
 not go stale (LK-19). `CLAUDE.md` is written as the one line `@AGENTS.md` when absent: Codex
 reads `AGENTS.md` on its own, Claude Code reads `CLAUDE.md`, and both then follow the same file.
+An upgrade deliberately retains an existing `AGENTS.md`. Before installing or syncing queue-aware
+prompts into a project whose contract already mentions queue rollout or a controller, inspect the
+entire retained file, including the shared loop section and Project rules, then update its migration
+decision and standing rules to declare explicitly whether staged/legacy or `github-v1` is the active
+profile. The prompts stop before changing PR gates when that complete retained contract is
+ambiguous; installed queue files never imply activation (0028).
 Then it prints what the project still has to supply:
 
 1. `scripts/check.sh`: the definition of done, exit non-zero on anything not shippable. The

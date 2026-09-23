@@ -8,9 +8,11 @@ In the operator-enabled `github-v1` profile, use the existing independent review
 of starting a worker. Follow the assessment and feedback rules below, then use
 `scripts/queue-handoff.sh --pr <number> inspect` and
 `scripts/queue-handoff.sh --pr <number> --binding <digest> --proof-url <your-submitted-review-url> accept`.
-Only a complete passing assessment may publish acceptance. Stop before legacy step 6:
+Only a complete passing assessment may publish acceptance. github-v1 skips legacy coordination and gate reconciliation:
+skip the three legacy coordination/reconciliation blocks below and stop before legacy step 6;
 never publish `Agent review` or `Queue merge gate` in this profile. Do not claim the legacy
 coordinator or reset its statuses after V1 cutover; the App owns selection and final admission.
+Require completed Codex review on the full head SHA and resolved findings before acceptance.
 Authors cannot act as their own reviewer even when both roles share an approved GitHub account.
 
 The queue is Beads (`bd`), a hard dependency. Settings come from `.loop.toml`:
@@ -25,13 +27,14 @@ was retargeted outside this lane, drop it from this pass without changing its ga
 is only a convenience for heads with no status, not the complete work list: same-head evidence
 changes (new findings, changed criteria or completed CI) can require reassessment.
 
-Never run `scripts/open-ticket-pr.sh --update-all` during review. Read the recorded merge order
-and the coordinator's selected candidate. Waiting PRs do not rebase or request CI; reviewers
-never refresh branches. Only the coordinator can admit one candidate after predecessor merges
-are verified. A shadow plan or ticket claim cannot admit it. Missing or ambiguous selection
+Never run `scripts/open-ticket-pr.sh --update-all` during review. Waiting PRs do not rebase or
+request CI; reviewers never refresh branches. In legacy mode, read the recorded merge order
+and the coordinator's selected candidate; only that coordinator can admit one candidate after
+predecessor merges are verified. In github-v1, App selection replaces legacy coordinator selection.
+A shadow plan or ticket claim cannot admit it. Missing or ambiguous selection
 leaves the final status unposted. Local proof and independent acceptance can still proceed.
 
-**Synchronize legacy coordination.** Outside worker mode, run `bd dolt pull` before discovering
+**Synchronize legacy coordination.** In legacy mode only, run `bd dolt pull` before discovering
 or reading coordination and prior assessments. After every coordination mutation—creation,
 link, claim, order, selection or assessment record—run `bd dolt push` before handing off or
 using it to advance the candidate. After publishing an ownership/selection change, pull again
@@ -42,7 +45,7 @@ saving/publishing its assessment failed, reconcile that existing feedback by id 
 post it again merely to repair persistence. In worker mode, the trusted controller owns fresh
 Beads inputs and journal persistence; the read-only worker does not mutate or sync Beads.
 
-**Legacy bootstrap coordination when needed.** Outside worker mode, for legacy or standalone
+**Legacy bootstrap coordination when needed.** In legacy mode only, for
 PRs without a linked record,
 search `bd list --label loop:coordination --limit 0 --json` for this repository/base. Reuse its
 record, or create a scoped coordination epic with `--type epic --labels loop:coordination` and
@@ -56,7 +59,7 @@ existing coordinator; conflicting owners/records require reconciliation before s
 Beads notes/claims are not the live controller's atomic admission fence: use this only with a
 single serialized reviewer invocation, otherwise stop admission and report the conflict.
 
-**Reconcile existing merge gates before reviewing.** Outside worker mode, adoption must include
+**Reconcile existing merge gates before reviewing.** In legacy mode only, adoption must include
 existing PRs in the configured base lane, not just newly created drafts. The sole legacy
 coordinator inventories each in-scope PR's current-head status and auto-merge request. Disable each armed request with `gh pr merge
 <number> --disable-auto` and verify it is off before continuing. On first adoption, reset every
@@ -132,7 +135,10 @@ For each pull request needing assessment, following the recorded order:
    receipts. In legacy mode, persist the normalized post-comment binding, verdict and evidence URL in the
    coordinating record. Reassess any changed binding, including same-head evidence changes. In worker mode,
    return the prescribed receipt and stop here; it never authorizes a status or a merge.
-6. **Legacy coordinator relay only.** Outside worker mode, a substantive failure of one of the
+   In github-v1, leave acceptance unposted for a failing or incomplete assessment. For a pass,
+   use the handoff helper to inspect fresh evidence and publish independent acceptance, then
+   stop here. The App owns CI admission and merging; do not run legacy step 6.
+6. **Legacy coordinator relay only.** In legacy mode only, a substantive failure of one of the
    four questions may be posted with `scripts/review-status.sh <sha> fail "<question and defect>"
    --url <findings-url>`. Passing acceptance alone must not publish a passing status. Before
    `scripts/review-status.sh <sha> pass "<independent proof>" --url <evidence-url>`, the independent

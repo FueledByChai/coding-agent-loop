@@ -36,13 +36,18 @@ below it are this project's own and are what the loop prompts mean when they say
   tickets. After the commit, `scripts/open-ticket-pr.sh <id>` pushes
   the branch and opens the pull request. During queue rollout, use `--draft`, verify auto-merge
   is disabled, then mark ready for review; retain any required human review for `review_paths`.
-  Several agents can implement at once, but the named coordinator records merge order and selects
-  one candidate in Beads (0019). Waiting PRs do not rebase or request CI. Never run
+  Several agents can implement at once. In the legacy profile, the named coordinator records
+  merge order and selects one candidate in Beads (0019). In operator-enabled `github-v1` (0026),
+  the App selects the candidate and owns CI admission, the merge gate and merging. Existing
+  authors and independent reviewers use `queue-handoff` for nomination, selection verification
+  and acceptance; they do not create or claim a legacy coordinator, reset legacy statuses or
+  publish `Agent review`. Normal Beads ticket claims and proof requirements still apply.
+  Waiting PRs do not rebase or request CI. Never run
   `scripts/open-ticket-pr.sh --update-all` as a review handoff. Only the selected candidate gets
   the project's sanctioned refresh after predecessors land, followed by completed head review,
   independent acceptance, then CI and final gate verification. Shadow planning grants no live
   admission. Never push the default branch. Never force-push. Never
-  rewrite its history. `scripts/pr-readiness.sh` prints, for every open pull request, the six
+  rewrite its history. For legacy gates, `scripts/pr-readiness.sh` prints, for every open pull request, the six
   facts a merge waits on (`--pr <number>` for one of them, `--ready` for the ones that pass all
   six): the project's check ran on the head, no review conversation is unresolved, no changes
   are requested, the agent review's status is success, the branch is current and clean, and the

@@ -22,6 +22,7 @@ import sqlite3
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from urllib.request import Request, urlopen
 from urllib.parse import quote
@@ -419,14 +420,17 @@ class Provider:
     def observe(self,n):
         # Validate every search directory and resolved binary before requesting credentials.
         read_path,binaries=protected_tools(self.policy['read_path'])
-        # Only gh receives the short-lived App token. Configured worker commands never do.
-        env={'PATH':os.defpath,'HOME':str(Path.home()),'GH_TOKEN':self.app.token(),'GH_PROMPT_DISABLED':'1'}
-        env['PATH']=read_path
-        subprocess.run([binaries['bd'],'dolt','pull'],cwd=self.root,env={'PATH':read_path,'HOME':str(Path.home())},
+        home=str(protected_path(Path.home()))
+        read_env={'PATH':read_path,'HOME':home}
+        subprocess.run([binaries['bd'],'dolt','pull'],cwd=self.root,env=read_env,
                        stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=True)
-        read_env={'PATH':read_path,'HOME':str(Path.home())}
         ticket_reader=lambda ticket:q.read_ticket(self.root,ticket,env=read_env,executable=binaries['bd'])
-        s=w.Observer(self.root,env,ticket_reader=ticket_reader).snapshot(self.policy['repo'],n)
+        # A private empty config directory also excludes pre-existing gh config/symlinks
+        # beneath an otherwise protected HOME (for example http_unix_socket).
+        with tempfile.TemporaryDirectory(prefix='queue-gh-',dir=home) as config:
+            # Only gh receives the short-lived App token. Worker commands never do.
+            env=dict(read_env,GH_CONFIG_DIR=config,GH_TOKEN=self.app.token(),GH_PROMPT_DISABLED='1')
+            s=w.Observer(self.root,env,ticket_reader=ticket_reader).snapshot(self.policy['repo'],n)
         q.require(s['base']==self.policy['base'],'PR targets another lane')
         return s
     def ready(self,s):

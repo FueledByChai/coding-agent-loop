@@ -73,7 +73,9 @@ successful CI run and posted status id. Recheck step 6 even when that record mat
 readiness never means retaining an older success. Every status mutation in this legacy flow,
 including pending invalidation, uses a project-owned status wrapper when the Project rules require
 one. If that wrapper cannot express the required pending reset, stop and report the unsupported
-transition rather than bypassing it with the raw API. Otherwise use the status API in step 6.
+transition rather than bypassing it with the raw API. Before stopping, disable any armed
+auto-merge request for that PR and verify it is off, so stale success cannot merge. Otherwise use
+the status API in step 6.
 Verify each reset; failure stops admission.
 Do this reconciliation before reusing an unchanged acceptance verdict. These status/auto-merge
 changes never authorize refreshing or requesting CI for a waiting PR. Workers perform none

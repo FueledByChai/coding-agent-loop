@@ -181,10 +181,11 @@ Never write to the default branch. From the main checkout:
    summary>` and, when the config requires it, a `Co-Authored-By: <agent> <email>` trailer naming
    the agent and model.
 4. `git push -u origin backlog/<short-slug>` and follow the Project rules' pull-request procedure.
-   Only when those rules say the live App controller is active, open the PR as a draft with
+   When those rules declare the live App controller active, open the PR as a draft with
    `gh pr create --draft --fill`, verify auto-merge is disabled, then mark it ready for review.
-   During staged rollout or legacy mode, preserve the project's existing backlog-PR and auto-merge
-   procedure. Use the same selected-candidate handoff as code PRs. Follow `respond-to-review.md`
+   During staged rollout or legacy mode, preserve the project's complete backlog-PR handoff,
+   including whether the PR opens as draft or ready and whether auto-merge is armed. Use the same
+   selected-candidate handoff as code PRs. Follow `respond-to-review.md`
    and `review-prs.md`; a documentation PR does not bypass admission, completed review,
    independent acceptance or CI.
 5. Report: the PR URL, the story ids and ticket ids added, the decision records written or

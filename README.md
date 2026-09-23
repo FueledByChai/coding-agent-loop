@@ -98,8 +98,9 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   ticket or a story in full.
 - **Hand-off** is a pull request from that branch. When the Project rules say the live App
   controller is active, open it as a draft and verify auto-merge is disabled before marking ready
-  for review. During staged rollout or legacy mode, preserve the project's existing pull-request
-  and auto-merge procedure; installing queue files does not activate the controller. Keep required human review
+  for review. During staged rollout or legacy mode, preserve the project's complete existing
+  handoff, including whether the PR opens as draft or ready and whether auto-merge is armed;
+  installing queue files does not activate the controller. Keep required human review
   for `review_paths`. The coordinator records merge order beside the day's tickets in Beads,
   with one selected candidate after predecessors land. Waiting PRs do not rebase or request CI;
   author fixes, Codex review and independent acceptance may proceed. Only the selected candidate

@@ -18,10 +18,11 @@ Authors cannot act as their own reviewer even when both roles share an approved 
 The queue is Beads (`bd`), a hard dependency. Settings come from `.loop.toml`:
 `scripts/loop-config.sh` names `check` (the full check), `default_branch` (this queue's base),
 and `review_context` (the final status, default "Agent review"). Before changing a pull-request
-gate, inspect the retained Project rules. If they mention queue rollout or a controller but do not
-explicitly distinguish staged/legacy operation from an active `github-v1` controller, stop without
-mutating gates and update the project's migration decision and standing contract first. Do not
-infer activation from installed queue files. Inspect all open PRs targeting
+gate, inspect the entire retained `AGENTS.md` contract, including both its shared loop section and
+Project rules. If that contract mentions queue rollout or a controller and does not explicitly
+declare either staged/legacy operation or `github-v1` as the active profile, stop before mutating
+gates and update the project's migration decision and standing contract first. Do not infer
+activation from installed queue files. Inspect all open PRs targeting
 that configured base: paginate `gh api --method GET repos/{owner}/{repo}/pulls -f state=open
 -f "base=<default_branch>" -F per_page=100 --paginate`, substituting the configured value.
 Read their current heads, review evidence and coordinating Beads notes. This inventory and

@@ -28,8 +28,10 @@ request handoff according to the profile explicitly named by the consumer's Proj
   invalidation. If stale success cannot be reset through that sanctioned path, the coordinator
   disables and verifies auto-merge before stopping, so known-invalid evidence cannot merge.
 
-Prompts and generic documentation must state both profiles. Presence of workflow, prompt or
-controller files is never evidence that the live profile changed.
+Prompts and generic documentation must state both profiles. Because installation and sync retain
+an existing `AGENTS.md`, queue-aware prompts stop before changing gates when that contract mentions
+rollout/controller operation without explicitly naming staged/legacy or active `github-v1`.
+Presence of workflow, prompt or controller files is never evidence that the live profile changed.
 
 ## Alternatives
 

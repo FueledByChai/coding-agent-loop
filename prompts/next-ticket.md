@@ -6,6 +6,11 @@ The queue is Beads (`bd`), so `bd` is a hard dependency. Settings come from `.lo
 check), `default_branch` (the branch pull requests target), `sprint_label` (the Beads label that
 marks the sprint) and `trailer_required` (whether commits sign with an agent trailer).
 
+Before changing a pull-request gate, inspect the retained Project rules. If they mention queue
+rollout or a controller but do not explicitly distinguish staged/legacy operation from an active
+`github-v1` controller, stop and update the project's migration decision and standing contract
+before using this prompt. Do not infer activation from installed queue files.
+
 In the operator-enabled github-v1 profile, skip legacy coordination bootstrap in step 1;
 keep the normal Beads ticket and Git branch claims. Follow `respond-to-review.md` to nominate
 reviewed work and verify App selection before a refresh. The App owns selection, CI admission

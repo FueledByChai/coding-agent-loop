@@ -290,6 +290,11 @@ is written from it once and is the project's own, while the example is the kit's
 every install and by `loop-kit-sync.sh`, so what a project reads to learn what a setting means does
 not go stale (LK-19). `CLAUDE.md` is written as the one line `@AGENTS.md` when absent: Codex
 reads `AGENTS.md` on its own, Claude Code reads `CLAUDE.md`, and both then follow the same file.
+An upgrade deliberately retains an existing `AGENTS.md`. Before installing or syncing queue-aware
+prompts into a project whose contract already mentions queue rollout or a controller, update its
+migration decision and standing rules to say explicitly whether it is staged/legacy or has an
+active `github-v1` controller. The prompts stop before changing PR gates when that retained
+contract is ambiguous; installed queue files never imply activation (0028).
 Then it prints what the project still has to supply:
 
 1. `scripts/check.sh`: the definition of done, exit non-zero on anything not shippable. The

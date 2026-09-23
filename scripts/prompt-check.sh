@@ -29,6 +29,7 @@ next-ticket.md	In legacy mode only, for a standalone
 next-ticket.md	loop:coordination
 next-ticket.md	selected candidate
 next-ticket.md	shadow plan is not admission
+next-ticket.md	During staged rollout or legacy mode, preserve
 respond-to-review.md	full head SHA
 respond-to-review.md	all pages
 respond-to-review.md	fix, dispute, or separate ticket
@@ -92,6 +93,7 @@ review-prs.md	selected candidate
 review-prs.md	missing CI leaves the status unposted
 review-prs.md	same-head evidence changes
 review-prs.md	respond-to-review.md
+review-prs.md	If the Project rules name a project-owned readiness or status wrapper, use it exactly as documented
 grill-project.md	in a sentence
 grill-project.md	Who and where
 grill-project.md	The data

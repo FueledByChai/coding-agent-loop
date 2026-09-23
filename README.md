@@ -291,10 +291,11 @@ every install and by `loop-kit-sync.sh`, so what a project reads to learn what a
 not go stale (LK-19). `CLAUDE.md` is written as the one line `@AGENTS.md` when absent: Codex
 reads `AGENTS.md` on its own, Claude Code reads `CLAUDE.md`, and both then follow the same file.
 An upgrade deliberately retains an existing `AGENTS.md`. Before installing or syncing queue-aware
-prompts into a project whose contract already mentions queue rollout or a controller, update its
-migration decision and standing rules to say explicitly whether it is staged/legacy or has an
-active `github-v1` controller. The prompts stop before changing PR gates when that retained
-contract is ambiguous; installed queue files never imply activation (0028).
+prompts into a project whose contract already mentions queue rollout or a controller, inspect the
+entire retained file, including the shared loop section and Project rules, then update its migration
+decision and standing rules to declare explicitly whether staged/legacy or `github-v1` is the active
+profile. The prompts stop before changing PR gates when that complete retained contract is
+ambiguous; installed queue files never imply activation (0028).
 Then it prints what the project still has to supply:
 
 1. `scripts/check.sh`: the definition of done, exit non-zero on anything not shippable. The

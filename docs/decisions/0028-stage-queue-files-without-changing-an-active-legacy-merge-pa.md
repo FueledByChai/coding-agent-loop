@@ -43,10 +43,12 @@ Presence of workflow, prompt or controller files is never evidence that the live
 
 ## Consequences
 
-Queue rollout needs an explicit Project-rules change at activation and again at rollback. Generic
-prompts must defer the mechanical draft/auto-merge/status commands to that declared profile while
-retaining 0019's single-candidate and evidence gates. A legacy coordinator that cannot neutralize
-stale success must fence auto-merge and report the missing transition rather than continuing.
+Queue rollout needs an explicit retained-`AGENTS.md` contract change at activation and again at
+rollback. Generic prompts inspect both the shared loop section and Project rules, and defer the
+mechanical draft/auto-merge/status commands to the profile the complete contract declares active,
+while retaining 0019's single-candidate and evidence gates. A legacy coordinator that cannot
+neutralize stale success must fence auto-merge and report the missing transition rather than
+continuing.
 
 ## What would show this was wrong
 

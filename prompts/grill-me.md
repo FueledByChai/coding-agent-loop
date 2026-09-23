@@ -10,10 +10,11 @@ The Project rules name the product backlog when the project keeps one; without o
 stories at the top of the product backlog you write, not in Beads, because stories are intent and
 Beads holds tickets.
 
-Before changing a pull-request gate, inspect the retained Project rules. If they mention queue
-rollout or a controller but do not explicitly distinguish staged/legacy operation from an active
-`github-v1` controller, stop and update the project's migration decision and standing contract
-before using this prompt. Do not infer activation from installed queue files.
+Before changing a pull-request gate, inspect the entire retained `AGENTS.md` contract, including
+both its shared loop section and Project rules. If that contract mentions queue rollout or a
+controller and does not explicitly declare either staged/legacy operation or `github-v1` as the
+active profile, stop before mutating gates and update the project's migration decision and
+standing contract before using this prompt. Do not infer activation from installed queue files.
 
 ## 1. Ground yourself before asking anything
 

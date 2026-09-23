@@ -139,10 +139,15 @@ For each pull request needing assessment, following the recorded order:
    use the handoff helper to inspect fresh evidence and publish independent acceptance, then
    stop here. The App owns CI admission and merging; do not run legacy step 6.
 6. **Legacy coordinator relay only.** In legacy mode only, a substantive failure of one of the
-   four questions may be posted with `scripts/review-status.sh <sha> fail "<question and defect>"
-   --url <findings-url>`. Passing acceptance alone must not publish a passing status. Before
-   `scripts/review-status.sh <sha> pass "<independent proof>" --url <evidence-url>`, the independent
-   reviewer acting as the named coordinator must freshly verify all of the following:
+   four questions may be posted through the project's required status command. If the Project
+   rules name a project-owned readiness or status wrapper, use it exactly as documented and never
+   call the kit's `scripts/review-status.sh` directly. Otherwise use
+   `scripts/review-status.sh <sha> fail "<question and defect>" --url <findings-url>`.
+   Passing acceptance alone must not publish a passing status. Before publishing the legacy pass
+   through that same project-required wrapper, or through
+   `scripts/review-status.sh <sha> pass "<independent proof>" --url <evidence-url>` when no wrapper
+   is required, the independent reviewer acting as the named coordinator must freshly verify all
+   of the following:
    - This is the selected candidate, every recorded predecessor and every current ticket blocker
      actually landed, and current ticket dependencies/labels match the acceptance binding; no waiting PR is
      refreshed or given CI. Its base and full head still match the evidence under assessment.

@@ -65,10 +65,13 @@ Steps:
    "<what fails and what you tried>"`) and stop.
 5. Commit with the ticket id first in the subject, a body that says what changed and how the done
    line is proven, and, when the config requires it, a `Co-Authored-By: <agent> <email>` trailer
-   naming the agent and model that did the work. Then `scripts/open-ticket-pr.sh <id> --draft` pushes the
-   branch and opens the pull request against the default branch (`--body-file` for a fuller report
-   than the commit body). Verify auto-merge is disabled before `gh pr ready <number>` starts
-   review, and keep it disabled through the final gate handoff. Never push the default branch.
+   naming the agent and model that did the work. Then follow the Project rules' pull-request
+   procedure (`--body-file` gives a fuller report than the commit body). Only when the Project
+   rules say the live App controller is active, use `scripts/open-ticket-pr.sh <id> --draft`,
+   verify auto-merge is disabled before `gh pr ready <number>` starts review, and keep it disabled
+   through the final gate handoff. During staged rollout or legacy mode, preserve the project's
+   legacy open-ticket and auto-merge procedure; staging queue files alone does not activate the
+   controller. Never push the default branch.
    The ticket stays claimed while the work is in flight; once its commit is on the default branch it is done, and it is closed in Beads
    (`bd close <id> --reason ...`) - `scripts/backlog-status.sh --reconcile` fails while a landed
    commit names a ticket Beads still has open. `scripts/release-notes.sh --archive` closes a

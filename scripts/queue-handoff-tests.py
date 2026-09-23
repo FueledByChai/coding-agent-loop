@@ -169,6 +169,6 @@ class RefreshTests(unittest.TestCase):
 
 
 if __name__=='__main__':
-    result=unittest.main(exit=False)
+    result=unittest.main(argv=[arg for arg in sys.argv if arg!='--self-test'],exit=False)
     if result.result.wasSuccessful():print('queue-handoff self-test passed')
     sys.exit(0 if result.result.wasSuccessful() else 1)

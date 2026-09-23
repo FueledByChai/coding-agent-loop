@@ -64,7 +64,7 @@ def main():
     parser.add_argument('--app-id',type=int)
     parser.add_argument('command',nargs='?',choices=['inspect','nominate','accept','selected'])
     a=parser.parse_args()
-    if a.self_test:return subprocess.call([sys.executable,str(Path(__file__).with_name('queue-handoff-tests.py'))])
+    if a.self_test:return subprocess.call([sys.executable,str(Path(__file__).with_name('queue-handoff-tests.py')),'--self-test'])
     q.require(a.pr and a.command,'--pr and command required')
     subprocess.run(['bd','dolt','pull'],cwd=a.root,check=True,stdout=sys.stderr)
     observer=w.Observer(a.root)

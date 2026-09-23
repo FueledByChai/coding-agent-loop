@@ -35,8 +35,9 @@ request. A project can add concurrency later without changing its backlog.
    nonzero on failure. Keep targeted local test commands in the project rules.
 5. Copy `ci.yml` to `.github/workflows/ci.yml` and add the project's toolchain setup before the
    check step.
-6. Create the `ci:run` pull-request label. Apply `ruleset.json` to the default branch and enable repository auto-merge and automatic
-   deletion of merged branches.
+6. Create the `ci:run` pull-request label. Apply `ruleset.json` to the default branch, then run
+   `gh repo edit --enable-rebase-merge --enable-auto-merge --delete-branch-on-merge` (or verify
+   those same repository settings explicitly).
 7. Validate the copied recipe with `./recipes/single-agent/validate.sh` before adapting it.
 
 The ruleset requires only `Check (scripts/check.sh)`. It deliberately does not require review
@@ -77,7 +78,12 @@ The operator can say: `Take the next product ticket and get it merged.` The agen
    accepted corrections into one push without requesting an ordinary re-review.
 7. Brings the branch current, reviews and proves the final diff, then adds `ci:run` to start the
    required full check and enables rebase auto-merge.
-8. Verifies the merge, closes the Bead, publishes Beads state, and only then selects more work.
+8. If the default branch advances after CI was requested, brings the pull request current, proves
+   and reviews the resulting diff, then removes and re-adds `ci:run` without reopening ordinary
+   Codex review.
+9. Verifies GitHub's merged state and a landed default-branch commit whose subject starts with the
+   ticket id, closes the Bead, publishes Beads state, and only then selects more work. A rebase
+   merge normally changes the commit SHA, so the original head need not be an ancestor.
 
 If CI fails, fix the actual failure and push once, then remove and re-add `ci:run` for the new head.
 Do not start an unbounded review/re-review cycle. Unrelated label additions are deliberately rejected

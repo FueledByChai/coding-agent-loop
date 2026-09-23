@@ -29,8 +29,14 @@ implementation pull request open at a time.
    and add it again. Any later push requires that same remove/add request for the new head.
 8. If CI fails, fix only the demonstrated failure, push the smallest correction, and request CI
    once on that new head. Do not reopen the ordinary Codex review loop.
-9. After GitHub merges the pull request, verify the commit is on the remote default branch, close the Bead,
-   and run `bd dolt push`. Never close a ticket merely because a pull request is open or green.
+9. If the default branch advances after CI was requested and strict protection leaves the pull
+   request behind, bring it current, run focused proof, review the resulting diff, and remove and
+   re-add `ci:run`. Do not reopen the ordinary Codex review loop.
+10. After GitHub merges the pull request, verify its merged state and merge commit with
+    `gh pr view`, fetch the remote default branch, and verify that branch contains a commit whose
+    subject starts with the ticket id. Rebase merges normally change commit SHAs, so do not require
+    the pre-merge head SHA to be its ancestor. Close the Bead and run `bd dolt push` only after
+    that proof. Never close a ticket merely because a pull request is open or green.
 
 Never push directly to the default branch, force-push published history, delete backlog state,
 deploy, mutate a provider, or perform customer-visible actions unless the ticket and operator

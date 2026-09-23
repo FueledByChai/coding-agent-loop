@@ -70,6 +70,98 @@ class ControllerTests(unittest.TestCase):
         self.fail('not dispatched')
     def through_admission(self):
         self.through_dispatch(); return self.step()
+    def test_first_observation_race_waits_without_allocating_or_reordering(self):
+        observe=self.p.observe;calls=[]
+        def changing(n):
+            calls.append(n)
+            if len(calls)<3:raise c.w.ObservationChanged('source changed during observation')
+            return observe(n)
+        self.p.observe=changing;self.p.proof=False
+        for _ in range(2):
+            pending=self.step()
+            self.assertEqual((1,'observing'),(pending['number'],pending['phase']))
+            self.assertIsNone(self.db.active())
+        self.step()
+        self.assertEqual(1,self.db.db.execute('SELECT count(*) FROM attempts').fetchone()[0])
+        self.assertEqual([1,2,3],[r['number'] for r in self.db.requests()])
+        self.assertEqual({1},set(calls));self.assertFalse(self.p.calls)
+
+    def test_pre_admission_races_recover_same_attempt_after_restart(self):
+        for phase in ('selected','reviewing','waiting_refresh'):
+            with self.subTest(phase=phase):
+                self.db.close();self.tmp.cleanup();self.setUp()
+                self.p.policy={'handoff':'github-v1'};self.p.discover=lambda:None
+                self.p.proof=False
+                self.p.ready=lambda s:None if phase=='selected' else phase!='waiting_refresh'
+                original=self.step();self.assertEqual(phase,original['phase'])
+                original['acceptance']={'binding':'obsolete'};self.db.save(original)
+                observe=self.p.observe;self.p.calls.clear()
+                self.p.observe=mock.Mock(side_effect=c.w.ObservationChanged('feedback changed during observation'))
+                for _ in range(2):
+                    pending=self.step()
+                    self.assertEqual((original['id'],phase),(pending['id'],pending['phase']))
+                    self.assertNotIn('acceptance',pending)
+                    self.assertEqual(original['snapshot'],pending['snapshot'])
+                self.assertFalse(self.p.calls)
+                self.db.close();self.db=c.Journal(Path(self.tmp.name)/'state')
+                self.runner=c.Controller(self.db,self.p,'policy1')
+                self.p.observe=observe;self.p.ready=lambda s:True
+                self.p.snapshots[1].update(head='d'*40,review_evidence=None)
+                self.assertEqual('reviewing',self.step()['phase'])
+                self.assertFalse(any(x[0]=='dispatch' for x in self.p.calls))
+                self.p.snapshots[1]['review_evidence']='new completed review'
+                self.assertEqual('reviewing',self.step()['phase'])  # still no fresh acceptance
+                self.p.proof=True
+                final=self.step()
+                self.assertEqual((original['id'],'dispatching','d'*40),(final['id'],final['phase'],final['snapshot']['head']))
+                self.assertEqual([('dispatch',1)],[x for x in self.p.calls if x[0]=='dispatch'])
+                self.assertFalse(any(x[0]=='refresh' for x in self.p.calls))
+                self.assertEqual(1,self.db.db.execute('SELECT count(*) FROM attempts').fetchone()[0])
+                self.assertEqual([1,2,3],[r['number'] for r in self.db.requests()])
+
+    def test_changed_binding_before_first_gate_rechecks_review_and_acceptance(self):
+        observe=self.p.observe;count=[0]
+        def changing(n):
+            count[0]+=1
+            if count[0]==3:self.p.snapshots[n].update(head='d'*40,review_evidence=None)
+            return observe(n)
+        self.p.observe=changing
+        pending=self.step()
+        self.assertEqual('reviewing',pending['phase']);self.assertNotIn('acceptance',pending)
+        self.assertFalse(self.p.calls)
+        self.assertEqual('reviewing',self.step()['phase'])
+        self.assertFalse(self.p.calls)
+        self.p.snapshots[1]['review_evidence']='new completed review'
+        self.assertEqual('dispatching',self.step()['phase'])
+
+    def test_observation_races_after_authority_intent_still_block(self):
+        for key in ('gate_check','gate_check_create_intent','admission_check','admission_check_create_intent',
+                    'dispatch_intent','dispatch_started_at','run_id','refresh_finished'):
+            with self.subTest(key=key):
+                self.db.close();self.tmp.cleanup();self.setUp()
+                self.p.proof=False;a=self.step()
+                a[key]=False if key=='refresh_finished' else 7;self.db.save(a)
+                self.p.observe=mock.Mock(side_effect=c.w.ObservationChanged('source changed during observation'))
+                self.assertEqual('blocked',self.step()['phase'])
+                self.assertEqual(a['id'],self.db.active()['id'])
+                self.assertIn(('cancel',1),self.p.calls)
+                self.assertFalse(any(x[0]=='dispatch' for x in self.p.calls))
+        for phase in ('dispatching','running'):
+            with self.subTest(phase=phase):
+                self.db.close();self.tmp.cleanup();self.setUp()
+                a=self.through_dispatch() if phase=='dispatching' else self.through_admission()
+                self.p.observe=mock.Mock(side_effect=c.w.ObservationChanged('feedback changed during observation'))
+                self.assertEqual('blocked',self.step()['phase'])
+                self.assertEqual(a['id'],self.db.active()['id'])
+                self.assertEqual([('dispatch',1)],[x for x in self.p.calls if x[0]=='dispatch'])
+                self.assertIn(('cancel',1),self.p.calls)
+
+    def test_ordinary_observation_failure_remains_blocked(self):
+        self.p.proof=False;self.step()
+        self.p.observe=mock.Mock(side_effect=c.q.QueueError('invalid source identity'))
+        self.assertEqual('blocked',self.step()['phase'])
+        self.assertIn(('cancel',1),self.p.calls)
+
     def test_lost_check_creation_polls_without_reposting_or_releasing(self):
         for name in (c.GATE,c.ADMISSION):
             with self.subTest(name=name):
@@ -389,6 +481,13 @@ class ProtocolTests(unittest.TestCase):
             observer.return_value.snapshot.return_value=snapshot()
             with self.assertRaises(c.q.QueueError):p.observe(1)
             p.app.token.assert_not_called();run.assert_not_called();observer.assert_not_called()
+
+    def test_readiness_reread_source_changes_are_typed(self):
+        p=c.Provider.__new__(c.Provider)
+        for head,base in (('d'*40,'trunk'),('1'*40,'other-base')):
+            with self.subTest(head=head,base=base):
+                p.api=mock.Mock(return_value={'auto_merge':None,'head':{'sha':head},'base':{'ref':base}})
+                with self.assertRaises(c.w.ObservationChanged):p.ready(snapshot())
 
     def test_observation_rejects_empty_relative_and_foreign_symlink_tools(self):
         p=c.Provider.__new__(c.Provider)

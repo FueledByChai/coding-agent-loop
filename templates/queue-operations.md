@@ -239,6 +239,17 @@ Use the same `--root`, `--state`, `--policy` prefix for `preflight`, `enqueue <P
 refresh or dispatch. The lock spans every observation/mutation within a tick, including network
 calls. It has no timeout-based takeover. Polls are 15 seconds. Supervisors may restart the
 process, but saved mutation intent prevents duplicate dispatch/refresh/merge/check creation.
+Before any merge-gate or CI-admission check creation intent or dispatch intent, a source or
+feedback change between reads waits for the next poll. The controller retains the selected
+attempt and queue order, discards cached acceptance, and requires a complete stable snapshot,
+completed head review and matching independent acceptance before continuing. A first torn
+observation reports `observing` without allocating an attempt; its request remains first.
+Reaction counters and profile display fields do not change the review evidence. Actual review
+text, actor, verdict and thread changes do. An active attempt records `observation_retries`.
+This retry never changes the original external-refresh selection or base: a subsequent stable
+changed base still blocks, as does a changed head that remains stale. Uncertain worker refreshes,
+ordinary validation/provider failures, and changes after authority intent retain the existing
+fail-closed behavior. Automatic polling is not permission to replay an uncertain mutation.
 A lost check-creation response stays unknown until its original check appears; stale inventories
 do not cause another create request. If evidence changes meanwhile, CI cancellation proceeds
 even while check revocation is waiting for visibility. Do not retire that attempt until the

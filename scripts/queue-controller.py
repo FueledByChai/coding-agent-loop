@@ -134,8 +134,10 @@ class Controller:
     def __init__(self,db,provider,policy_hash): self.db,self.p,self.policy_hash=db,provider,policy_hash
     def fresh(self,a):
         self.p.protections()
-        s=self.p.observe(a['number']); reviewed(s)
-        q.require(w.binding(s)==w.binding(a['snapshot']),'head/base/review/ticket evidence changed')
+        s=self.p.observe(a['number'])
+        if w.binding(s)!=w.binding(a['snapshot']):
+            raise w.ObservationChanged('head/base/review/ticket evidence changed')
+        reviewed(s)
         ready=self.p.ready(s)
         if ready is None:raise Pending('GitHub is computing mergeability; poll without refresh')
         q.require(ready,'selected head is not current and mergeable')
@@ -180,7 +182,10 @@ class Controller:
             n=self.db.next_number()
             if n is None: return None
             self.p.protections()
-            s=self.p.observe(n)
+            try:s=self.p.observe(n)
+            except w.ObservationChanged as exc:
+                # The durable request stays first; allocate no attempt from torn evidence.
+                return dict(number=n,phase='observing',reason=str(exc))
             a=dict(id=uuid.uuid4().hex,number=n,phase='selected',snapshot=s,policy=self.policy_hash)
             self.db.save(a)
         try:
@@ -230,6 +235,7 @@ class Controller:
                 except q.QueueError as exc:
                     a['reason']=str(exc); self.db.save(a); return a
                 a.update(acceptance=acceptance)
+                a.pop('reason',None)
                 self.fresh(a)
                 self.p.check(a,GATE,'in_progress')
                 self.fresh(a)
@@ -275,6 +281,18 @@ class Controller:
             self.p.check(a,GATE,'in_progress')
             self.db.save(a)
             return a
+        except w.ObservationChanged as exc:
+            authority=('gate_check','gate_check_create_intent','admission_check','admission_check_create_intent',
+                       'dispatch_intent','dispatch_started_at','run_id')
+            if (a['phase'] in ('selected','reviewing','waiting_refresh') and
+                    a.get('refresh_finished') is not False and not any(key in a for key in authority)):
+                # Keep the same lane/selection, especially its original refresh base.
+                # No receipt from the interrupted assessment may authorize the next poll.
+                a.pop('acceptance',None)
+                a.update(reason=str(exc),observation_retries=a.get('observation_retries',0)+1)
+                self.db.save(a)
+                return a
+            return self.block(a,str(exc))
         except q.QueueError as exc: return self.block(a,str(exc))
 
 
@@ -436,7 +454,8 @@ class Provider:
     def ready(self,s):
         pr=self.api('GET','/pulls/'+str(s['number']))
         q.require(pr.get('auto_merge') is None,'disable ordinary auto-merge before queue admission')
-        q.require(pr['head']['sha']==s['head'] and pr['base']['ref']==s['base'],'PR changed during readiness read')
+        if pr['head']['sha']!=s['head'] or pr['base']['ref']!=s['base']:
+            raise w.ObservationChanged('PR changed during readiness read')
         blockers=[d['id'] for d in s['ticket_metadata']['dependencies'] if d['dependency_type']=='blocks']
         if blockers:
             def found(rows):

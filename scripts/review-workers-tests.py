@@ -402,7 +402,13 @@ if mode=='stderr-large':sys.stderr.write('x'*(1024*1024+1))
 if mode=='dirty':Path('unexpected.txt').write_text('changed by reviewer')
 if mode=='descendant':
  import subprocess
- subprocess.Popen([sys.executable,'-c','import time; time.sleep(2)'])
+ marker=Path(os.environ['DESCENDANT_MARKER']);release=Path(os.environ['DESCENDANT_RELEASE'])
+ subprocess.Popen([sys.executable,'-c',
+  'import sys,time;from pathlib import Path;marker=Path(sys.argv[1]);release=Path(sys.argv[2]);marker.write_text(str(__import__("os").getpid()));\nwhile not release.exists():time.sleep(.02)',
+  str(marker),str(release)])
+ deadline=time.monotonic()+5
+ while not marker.exists() and time.monotonic()<deadline:time.sleep(.02)
+ assert marker.exists(),'descendant did not start'
 if mode=='metadata-change':
  d=Path(os.environ['FIXTURE_DATA']);v=json.loads(d.read_text());v[v['metadata_field']]=v['metadata_change'];d.write_text(json.dumps(v))
 if mode=='source-change':
@@ -421,6 +427,8 @@ print(json.dumps(r))
         for role in p['roles']:
             p['roles'][role]['command']=[sys.executable,str(self.adapter)]
             p['roles'][role]['env']={'HOME':str(self.root/role),'MODE':mode,'MARKER':str(self.root/'started'),
+                                   'DESCENDANT_MARKER':str(self.root/'descendant-started'),
+                                   'DESCENDANT_RELEASE':str(self.root/'descendant-release'),
                                    'FIXTURE_DATA':str(self.data),'PATH':os.environ['PATH']}
         self.policy.write_text(json.dumps(p))
 
@@ -485,16 +493,24 @@ print(json.dumps(r))
 
     def test_live_descendant_retains_slot_after_guardian_exits(self):
         self.configure('descendant')
-        j=self.prepare();p=self.call('run',j['id'])
-        self.assertNotEqual(0,p.returncode)
-        self.assertIn('group still alive',p.stderr)
-        self.assertTrue(json.loads(self.call('show',j['id']).stdout)['active'])
-        deadline=time.monotonic()+5
-        while time.monotonic()<deadline:
-            p=self.call('reconcile',j['id'])
-            if p.returncode==0:break
-            time.sleep(.05)
-        self.assertEqual(0,p.returncode,p.stderr)
+        j=self.prepare()
+        released=None
+        try:
+            p=self.call('run',j['id'])
+            self.assertNotEqual(0,p.returncode)
+            self.assertIn('group still alive',p.stderr)
+            self.assertTrue((self.root/'descendant-started').exists())
+            time.sleep(2.25)
+            self.assertTrue(json.loads(self.call('show',j['id']).stdout)['active'])
+        finally:
+            (self.root/'descendant-release').write_text('stop')
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline:
+                released=self.call('reconcile',j['id'])
+                if released.returncode==0:break
+                time.sleep(.05)
+        self.assertIsNotNone(released)
+        self.assertEqual(0,released.returncode,released.stderr)
 
     def test_killed_launcher_does_not_duplicate_guardian(self):
         self.configure('sleep',2)

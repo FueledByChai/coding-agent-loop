@@ -145,13 +145,16 @@ Dropping a ticket is a small procedure, and `AGENTS.md` and `prompts/next-ticket
 - Re-point the tickets it blocks, and give its carrier its `story:` labels.
 - Remove any dependency the ticket already has on its carrier, a `blocks` or `discovered-from`
   edge for example, before `bd duplicate` or `bd supersede`, which refuse to add a link over one.
-- Close a label drop with `bd close --force`, because bd refuses to close a ticket that is still
-  blocked.
+- Mark a label drop with `bd update <id> --add-label loop:dropped` and close it with
+  `bd close --force`, because bd refuses to close a ticket that is still blocked. Nothing carries
+  its work, so each ticket it blocks loses that dependency rather than being re-pointed.
 - Release the dropped ticket's claim branch and close any pull request it has. An agent that
   drops another ticket in favour of its own keeps its own claim and goes on with it.
 
 An agent drops by link only when another ticket's landed commit already meets the done line, or
-the work was ticketed twice. A drop by the label only records the owner's decision.
+the work was ticketed twice. A drop by the label only records the owner's decision. Only the agent
+holding a ticket's claim, or the owner, drops it; a ticket another agent holds is reported to that
+agent, never dropped over its claim.
 
 For the fueledbychai-rs rollout:
 

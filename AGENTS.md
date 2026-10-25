@@ -31,17 +31,20 @@ below it are this project's own and are what the loop prompts mean when they say
   `bd duplicate <id> --of <canonical>` when the same work was ticketed twice, or by
   `bd supersede <id> --with <replacement>` when another ticket carries the work (a fix that
   landed under its commit included), or, for an owner's decision that nothing carries, given the
-  `loop:dropped` label, which is the marker, and closed with the reason a label drop also needs
-  (`bd close <id> --force --reason "<why>"`: `--force` because bd refuses to close a ticket that
-  is still blocked, and bd keeps a closed ticket's first reason, so one already closed is
-  reopened and closed again). Before dropping, remove any dependency the ticket already has on
-  its replacement (a `blocks` or `discovered-from` edge, say), since `bd duplicate` and
-  `bd supersede` refuse to add a link over one, re-point every ticket it blocks to the
-  replacement (`bd dep remove <dependent> <id>`, then `bd dep add <dependent> <replacement>`),
-  and give the replacement its `story:` labels; afterwards release its `ticket/<id>` branch and
-  close any pull request it has. A dropped ticket is never done: it is never ready or offered, no
-  omission from the sprint, and no part of a story's count, and a ticket carrying a drop marker
-  that Beads has not closed is not offered either. A ticket Beads says is `closed` with no naming
+  `loop:dropped` label (`bd update <id> --add-label loop:dropped`), which is the marker, and
+  closed with the reason a label drop also needs (`bd close <id> --force --reason "<why>"`:
+  `--force` because bd refuses to close a ticket that is still blocked, and bd keeps a closed
+  ticket's first reason, so one already closed is reopened and closed again). Before dropping,
+  remove any dependency the ticket already has on its replacement (a `blocks` or
+  `discovered-from` edge, say), since `bd duplicate` and `bd supersede` refuse to add a link over
+  one, re-point every ticket it blocks to the replacement (`bd dep remove <dependent> <id>`, then
+  `bd dep add <dependent> <replacement>`; after a label drop, which nothing carries, only the
+  remove), and give the replacement its `story:` labels; afterwards release its `ticket/<id>`
+  branch and close any pull request it has. Only the agent holding a ticket's claim, or the
+  owner, drops it: a ticket another agent holds is reported to that agent, never dropped over its
+  claim. A dropped ticket is never done: it is never ready or offered, no omission from the
+  sprint, and no part of a story's count, and a ticket carrying a drop marker that Beads has not
+  closed is not offered either. A ticket Beads says is `closed` with no naming
   commit and no drop is a false close, and a landed commit naming a ticket Beads still has open
   is an orphan; `--reconcile` fails both, and every drop it cannot honour: a drop marker on a
   ticket Beads has not closed, a label drop with no reason (bd's placeholder `Closed` is none), a

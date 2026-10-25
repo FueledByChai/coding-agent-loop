@@ -569,8 +569,10 @@ AA08_LABEL="${AA08_LABEL:-}"
 # blocked by AA-23, dropped for an id in no queue here; AA-25 claimed and blocked by AA-19 beside
 # its carrier AA-02; AA-26 blocked by AA-27, which it carries itself, and by AA-33, dropped by the
 # label with a blank reason; AA-28 dropped for the label-dropped AA-14; AA-29 and AA-30 dropped for
-# each other; AA-34 dropped for two carriers, neither serving its story. The label is loop:dropped:
-# AA-07's bare `dropped` label is a project's own word and no marker, so AA-07 is a false close.
+# each other; AA-34 dropped for two carriers, neither serving its story; AA-35 dropped for AA-02
+# and blocked by the dropped AA-10, which is no fault since it waits on nothing. The label is
+# loop:dropped: AA-07's bare `dropped` label is a project's own word and no marker, so AA-07 is a
+# false close.
 rows() {
   cat <<JSON
  {"id":"AA-01","title":"First","description":"first body","acceptance_criteria":"first proof","status":"open","priority":1,"issue_type":"task","labels":["sprint","section:Alpha","story:BT-01"],"assignee":"","dependencies":[]}
@@ -606,6 +608,7 @@ rows() {
  {"id":"AA-32","title":"Labelled and linked","description":"the label beside a link, with bd's placeholder reason","acceptance_criteria":"proof","status":"closed","close_reason":"Closed","priority":2,"issue_type":"task","labels":["loop:dropped"],"assignee":"","dependencies":[{"issue_id":"AA-32","depends_on_id":"AA-1a","type":"duplicates"}]}
  {"id":"AA-33","title":"Dropped with a blank reason","description":"the label, and a reason of spaces","acceptance_criteria":"proof","status":"closed","close_reason":"   ","priority":2,"issue_type":"task","labels":["loop:dropped"],"assignee":"","dependencies":[]}
  {"id":"AA-34","title":"Dropped for two","description":"neither carrier serves its story","acceptance_criteria":"proof","status":"closed","priority":2,"issue_type":"task","labels":["story:BT-01"],"assignee":"","dependencies":[{"issue_id":"AA-34","depends_on_id":"AA-02","type":"duplicates"},{"issue_id":"AA-34","depends_on_id":"AA-06","type":"supersedes"}]}
+ {"id":"AA-35","title":"Dropped, and blocked by a drop","description":"a dropped ticket that waits on another drop is no fault","acceptance_criteria":"proof","status":"closed","priority":2,"issue_type":"task","labels":[],"assignee":"","dependencies":[{"issue_id":"AA-35","depends_on_id":"AA-02","type":"supersedes"},{"issue_id":"AA-35","depends_on_id":"AA-10","type":"blocks"}]}
  {"id":"AA-09","title":"Epic, not a ticket","description":"story","acceptance_criteria":"","status":"open","priority":2,"issue_type":"epic","labels":[],"assignee":"","dependencies":[]}
 JSON
 }
@@ -776,6 +779,7 @@ MD
   has "$out" '^reconcile: AA-26 is blocked by AA-27, which is dropped \(superseded by AA-26\) and never lands; AA-26 carries the work itself, so remove the dependency \(bd dep remove AA-26 AA-27\)$' "a ticket carrying its blocker's work should only lose the dependency"
   has "$out" '^reconcile: AA-26 is blocked by AA-33, which is dropped \(no reason\) and never lands; nothing carries its work, so remove the dependency \(bd dep remove AA-26 AA-33\)$' "a ticket blocked by a label drop should lose the dependency"
   lacks "$out" 'AA-(1[012]|32)([^0-9a-z]|$)' "--reconcile should name none of the good drops"
+  lacks "$out" 'AA-35' "--reconcile should not fault a dropped ticket for waiting on another drop"
   [ "$(grep -c '^reconcile: ' <<< "$out")" = 25 ] || { echo "self-test: --reconcile should report exactly the twenty-five faults:"; echo "$out"; exit 1; }
   unset LOOP_ROOT
   # A checkout with no Beads database is told the command that creates one.

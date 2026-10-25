@@ -75,15 +75,17 @@ Steps:
    (0030 in the kit): `bd supersede <id> --with <replacement>` names the ticket that carries or
    carried the work. Of two tickets for the same work, the one ticketed first is the canonical
    one: when the other was first, drop this one with `bd duplicate <id> --of <canonical>`; when
-   this one was first, implement it and drop the other with `bd duplicate <other> --of <id>`
-   (report it instead when another agent holds its claim). Before a drop, remove any dependency
-   the dropped ticket already has on its replacement (a `blocks` or `discovered-from` edge, say),
-   since `bd duplicate` and `bd supersede` refuse to add a link over one, re-point every ticket it
-   blocks to the replacement (`bd dep remove <dependent> <id>`, then
+   this one was first, drop the other with `bd duplicate <other> --of <id>` (report it instead
+   when another agent holds its claim) and go on implementing this one. Before a drop, remove any
+   dependency the dropped ticket already has on its replacement (a `blocks` or `discovered-from`
+   edge, say), since `bd duplicate` and `bd supersede` refuse to add a link over one, re-point
+   every ticket it blocks to the replacement (`bd dep remove <dependent> <dropped>`, then
    `bd dep add <dependent> <replacement>`), and give the replacement the `story:` labels it
-   serves; `scripts/backlog-status.sh --reconcile` fails a drop left otherwise. Then release the
-   `ticket/<id>` branch this run pushed (`scripts/open-ticket-pr.sh <id> --release`) and close any
-   pull request it opened, publish with `bd dolt push`, report the drop, and run `--next` again.
+   serves; `scripts/backlog-status.sh --reconcile` fails a drop left otherwise. Publish with
+   `bd dolt push` and report the drop. Only when the ticket dropped is this one, release the
+   `ticket/<id>` branch this run pushed (`scripts/open-ticket-pr.sh <id> --release`), close any
+   pull request it opened, and run `--next` again; when it is the other, keep this ticket's
+   claim and continue with it.
    A `loop:dropped` label drop, with nothing carrying the work, only records an owner decision
    its close reason quotes (`bd close <id> --force --reason "<why>"`, forced because bd refuses to
    close a ticket that is still blocked); it is never your own judgement. A plain `bd close` is

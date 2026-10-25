@@ -87,8 +87,10 @@ Steps:
    pull request it opened, and run `--next` again; when it is the other, keep this ticket's
    claim and continue with it.
    A `loop:dropped` label drop, with nothing carrying the work, only records an owner decision
-   its close reason quotes (`bd close <id> --force --reason "<why>"`, forced because bd refuses to
-   close a ticket that is still blocked); it is never your own judgement. A plain `bd close` is
+   its close reason quotes (`bd update <id> --add-label loop:dropped`, then
+   `bd close <id> --force --reason "<why>"`, forced because bd refuses to close a ticket that is
+   still blocked, and each ticket it blocks loses that dependency with `bd dep remove`, since
+   nothing carries its work); it is never your own judgement. A plain `bd close` is
    only for a ticket whose commit has landed.
 3. Work in an isolated worktree when the harness offers one; otherwise on a branch named after the
    ticket id. Keep the change to that ticket. Anything else you notice becomes a new ticket with

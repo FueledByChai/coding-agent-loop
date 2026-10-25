@@ -56,6 +56,7 @@ next-ticket.md	bd close <id> --force --reason
 next-ticket.md	loop:dropped
 next-ticket.md	Only when the ticket dropped is this one
 next-ticket.md	when it is the other, keep this ticket
+next-ticket.md	bd update <id> --add-label loop:dropped
 respond-to-review.md	full head SHA
 respond-to-review.md	all pages
 respond-to-review.md	fix, dispute, or separate ticket

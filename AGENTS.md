@@ -26,10 +26,32 @@ below it are this project's own and are what the loop prompts mean when they say
   tickets first by priority; `--sprint` their states; `--open` the tickets outside the sprint;
   `--sprint-check` the label pairing; `--reconcile` git against Beads; `--show <id>` a ticket
   or story in full; `--stories` every story with a status derived from the tickets that serve
-  it; `scripts/sprint.sh add|remove|set` edits the Beads labels). A ticket Beads says is
-  `closed` with no naming commit is a false close, and a landed commit naming a ticket Beads
-  still has open is an orphan; `--reconcile` fails both. Anything discovered while working goes
-  in as a new ticket (`bd create`), not into the current one.
+  it; `scripts/sprint.sh add|remove|set` edits the Beads labels). A ticket leaves the queue
+  without landing only as **dropped** (kit decision 0030): closed by
+  `bd duplicate <id> --of <canonical>` when the same work was ticketed twice, or by
+  `bd supersede <id> --with <replacement>` when another ticket carries the work (a fix that
+  landed under its commit included), or, for an owner's decision that nothing carries, given the
+  `loop:dropped` label, which is the marker, and closed with the reason a label drop also needs
+  (`bd close <id> --force --reason "<why>"`: `--force` because bd refuses to close a ticket that
+  is still blocked, and bd keeps a closed ticket's first reason, so one already closed is
+  reopened and closed again). Before dropping, remove any dependency the ticket already has on
+  its replacement (a `blocks` or `discovered-from` edge, say), since `bd duplicate` and
+  `bd supersede` refuse to add a link over one, re-point every ticket it blocks to the
+  replacement (`bd dep remove <dependent> <id>`, then `bd dep add <dependent> <replacement>`),
+  and give the replacement its `story:` labels; afterwards release its `ticket/<id>` branch and
+  close any pull request it has. A dropped ticket is never done: it is never ready or offered, no
+  omission from the sprint, and no part of a story's count, and a ticket carrying a drop marker
+  that Beads has not closed is not offered either. A ticket Beads says is `closed` with no naming
+  commit and no drop is a false close, and a landed commit naming a ticket Beads still has open
+  is an orphan; `--reconcile` fails both, and every drop it cannot honour: a drop marker on a
+  ticket Beads has not closed, a label drop with no reason (bd's placeholder `Closed` is none), a
+  landed commit naming a ticket that carries a drop marker, a drop link to anything but a ticket
+  in this queue that is not itself dropped, a ticket still to land blocked by a dropped one, and a
+  story a link-dropped ticket serves that its replacement does not.
+  These rules govern over the generic Beads guidance at the end of this file: a plain `bd close`
+  is only for a ticket whose commit has landed, and `--next`, not `bd ready` (which takes any
+  closed blocker as satisfied), names the work. Anything discovered while working goes in as a
+  new ticket (`bd create`), not into the current one.
 - **Merge profile.** A project's pull-request gates follow one of two profiles: staged/legacy
   (the project's existing handoff and gates under the named coordinator, including a staged
   rollout whose queue files are installed but whose controller is not live) or `github-v1` (the
@@ -71,7 +93,7 @@ below it are this project's own and are what the loop prompts mean when they say
   facts a merge waits on (`--pr <number>` for one of them, `--ready` for the ones that pass all
   six): the project's check ran on the head, no review conversation is unresolved, no changes
   are requested, the agent review's status is success, the branch is current and clean, and the
-  branch and the head commit subject name one claimed Beads ticket.
+  branch and the head commit subject name one claimed Beads ticket that carries no drop marker.
 - **Commits.** One initial implementation commit per ticket. After publication, append review-fix
   commits on that ticket's branch with the same ticket id rather than rewriting published history.
   Keep unrelated work in another ticket. Every commit's subject starts with the ticket id (`AB-12: ...`); the
@@ -208,7 +230,8 @@ down more than once,
 installs into a fresh repository and runs the installed scripts' self-tests there, then
 `scripts/backlog-status.sh --sprint-check` (the sprint here is every open ticket, so an omission is
 a fault) and `scripts/backlog-status.sh --reconcile` (a ticket Beads has closed must have a landed
-commit, and a landed commit must name a ticket Beads has closed). There is no fast variant: the whole thing takes about
+commit unless it is dropped, a drop must be one the queue can honour, and a landed commit must
+name a ticket Beads has closed that carries no drop marker; 0012, 0030). There is no fast variant: the whole thing takes about
 eight minutes, most of it the self-test suite, which the install runs once and then proves the six
 stack skeletons' own stack steps separately, rather than paying for the suite once per skeleton
 (LK-11). Nothing is resolved from a worktree, since there is nothing to build. The section's list of

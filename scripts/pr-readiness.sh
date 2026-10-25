@@ -27,8 +27,9 @@
 #   current        the merge state is current and clean: not behind the default branch, no
 #                  conflicts, not a draft, not blocked
 #   bead           the branch (ticket/<ID>) and the head commit subject (<ID>: ...) name the
-#                  same Beads ticket, which exists, carries acceptance criteria, and is
-#                  claimed (in_progress) or closed, with an owner
+#                  same Beads ticket, which exists, carries acceptance criteria, is claimed
+#                  (in_progress) or closed, with an owner, and carries no drop marker: a ticket
+#                  dropped without landing (0030) that merged would contradict its own drop
 #
 # The queue is the open pull requests that target the default branch, read 200 at a time, and
 # --pr is the same judgement for one of them. The output is a verdict, so this is a report and
@@ -204,7 +205,9 @@ crit_current() {
 }
 
 # bead: the branch and the head commit subject have to name the same ticket, and that ticket
-# has to be one a reviewer can judge: acceptance criteria, an owner, and a claim or a close.
+# has to be one a reviewer can judge: acceptance criteria, an owner, a claim or a close, and no
+# drop marker (0030). `bd show --json` gives a dependency's kind as dependency_type and its target
+# as id, where `bd list --json` says type and depends_on_id.
 crit_bead() {
   local subject branch_id subject_id json
   subject="$(gh api "repos/{owner}/{repo}/commits/$PR_SHA" --jq '.commit.message' 2>/dev/null | head -1 || true)"
@@ -238,6 +241,12 @@ if status not in ("in_progress", "closed"):
     print("fail\t" + ticket + " is " + (status or "unknown") + ", not claimed or closed"); sys.exit()
 if not owner:
     print("fail\t" + ticket + " has no owner"); sys.exit()
+links = [(d.get("dependency_type") or d.get("type"), d.get("id") or d.get("depends_on_id"))
+         for d in (row.get("dependencies") or [])]
+links = [kind + " " + str(target) for kind, target in links if kind in ("duplicates", "supersedes")]
+markers = (["the loop:dropped label"] if "loop:dropped" in (row.get("labels") or []) else []) + links
+if markers:
+    print("fail\t" + ticket + " carries a drop marker (" + ", ".join(markers) + "): close the pull request, or remove the marker if the ticket is to land"); sys.exit()
 print("pass\t" + ticket + " is " + status + ", owned by " + owner + ", with acceptance criteria")
 ' "$branch_id" || tsv fail "$branch_id could not be read from this Beads database"
 }
@@ -420,6 +429,10 @@ case "$SCENARIO" in
   bead-missing) printf '[]' ;;
   generated-id) printf '[{"id":"AA-1a","status":"in_progress","assignee":"FueledByChai","acceptance_criteria":"the criterion"}]' ;;
   bead-broken) printf 'not json' ;;
+  # The shape bd show --json gives a dropped ticket: the link's kind and target as
+  # dependency_type and id, and a label drop's label.
+  bead-duplicate) printf '[{"id":"AA-01","status":"closed","assignee":"FueledByChai","acceptance_criteria":"the criterion","dependencies":[{"id":"AA-02","dependency_type":"duplicates"}]}]' ;;
+  bead-dropped) printf '[{"id":"AA-01","status":"closed","assignee":"FueledByChai","acceptance_criteria":"the criterion","labels":["loop:dropped"],"close_reason":"retired"}]' ;;
   *) printf '[{"id":"AA-01","status":"in_progress","assignee":"FueledByChai","acceptance_criteria":"the criterion"}]' ;;
 esac
 EOF
@@ -520,6 +533,10 @@ EOF
   assert_case bead-nocriteria bead || failed=1
   assert_case bead-missing bead || failed=1
   assert_case bead-broken bead || failed=1
+  assert_case bead-duplicate bead || failed=1
+  assert_case bead-dropped bead || failed=1
+  printf '%s\n' "$out" | grep -q 'carries a drop marker (the loop:dropped label)' \
+    || { echo "self-test[bead-dropped]: the bead fact should name the loop:dropped label:"; echo "$out"; failed=1; }
   assert_case branch-mismatch bead || failed=1
   assert_case subject-mismatch bead || failed=1
   assert_case subject-suffix bead || failed=1

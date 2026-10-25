@@ -41,7 +41,8 @@ python3 .github/tests/queue_workflow_test.py
 # It is deliberately one-sided - a project whose sprint is a chosen subset does not name it - so
 # it sits outside the shared block, with the install self-test.
 scripts/backlog-status.sh --sprint-check
-# The queue is reconciled with git (0012): a ticket Beads has closed must have a landed commit,
-# and a landed commit must name a ticket Beads has closed. Also one-sided, for the same reason.
+# The queue is reconciled with git (0012, 0030): a ticket Beads has closed must have a landed
+# commit unless it is dropped, a drop must be one the queue can honour, and a landed commit must
+# name a ticket Beads has closed that carries no drop marker. Also one-sided, for the same reason.
 scripts/backlog-status.sh --reconcile
 echo "KIT CHECKS PASSED"

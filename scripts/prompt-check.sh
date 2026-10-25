@@ -45,6 +45,15 @@ next-ticket.md	only that declaration activates `github-v1`, and only changing it
 next-ticket.md	every other stop below still applies
 next-ticket.md	including whether the PR opens as draft or ready and whether auto-merge is armed
 next-ticket.md	When the Project rules declare the live App controller active, use `scripts/open-ticket-pr.sh <id> --draft`
+next-ticket.md	bd duplicate
+next-ticket.md	bd supersede
+next-ticket.md	re-point every ticket it blocks
+next-ticket.md	only records an owner decision
+next-ticket.md	is only for a ticket whose commit has landed
+next-ticket.md	refuse to add a link over one
+next-ticket.md	the one ticketed first is the canonical one
+next-ticket.md	bd close <id> --force --reason
+next-ticket.md	loop:dropped
 respond-to-review.md	full head SHA
 respond-to-review.md	all pages
 respond-to-review.md	fix, dispute, or separate ticket

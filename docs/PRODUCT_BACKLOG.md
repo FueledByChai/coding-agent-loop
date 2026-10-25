@@ -7,8 +7,9 @@ story it serves.
 
 Statuses: **Proposed**, **Ready**, **In progress**, **Complete**, or **Deferred**. The written
 status is intent; the status that matters is the one `scripts/backlog-status.sh --stories`
-derives from git — `done` when every ticket that serves the story has landed, `open k/n` while
-some are left, `unticketed` when no ticket names it.
+derives from git — `done` when every ticket that serves the story and is not dropped (0030) has
+landed, `open k/n` while some are left, `unticketed` when no ticket names it or every one that
+does is dropped.
 
 Architecture and product decisions are the records under `docs/decisions/` (index in its
 `README.md`): cite them by number and never restate one here.

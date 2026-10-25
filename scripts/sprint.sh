@@ -6,7 +6,7 @@
 #   scripts/sprint.sh                          the sprint's tickets with their states
 #                                              (scripts/backlog-status.sh --sprint)
 #   scripts/sprint.sh add <id> [--priority N]  label a ticket as sprint (P0-P4/0-4; a ticket that
-#                                              is already done is refused)
+#                                              is already done, or dropped, is refused)
 #   scripts/sprint.sh remove <id>              take the label off
 #   scripts/sprint.sh set <id> [<id> ...]      replace the whole sprint with these tickets
 #   scripts/sprint.sh clear                    unlabel every ticket
@@ -42,7 +42,8 @@ print_sprint() {
   if [ -z "$ids" ]; then echo "sprint: empty"; else echo "sprint: $ids"; fi
 }
 
-# A ticket id must exist in the Beads queue and not be done (git is the proof).
+# A ticket id must exist in the Beads queue and be neither done (git is the proof) nor dropped
+# (closed for good without landing, 0030).
 check_id() {
   local id="$1" state
   [[ "$id" =~ ^[A-Z][A-Z0-9]*-[a-z0-9]+$ ]] || { echo "not a ticket id: $id" >&2; return 1; }
@@ -50,6 +51,7 @@ check_id() {
     || { echo "$id is not in the Beads queue" >&2; return 1; }
   state="$(LOOP_ROOT="$PROJECT" LOOP_CONFIG="$FILE" "$SCRIPT_ROOT/scripts/backlog-status.sh" --local 2>/dev/null | awk -v id="$id" '$1 == id { print $2 }')"
   [ "$state" != "done" ] || { echo "$id is already done" >&2; return 1; }
+  [ "$state" != "dropped" ] || { echo "$id is dropped: it left the queue without landing (the loop kit's decision 0030)" >&2; return 1; }
   return 0
 }
 
@@ -95,6 +97,8 @@ case "$cmd" in
       bd create "Second" --id AA-02 --description "second" --acceptance "proof" --priority 2 --silent >/dev/null
       bd create "Third" --id AA-03 --description "third" --acceptance "proof" --priority 2 --silent >/dev/null
       bd create "Fourth" --id AA-1a --description "generated" --acceptance "proof" --priority 2 --silent >/dev/null
+      bd create "Fifth" --id AA-04 --description "found while working on AA-01" --acceptance "proof" --priority 2 --silent >/dev/null
+      bd dep add AA-04 AA-01 --type discovered-from >/dev/null
       git commit -q --allow-empty -m "AA-03: third landed"
     )
     printf '[loop]\ndefault_branch = "main"\n' > "$dir/.loop.toml"
@@ -115,6 +119,25 @@ case "$cmd" in
     # Beads mints an alphanumeric id once a prefix's numeric space is spent, and the sprint is
     # a label like any other: the id has to be accepted rather than refused as "not a ticket id".
     out="$("$me" add AA-1a)"; [ "$out" = "sprint: AA-1a" ] || { echo "self-test: a generated Beads id should be accepted: $out"; exit 1; }
+    # A ticket dropped by a real bd duplicate is refused like a done one. The drop is made by the
+    # bd on this machine, so this also proves the shape backlog-status.sh reads a drop from - the
+    # duplicates link on the dropped ticket - is still the one bd writes.
+    bd -C "$dir" duplicate AA-02 --of AA-01 >/dev/null 2>&1 || { echo "self-test: bd duplicate should close AA-02"; exit 1; }
+    rc=0; out="$("$me" add AA-02 2>&1)" || rc=$?
+    [ "$rc" = 1 ] && [ "$out" = "AA-02 is dropped: it left the queue without landing (the loop kit's decision 0030)" ] || { echo "self-test: a dropped ticket must be refused (rc $rc): $out"; exit 1; }
+    # The drop procedure AGENTS.md and next-ticket.md give, run by the real bd: a ticket that
+    # already depends on its replacement (here discovered-from, which bd 1.3.0 refuses to add a
+    # supersedes link over) loses that dependency first, then is superseded, and reads dropped.
+    bd -C "$dir" dep remove AA-04 AA-01 >/dev/null 2>&1 && bd -C "$dir" supersede AA-04 --with AA-01 >/dev/null 2>&1 \
+      || { echo "self-test: removing AA-04's dependency on AA-01 and then superseding it should close it"; exit 1; }
+    rc=0; out="$("$me" add AA-04 2>&1)" || rc=$?
+    [ "$rc" = 1 ] && [ "$out" = "AA-04 is dropped: it left the queue without landing (the loop kit's decision 0030)" ] || { echo "self-test: a ticket dropped by the procedure must read dropped (rc $rc): $out"; exit 1; }
+    # A label drop as AGENTS.md gives it, run by the real bd: the namespaced loop:dropped label and
+    # a forced close with a reason. bd keeps the label as written, so it reads dropped.
+    bd -C "$dir" update AA-1a --add-label loop:dropped >/dev/null 2>&1 && bd -C "$dir" close AA-1a --force --reason "retired by the owner" >/dev/null 2>&1 \
+      || { echo "self-test: labelling AA-1a loop:dropped and closing it with a reason should close it"; exit 1; }
+    rc=0; out="$("$me" add AA-1a 2>&1)" || rc=$?
+    [ "$rc" = 1 ] && [ "$out" = "AA-1a is dropped: it left the queue without landing (the loop kit's decision 0030)" ] || { echo "self-test: a ticket dropped by the loop:dropped label must read dropped (rc $rc): $out"; exit 1; }
     unset LOOP_ROOT
     echo "sprint self-test passed" ;;
   *) echo "usage: scripts/sprint.sh [add <id> [--priority N] | remove <id> | set <id>... | clear | --self-test]" >&2; exit 2 ;;

@@ -14,7 +14,7 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | Path | What it is |
 | --- | --- |
 | `scripts/loop-config.sh` | reads `.loop.toml` (`<key>`, `--all`), with defaults |
-| `scripts/backlog-status.sh` | ticket states derived from git; `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views; `--plain` gives `--stories` and `--open` as tab-separated fields for a renderer; `--sprint-check` fails when the sprint and the open tickets disagree |
+| `scripts/backlog-status.sh` | ticket states derived from git, `dropped` for a ticket closed without landing by a `duplicates` or `supersedes` link or the `loop:dropped` label (0030); `--next` names the next ticket; `--open`, `--show <id>`, `--stories`, `--sprint` are the views; `--plain` gives `--stories` and `--open` as tab-separated fields for a renderer; `--sprint-check` fails when the sprint and the open tickets disagree; `--reconcile` fails when git and Beads disagree, or a drop is one the queue cannot honour |
 | `scripts/sprint.sh` | edits the sprint in Beads: the `sprint_label` label and priorities (`add`, `remove`, `set`, `clear`) |
 | `scripts/open-ticket-pr.sh` | claims (`--claim`), opens the PR, applies the merge policy |
 | `scripts/release-notes.sh` | what shipped between two refs; `--archive` into `CHANGELOG.md`; `--prefix` narrows either to one ticket prefix |
@@ -39,7 +39,7 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | `scripts/queue-controller.sh` | opt-in App controller: one admitted run, fresh final gate, expected-head merge and conservative recovery |
 | `scripts/queue-controller.py` | protected live journal, App authentication, independent receipt bridge and live protection preflight |
 | `scripts/queue-controller-tests.py` | offline controller crash/race fixtures and execution of the shipped CI admission gate |
-| `scripts/pr-readiness.sh` | the six facts a merge waits on for every open pull request — the project's check ran on the head, no review conversation is unresolved, no changes are requested, the agent review's status is success, the branch is current and clean, and the branch and subject name one claimed Beads ticket; `--pr <number>` judges one, `--ready` lists the ones that pass all six |
+| `scripts/pr-readiness.sh` | the six facts a merge waits on for every open pull request — the project's check ran on the head, no review conversation is unresolved, no changes are requested, the agent review's status is success, the branch is current and clean, and the branch and subject name one claimed Beads ticket that carries no drop marker; `--pr <number>` judges one, `--ready` lists the ones that pass all six |
 | `scripts/reference-check.sh` | the queue's own references: every ticket carries acceptance criteria, every `blocks` dependency and `story:` label resolves, no dependency cycle, and every decision cited is a record; another project's ids quoted in prose are left alone |
 | `scripts/with-test-postgres.sh` | runs a command against a disposable PostgreSQL: a uniquely named container, two ownership labels, the connection URL in the environment (`test_db_*` in `.loop.toml`), and a cleanup that removes only the container it created |
 | `scripts/compose-smoke.sh` | starts the project's Compose stack under a name of its own (`compose_files`), waits for it to be healthy, runs `compose_proof` against it with `COMPOSE_PROJECT_NAME` and `COMPOSE_FILE` exported, and takes that stack down with its volumes — printing its logs first when anything failed |
@@ -80,7 +80,16 @@ skeletons' own stack steps separately, instead of running the whole suite once p
 - **Git is the record of done.** A ticket is done when a commit whose subject starts with its
   id is on the default branch; a ticket Beads says is `closed` with no naming commit is a false
   close, and a landed commit naming a ticket Beads still has open is an orphan, and
-  `scripts/backlog-status.sh --reconcile` fails both (0012).
+  `scripts/backlog-status.sh --reconcile` fails both (0012). A ticket leaves the queue without
+  landing only as **dropped** (0030): closed by `bd duplicate` or `bd supersede`, linking the
+  ticket that carries its work, or closed with the `loop:dropped` label and a reason for an owner's
+  decision nothing carries. A dropped ticket is never done, never offered, and no part of a
+  story's count, and `--reconcile` fails a drop it cannot honour, such as a ticket still blocked
+  by one. Existing consumers keep their own `AGENTS.md`, which neither `install.sh` nor
+  `scripts/loop-kit-sync.sh` updates, so a project moving to a kit with 0030 copies the loop
+  section's new Tickets bullet into its own, including the sentence that the bullet governs over
+  the generic Beads guidance: until it does, that file still calls every close with no commit a
+  false close and offers `bd close` as how work completes.
 - **Claims** are `bd update <id> --claim`, with the `ticket/<id>` branch on origin beside them.
   `--next` passes over claimed tickets, so several agents can hold several tickets.
 - **The sprint** is the Beads label named by `sprint_label` in `.loop.toml` (`sprint` by
@@ -93,7 +102,8 @@ skeletons' own stack steps separately, instead of running the whole suite once p
 - **Stories** live in the product backlog (`stories` in `.loop.toml`, `docs/PRODUCT_BACKLOG.md`
   by default) as `### BT-nnn — <title>` with acceptance criteria; a ticket says which it serves
   with a `story:BT-nnn` label. Stories are product intent, not tickets. `--stories` derives each
-  story's status from git (done when every serving ticket landed, open k/n, unticketed), `--open`
+  story's status from git (done when every serving ticket that is not dropped landed, open k/n,
+  unticketed), `--open`
   is the pick list for the next sprint where the sprint is a subset, and `--show <id>` prints a
   ticket or a story in full.
 - **Hand-off** is a pull request from that branch. When the Project rules declare `github-v1`,

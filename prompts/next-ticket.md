@@ -70,6 +70,24 @@ Steps:
    reconcile the shared record before retrying rather than creating another local-only epic.
 2. Read the ticket's **Done when** line first. Decide what test, fixture, or output proves it, and
    write that test before the implementation.
+   If the ticket needs no work of its own - another ticket's landed commit already meets its
+   **Done when** line, or the same work is ticketed twice - drop it rather than implement it
+   (0030 in the kit): `bd supersede <id> --with <replacement>` names the ticket that carries or
+   carried the work. Of two tickets for the same work, the one ticketed first is the canonical
+   one: when the other was first, drop this one with `bd duplicate <id> --of <canonical>`; when
+   this one was first, implement it and drop the other with `bd duplicate <other> --of <id>`
+   (report it instead when another agent holds its claim). Before a drop, remove any dependency
+   the dropped ticket already has on its replacement (a `blocks` or `discovered-from` edge, say),
+   since `bd duplicate` and `bd supersede` refuse to add a link over one, re-point every ticket it
+   blocks to the replacement (`bd dep remove <dependent> <id>`, then
+   `bd dep add <dependent> <replacement>`), and give the replacement the `story:` labels it
+   serves; `scripts/backlog-status.sh --reconcile` fails a drop left otherwise. Then release the
+   `ticket/<id>` branch this run pushed (`scripts/open-ticket-pr.sh <id> --release`) and close any
+   pull request it opened, publish with `bd dolt push`, report the drop, and run `--next` again.
+   A `loop:dropped` label drop, with nothing carrying the work, only records an owner decision
+   its close reason quotes (`bd close <id> --force --reason "<why>"`, forced because bd refuses to
+   close a ticket that is still blocked); it is never your own judgement. A plain `bd close` is
+   only for a ticket whose commit has landed.
 3. Work in an isolated worktree when the harness offers one; otherwise on a branch named after the
    ticket id. Keep the change to that ticket. Anything else you notice becomes a new ticket with
    `bd create` - a paragraph of context, its acceptance criteria in `--acceptance`, its blockers as

@@ -27,3 +27,4 @@ the old one. Cite a decision by its number. `scripts/decisions.sh new "<title>"`
 - [0026](0026-use-existing-agent-acceptance-for-the-first-live-merge-queue.md) Use existing agent acceptance for the first live merge queue — accepted
 - [0027](0027-require-explicit-permission-for-complete-live-ruleset-inspec.md) Require explicit permission for complete live ruleset inspection — accepted
 - [0028](0028-stage-queue-files-without-changing-an-active-legacy-merge-pa.md) Stage queue files without changing an active legacy merge path — accepted, supersedes 0019
+- [0030](0030-a-ticket-leaves-the-queue-without-landing-only-as-dropped.md) A ticket leaves the queue without landing only as dropped — accepted, narrows 0012

@@ -40,12 +40,12 @@ below it are this project's own and are what the loop prompts mean when they say
   one, re-point every ticket it blocks to the replacement (`bd dep remove <dependent> <id>`, then
   `bd dep add <dependent> <replacement>`; after a label drop, which nothing carries, only the
   remove), and give the replacement its `story:` labels; afterwards release its `ticket/<id>`
-  branch and close any pull request it has. Only the agent holding a ticket's claim, or the
-  owner, drops it: a ticket another agent holds is reported to that agent, never dropped over its
-  claim. A dropped ticket is never done: it is never ready or offered, no omission from the
-  sprint, and no part of a story's count, and a ticket carrying a drop marker that Beads has not
-  closed is not offered either. A ticket Beads says is `closed` with no naming
-  commit and no drop is a false close, and a landed commit naming a ticket Beads still has open
+  branch and close any pull request it has. No agent drops a ticket another agent holds: it
+  reports the ticket to that agent instead, and only that agent or the owner drops it. A dropped
+  ticket is never done: it is never ready or offered, no omission from the sprint, and no part of
+  a story's count, and a ticket carrying a drop marker that Beads has not closed is not offered
+  either. A ticket Beads says is `closed` with no naming commit and no drop is a false close, and
+  a landed commit naming a ticket Beads still has open
   is an orphan; `--reconcile` fails both, and every drop it cannot honour: a drop marker on a
   ticket Beads has not closed, a label drop with no reason (bd's placeholder `Closed` is none), a
   landed commit naming a ticket that carries a drop marker, a drop link to anything but a ticket

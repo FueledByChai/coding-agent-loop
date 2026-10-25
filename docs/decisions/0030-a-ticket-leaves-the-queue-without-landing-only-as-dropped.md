@@ -152,9 +152,9 @@ Dropping a ticket is a small procedure, and `AGENTS.md` and `prompts/next-ticket
   drops another ticket in favour of its own keeps its own claim and goes on with it.
 
 An agent drops by link only when another ticket's landed commit already meets the done line, or
-the work was ticketed twice. A drop by the label only records the owner's decision. Only the agent
-holding a ticket's claim, or the owner, drops it; a ticket another agent holds is reported to that
-agent, never dropped over its claim.
+the work was ticketed twice. A drop by the label only records the owner's decision. No agent drops
+a ticket another agent holds: it reports the ticket to that agent instead, and only that agent or
+the owner drops it.
 
 For the fueledbychai-rs rollout:
 

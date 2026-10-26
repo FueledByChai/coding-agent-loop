@@ -51,7 +51,7 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | `prompts/grill-project.md` | the first-day interview: Project rules, decision records, first epics, and a check skeleton |
 | `templates/check/*.sh` | check skeletons per stack (Rust, Python, Node, Java, Go, other) that pass on an empty repository |
 | `templates/ci/*.yml` | the CI toolchain steps per stack that grill-project splices into the workflow |
-| `AGENTS.md` | the standing instructions: the loop section, then an empty Project rules |
+| `AGENTS.md` | the standing instructions: the loop section, then this repository's own Project rules; a project gets the loop section and a placeholder Project rules declaring `Merge profile: legacy` |
 | `loop.toml.example` | the settings documentation: `install.sh` writes `.loop.toml` from it once, and `loop-kit-sync.sh` keeps the example itself current in the project (LK-19) |
 | `ci/workflow.yml` | the workflow a project installs: one job per check command |
 | `ci/ruleset.json` | the branch ruleset that pairs with it, requiring the job that workflow reports |
@@ -96,11 +96,12 @@ skeletons' own stack steps separately, instead of running the whole suite once p
   story's status from git (done when every serving ticket landed, open k/n, unticketed), `--open`
   is the pick list for the next sprint where the sprint is a subset, and `--show <id>` prints a
   ticket or a story in full.
-- **Hand-off** is a pull request from that branch. When the Project rules say the live App
-  controller is active, open it as a draft and verify auto-merge is disabled before marking ready
-  for review. During staged rollout or legacy mode, preserve the project's complete existing
+- **Hand-off** is a pull request from that branch. When the Project rules declare `github-v1`,
+  the live App controller, active (`Merge profile: github-v1`), open it as a draft and verify
+  auto-merge is disabled before marking ready for review. In the staged/legacy profile, the
+  default for every contract that declares nothing else, preserve the project's complete existing
   handoff, including whether the PR opens as draft or ready and whether auto-merge is armed;
-  installing queue files does not activate the controller. Keep required human review
+  installing queue files does not activate the controller (0028). Keep required human review
   for `review_paths`. The coordinator records merge order beside the day's tickets in Beads,
   with one selected candidate after predecessors land. Waiting PRs do not rebase or request CI;
   author fixes, Codex review and independent acceptance may proceed. Only the selected candidate
@@ -279,8 +280,10 @@ git clone https://github.com/FueledByChai/coding-agent-loop /tmp/loop-kit
 
 `install.sh` copies the scripts into `scripts/`, the prompts into `loop/prompts/`, and
 `loop.toml.example` to the root, writes `AGENTS.md` and `.loop.toml` when they do not exist (it
-never overwrites either), puts the workflow skeleton at `.github/workflows/loop.yml` and the
-ruleset that pairs with it at `ci/ruleset.json` when neither is there, and, with
+never overwrites either; a fresh `AGENTS.md` is the kit's loop section and a placeholder Project
+rules declaring `Merge profile: legacy`, never the kit's own rules or profile), puts the workflow
+skeleton at `.github/workflows/loop.yml` and the ruleset that pairs with it at `ci/ruleset.json`
+when neither is there, and, with
 `--commands <dir>`, writes one wrapper per prompt into the harness's command directory. With
 `--skills <dir>` it writes one `SKILL.md` per prompt
 into the harness's skill directory, each in its own folder. A skill is the same pointer a wrapper
@@ -291,12 +294,15 @@ is written from it once and is the project's own, while the example is the kit's
 every install and by `loop-kit-sync.sh`, so what a project reads to learn what a setting means does
 not go stale (LK-19). `CLAUDE.md` is written as the one line `@AGENTS.md` when absent: Codex
 reads `AGENTS.md` on its own, Claude Code reads `CLAUDE.md`, and both then follow the same file.
-An upgrade deliberately retains an existing `AGENTS.md`. Before installing or syncing queue-aware
-prompts into a project whose contract already mentions queue rollout or a controller, inspect the
-entire retained file, including the shared loop section and Project rules, then update its migration
-decision and standing rules to declare explicitly whether staged/legacy or `github-v1` is the active
-profile. The prompts stop before changing PR gates when that complete retained contract is
-ambiguous; installed queue files never imply activation (0028).
+An upgrade deliberately retains an existing `AGENTS.md`. The queue-aware prompts read its merge
+profile from the whole retained file: staged/legacy unless the Project rules declare `github-v1`
+active with a `Merge profile: github-v1` line, so a retained contract that declares nothing keeps
+its existing handoff. Before installing or syncing them into a project whose controller is live,
+add that line and record the activation in its migration decision; compare the loop section with
+the kit's, which states the default. The prompts stop before changing PR gates only when the
+declaration is contradictory or unreadable (two profiles, an unknown one, `github-v1` beside a
+legacy gate described as active, or legacy beside a live App merge actor); installed queue files
+never imply activation (0028).
 Then it prints what the project still has to supply:
 
 1. `scripts/check.sh`: the definition of done, exit non-zero on anything not shippable. The
@@ -305,7 +311,8 @@ Then it prints what the project still has to supply:
 3. The branch ruleset, applied once with `gh api` (the installed `ci/ruleset.json` and the
    commands below); repository settings that allow auto-merge and delete merged branches.
 4. The **Project rules** section of `AGENTS.md`: what never to touch, build and run commands,
-   conventions the prompts should follow.
+   conventions the prompts should follow, and the merge profile: keep `Merge profile: legacy`,
+   the default, until an operator activates the App controller, then `github-v1`.
 
 The repository settings and ruleset, as `gh` commands (edit the job name in the JSON to match
 your workflow):

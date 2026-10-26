@@ -42,7 +42,12 @@ The five areas, in order:
    machine. This decides whether there is a database, which kind, and where it lives.
 3. **Runtime and deploy.** The language and its version, the machine it runs on, how it gets
    there (a script, a container, a host's deploy), how it is restarted, and what is already
-   installed. This decides the stack row below and whether the project gets a deploy loop.
+   installed. This decides the stack row below and whether the project gets a deploy loop. It
+   also settles the merge profile, how pull requests merge: staged/legacy, the default (the
+   loop's own handoff, with the project's checks and review gates), unless an operator already
+   runs the kit's App controller live for this repository (`github-v1`, set up through
+   `loop/templates/queue-operations.md`). Recommend the default; installing the kit starts no
+   controller, so a new project accepts it unless the owner names a live controller.
 4. **The UI.** None, a terminal, or a browser; who has to be able to read it; the look the
    owner wants and any conventions (density, colour, what must fit on one screen). This
    becomes the UI conventions in the Project rules and the first fixture the checks render.
@@ -65,9 +70,11 @@ Show the owner everything below in chat and get a yes before writing.
 - **`AGENTS.md`, the Project rules section.** Replace the placeholder with: what the project
   is, in two sentences; Layout (where code, tests, docs, and data live, and what is private);
   Build, run, and restart (the exact commands); The check (what `scripts/check.sh` covers and
-  how long it takes); the rules from area 5 as bullets that begin with "Never" or "Always";
-  UI conventions from area 4 when there is a UI; Docs to keep current. Cite the record numbers
-  where a rule comes from a decision.
+  how long it takes); the merge profile from area 3 as a line of its own, `Merge profile: legacy`
+  (the default) or `Merge profile: github-v1` only for a controller the owner named live, exactly
+  one such line (0028 in the kit); the rules from area 5 as bullets that begin with "Never" or
+  "Always"; UI conventions from area 4 when there is a UI; Docs to keep current. Cite the record
+  numbers where a rule comes from a decision.
 - **The Beads queue.** Initialise it with `bd init --prefix <PREFIX> --non-interactive` when
   `bd where` finds none, then create the first ticket with `bd create`: a title, the intent in
   `--description`, the done line in `--acceptance`, the story it serves and the records it rests

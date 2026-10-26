@@ -30,17 +30,33 @@ below it are this project's own and are what the loop prompts mean when they say
   `closed` with no naming commit is a false close, and a landed commit naming a ticket Beads
   still has open is an orphan; `--reconcile` fails both. Anything discovered while working goes
   in as a new ticket (`bd create`), not into the current one.
+- **Merge profile.** A project's pull-request gates follow one of two profiles: staged/legacy
+  (the project's existing handoff and gates under the named coordinator, including a staged
+  rollout whose queue files are installed but whose controller is not live) or `github-v1` (the
+  live App controller, 0026). The profile is staged/legacy unless the Project rules declare
+  `github-v1` active on a line of its own, `Merge profile: github-v1`; a line
+  `Merge profile: legacy` states the default, and a contract with no such line is staged/legacy.
+  Activation and rollback are explicit edits to that line, made at the cutover and rollback in
+  the queue runbook (`templates/queue-operations.md`, installed under `loop/templates/`) and
+  recorded in the project's migration decision. Installed queue files, workflows, controller
+  statuses or a running controller never change the profile (kit decision 0028). Reading it,
+  the prompts stop before changing a gate only when the declaration is contradictory or
+  unreadable (more than one profile declared, a profile other than these two named,
+  `github-v1` declared while the Project rules describe a legacy gate as active, or
+  staged/legacy in force while they describe the App controller as the live merge actor);
+  their other stops still apply.
 - **Claims and hand-off.** Before work starts, claim the ticket in Beads (`bd update <id>
   --claim`) and push `ticket/<id>` to origin with `scripts/open-ticket-pr.sh <id> --claim`;
   `backlog-status.sh --next` passes over claimed tickets, so several agents can hold several
   tickets. After the commit, `scripts/open-ticket-pr.sh <id>` pushes
-  the branch and opens the pull request. When the Project rules say the live App controller is
-  active, use `--draft`, verify auto-merge is disabled, then mark ready for review; retain any
-  required human review for `review_paths`. During staged rollout or legacy mode, preserve the
-  project's complete existing handoff, including whether the PR opens as draft or ready and
-  whether auto-merge is armed; copied queue files do not activate the controller.
+  the branch and opens the pull request. When the Project rules declare `github-v1`, the live
+  App controller, active, use `--draft`, verify auto-merge is disabled, then mark ready for
+  review; retain any required human review for `review_paths`. In the staged/legacy profile,
+  the default, preserve the project's complete existing handoff, including whether the PR opens
+  as draft or ready and whether auto-merge is armed; copied queue files do not activate the
+  controller.
   Several agents can implement at once. In the legacy profile, the named coordinator records
-  merge order and selects one candidate in Beads (0019). In operator-enabled `github-v1` (0026),
+  merge order and selects one candidate in Beads (0028). In `github-v1` (0026),
   the App selects the candidate and owns CI admission, the merge gate and merging. Existing
   authors and independent reviewers use `queue-handoff` for nomination, selection verification
   and acceptance; they do not create or claim a legacy coordinator, reset legacy statuses or
@@ -118,29 +134,33 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
   rule and drift from its prompt (LK-18).
 - `check.sh` sits at the repository root on purpose, so `install.sh` never copies it over a
   project's own `scripts/check.sh`. `install.sh` copies everything else and never overwrites a
-  project's `AGENTS.md`, `CLAUDE.md`, `.loop.toml`, or workflow. `loop.toml.example` is the one
-  file that sits beside a copy of itself: it is copied to the root and refreshed, while the
-  `.loop.toml` written from it is kept, so the settings documentation a project reads stays
-  current; `scripts/loop-kit-sync.sh` carries it for the same reason (LK-19).
+  project's `AGENTS.md`, `CLAUDE.md`, `.loop.toml`, or workflow. A fresh project's `AGENTS.md` is
+  the loop section above and a placeholder Project rules declaring `Merge profile: legacy`, so
+  these Project rules, and the merge profile below, never reach a project (0028).
+  `loop.toml.example` is the one file that sits beside a copy of itself: it is copied to the
+  root and refreshed, while the `.loop.toml` written from it is kept, so the settings
+  documentation a project reads stays current; `scripts/loop-kit-sync.sh` carries it for the
+  same reason (LK-19).
 - `ci/` holds what a project applies: the workflow skeleton and the `ruleset.json` that pairs
   with it, whose required context is the job that skeleton reports (`Check (scripts/check.sh)`).
   New installations request it with `ci:run`; the first step rejects unrelated label events
   before expensive work (0020). The installer preserves existing workflows.
   `.github/` holds this repository's own pair — `.github/workflows/ci.yml` and
   `.github/ruleset.json` — whose required contexts are the job this repository reports
-  (`Check (check.sh)`) and the agent review (`Agent review`), a commit status the loop posts from
-  a machine with the owner's subscription rather than a job (LK-06, decision 0007). The two pairs
-  differ by where the check sits — a project's under `scripts/`, the kit's at the root — and by
-  that second context, and they are not interchangeable. `scripts/ruleset-check.sh` fails when
-  either pair disagrees, so neither can drift; the review context is the one context it accepts
-  without a job (decision 0006).
+  (`Check (check.sh)`) and the legacy agent review (`Agent review`), a commit status the legacy
+  coordinator posts rather than a job (LK-06, decision 0007). That pair records the legacy gates;
+  under this repository's merge profile below it is not the live gate, and no agent here posts
+  `Agent review`. The two pairs differ by where the check sits — a project's under `scripts/`,
+  the kit's at the root — and by that second context, and they are not interchangeable.
+  `scripts/ruleset-check.sh` fails when either pair disagrees, so neither can drift; the review
+  context is the one context it accepts without a job (decision 0006).
 - The queue is this repository's Beads database (`.beads`), `docs/PRODUCT_BACKLOG.md` holds its
   stories, and `docs/decisions/` its records (index in its `README.md`; cite a record by number
   and never restate one in a doc or a ticket).
 
 ### Build, run, restart
 
-Nothing is compiled and no service is installed by the kit. The merge queue is currently a
+Nothing is compiled and no service is installed by the kit. `scripts/merge-queue.sh` is a
 shadow-only journal and read-only observer (0016). Separately, `scripts/review-workers.sh`
 runs explicitly configured author/acceptance adapters with durable PR/worktree ownership (0018).
 It has no CI, status-publication or merge adapter; installation does not start workers.
@@ -148,15 +168,31 @@ A separate opt-in `scripts/queue-controller.sh` supplies App-owned live adapters
 requiring protected operator setup and controlled migration in `templates/queue-operations.md`.
 The V1 existing-agent handoff (0026) uses `scripts/queue-handoff.sh` for nomination and
 independent acceptance under explicitly approved shared-account trust, without hosted workers.
-Its offline fixtures are not live rollout evidence. Installation starts no controller service. `./check.sh` is both the build and the test. A change to
+Its offline fixtures are not live rollout evidence. Installation starts no controller service,
+so a project the kit is installed into stays staged/legacy until its operator activates one and
+declares `github-v1`; this repository's own controller runs outside the kit, under the merge
+profile below. `./check.sh` is both the build and the test. A change to
 `scripts/*.sh` reaches a project only when it is tagged and that project's `kit_ref` moves;
 until then `scripts/loop-kit-sync.sh --check` fails there, which is the intended signal.
+
+### Merge profile
+
+Merge profile: github-v1
+
+This repository runs the `github-v1` handoff (0026) with its live App controller: the App
+selects the candidate, admits CI and merges, and is the only updater of `main`, whose required
+gate is the App's `Queue merge gate`; repository auto-merge is off. Authors open drafts, keep
+auto-merge disabled, and nominate through `scripts/queue-handoff.sh`; independent reviewers
+publish `Queue acceptance` through it. No agent here runs the legacy coordinator, posts
+`Agent review` or arms auto-merge. Rolling back to `legacy` is an edit to the line above, made
+with the rollback in `templates/queue-operations.md` and recorded in a decision (0028).
 
 ### The check
 
 `./check.sh` is the definition of done, and CI runs the same script. The kit-only
 `.github/tests/queue_workflow_test.py` exercises its rendered queue workflow admission before
-checkout or setup; the legacy workflow and protections remain in force during bootstrap. In order it runs every
+checkout or setup. Under the merge profile above, the App-dispatched `queue.yml` runs this
+script for the selected candidate, and the legacy `ci.yml` is not a required gate. In order it runs every
 script's `--self-test`, then `scripts/prompt-check.sh` (a prompt may not lose a rule), then
 `scripts/decisions.sh --check` (the kit's records answer to the same sections and index a project's
 check demands of them), then `scripts/reference-check.sh` (every ticket carries acceptance

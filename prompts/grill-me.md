@@ -14,12 +14,14 @@ Before changing a pull-request gate, read the merge profile from the entire reta
 contract, both its shared loop section and its Project rules. The profile is staged/legacy
 unless the Project rules declare `github-v1`, the live App controller, active (a line
 `Merge profile: github-v1`); with no declaration, follow the staged/legacy handoff. Stop before
-mutating gates only when the declaration is contradictory or unreadable: more than one profile
-declared, a `Merge profile:` value other than `legacy` or `github-v1`, `github-v1` declared while
-the Project rules describe a legacy gate (a coordinator-posted required status, armed
-auto-merge) as active, or staged/legacy in force while they describe the App controller as the
-live merge actor. Then update the project's migration decision and standing contract before
-using this prompt. That is the only stop the profile adds; every other stop below still applies.
+mutating gates only when the declaration is contradictory or unreadable: more than one
+`Merge profile:` line in the Project rules, a `Merge profile:` value other than `legacy` or
+`github-v1`, `github-v1` declared while the Project rules describe a legacy gate agents operate
+(a coordinator-posted required status, armed auto-merge) as active, or staged/legacy in force
+while they describe the App controller as the live merge actor. A check the operator alone
+arranges during migration or keeps for rollback is not a legacy gate agents operate. Then
+update the project's migration decision and standing contract before using this prompt. That is
+the only stop the profile adds; every other stop below still applies.
 Do not infer activation from installed queue files, workflows or statuses: only that declaration
 activates `github-v1`, and only changing it rolls back.
 

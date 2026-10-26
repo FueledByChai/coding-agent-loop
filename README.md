@@ -51,11 +51,11 @@ helpers a stack needs — a JaCoCo coverage figure today, the Beads import path 
 | `prompts/grill-project.md` | the first-day interview: Project rules, decision records, first epics, and a check skeleton |
 | `templates/check/*.sh` | check skeletons per stack (Rust, Python, Node, Java, Go, other) that pass on an empty repository |
 | `templates/ci/*.yml` | the CI toolchain steps per stack that grill-project splices into the workflow |
-| `AGENTS.md` | the standing instructions: the loop section, then this repository's own Project rules; a project gets the loop section and a placeholder Project rules declaring `Merge profile: legacy` |
+| `AGENTS.md` | the standing instructions: the loop section, then this repository's own Project rules; a project gets the loop section, a placeholder Project rules declaring `Merge profile: legacy`, and the generated Beads block |
 | `loop.toml.example` | the settings documentation: `install.sh` writes `.loop.toml` from it once, and `loop-kit-sync.sh` keeps the example itself current in the project (LK-19) |
 | `ci/workflow.yml` | the workflow a project installs: one job per check command |
 | `ci/ruleset.json` | the branch ruleset that pairs with it, requiring the job that workflow reports |
-| `.github/workflows/ci.yml`, `.github/ruleset.json` | this repository's own pair, requiring `Check (check.sh)` and `Agent review` |
+| `.github/workflows/ci.yml`, `.github/ruleset.json` | this repository's own legacy pair, requiring `Check (check.sh)` and `Agent review`; the record of its legacy gates, not its live gate, under its `github-v1` merge profile (0028) |
 | `commands/*.md` | two-line wrappers for a harness with slash commands |
 | `skills/*/SKILL.md` | the same pointer with the frontmatter a harness needs to load it, one per prompt; `--skills <dir>` installs them and refuses one that restates its prompt |
 | `install.sh` | copies all of the above into a checkout and says what is still missing |
@@ -280,8 +280,9 @@ git clone https://github.com/FueledByChai/coding-agent-loop /tmp/loop-kit
 
 `install.sh` copies the scripts into `scripts/`, the prompts into `loop/prompts/`, and
 `loop.toml.example` to the root, writes `AGENTS.md` and `.loop.toml` when they do not exist (it
-never overwrites either; a fresh `AGENTS.md` is the kit's loop section and a placeholder Project
-rules declaring `Merge profile: legacy`, never the kit's own rules or profile), puts the workflow
+never overwrites either; a fresh `AGENTS.md` is the kit's loop section, a placeholder Project
+rules declaring `Merge profile: legacy`, and the generated Beads block from `bd setup codex`, never
+the kit's own rules or profile), puts the workflow
 skeleton at `.github/workflows/loop.yml` and the ruleset that pairs with it at `ci/ruleset.json`
 when neither is there, and, with
 `--commands <dir>`, writes one wrapper per prompt into the harness's command directory. With
@@ -300,9 +301,10 @@ active with a `Merge profile: github-v1` line, so a retained contract that decla
 its existing handoff. Before installing or syncing them into a project whose controller is live,
 add that line and record the activation in its migration decision; compare the loop section with
 the kit's, which states the default. The prompts stop before changing PR gates only when the
-declaration is contradictory or unreadable (two profiles, an unknown one, `github-v1` beside a
-legacy gate described as active, or legacy beside a live App merge actor); installed queue files
-never imply activation (0028).
+declaration is contradictory or unreadable (two `Merge profile:` lines, an unknown value,
+`github-v1` beside a legacy gate agents operate described as active, or legacy beside a live App
+merge actor; a check the operator alone keeps for migration or rollback is not such a gate);
+installed queue files never imply activation (0028).
 Then it prints what the project still has to supply:
 
 1. `scripts/check.sh`: the definition of done, exit non-zero on anything not shippable. The

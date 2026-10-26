@@ -59,12 +59,14 @@ check_skill() {
 }
 
 # A fresh project's AGENTS.md: the kit's loop section, everything above its `## Project rules`
-# heading, then a placeholder Project rules that declares the default merge profile. The kit's
-# own Project rules, and the profile they declare for the kit's repository, are the kit's alone:
-# installing starts no controller, so a project is staged/legacy until its operator activates one
-# and changes this line to github-v1 (0028).
+# heading, then a placeholder Project rules that declares the default merge profile, then the
+# generated Beads block (`bd setup codex`, between its BEGIN and END markers) when the kit's file
+# carries one, as the whole-file copy this replaces did. The kit's own Project rules, and the
+# profile they declare for the kit's repository, are the kit's alone: installing starts no
+# controller, so a project is staged/legacy until its operator activates one and changes this
+# line to github-v1 (0028).
 fresh_agents() {
-  local src="$1"
+  local src="$1" beads
   # Without the heading the whole file would pass for the loop section, the kit's own merge
   # profile with it, so a source with no heading is refused rather than copied.
   grep -q '^## Project rules[[:space:]]*$' "$src" \
@@ -79,6 +81,13 @@ Replace this placeholder with the project's own rules; grill-project writes them
 project. Keep the merge profile line above: `legacy`, the default, until an operator activates
 the App controller (loop/templates/queue-operations.md) and changes it to `github-v1`.
 RULES
+  # Only a complete block below the heading travels: one with no END marker is left behind, so
+  # nothing after a stray BEGIN, the kit's own rules among it, can ride along.
+  beads="$(awk '/^## Project rules[[:space:]]*$/ {r=1}
+    r && /^<!-- BEGIN BEADS / {b=1; buf=""}
+    b {buf = buf $0 "\n"}
+    b && /^<!-- END BEADS / {printf "%s", buf; exit}' "$src")"
+  [ -z "$beads" ] || printf '\n%s\n' "$beads"
 }
 
 install_into() {
@@ -180,9 +189,9 @@ Still to supply:
      .github/workflows/loop.yml - so a ruleset requiring a status the workflow never reports
      cannot land unnoticed.
   4. The Project rules section of AGENTS.md (grill-project writes it on a new project), with its
-     merge profile: keep 'Merge profile: legacy', the default, or accept it by leaving the line
-     out; change it to 'Merge profile: github-v1' only when an operator activates the App
-     controller (loop/templates/queue-operations.md). Installing starts no controller.
+     merge profile: keep 'Merge profile: legacy', the default, as its one profile line; change
+     it to 'Merge profile: github-v1' only when an operator activates the App controller
+     (loop/templates/queue-operations.md). Installing starts no controller.
   5. A Beads queue: run 'bd init --prefix <PREFIX>' when the repository has no .beads, and
      'bd dolt push' so the refs/dolt/data ref CI bootstraps from carries the tickets. bd is a
      hard dependency of the loop: the scripts read the queue with it.
@@ -238,7 +247,7 @@ PYTEST
 # supply asks for the profile. A kit whose own rules declare github-v1 cannot pass it on, and a
 # kit AGENTS.md with no Project rules heading is refused rather than copied whole.
 agents_profile_test() {
-  local dir="$1" out="$2" fix="$SELF_TEST_DIR/agents" rules loop
+  local dir="$1" out="$2" fix="$SELF_TEST_DIR/agents" rules loop beads
   mkdir -p "$fix"
   loop="$(awk '/^## Project rules[[:space:]]*$/ {exit} {print}' "$KIT/AGENTS.md")"
   [ -n "$loop" ] && [ "$loop" = "$(awk '/^## Project rules[[:space:]]*$/ {exit} {print}' "$dir/AGENTS.md")" ] \
@@ -258,6 +267,19 @@ agents_profile_test() {
     || { echo "self-test: the installed next-ticket guard should follow the staged/legacy default"; exit 1; }
   echo "$out" | tr -s '[:space:]' ' ' | grep -qF "keep 'Merge profile: legacy', the default" \
     || { echo "self-test: what is still to supply should ask for the merge profile:"; echo "$out"; exit 1; }
+  # The kit's own Project rules name `Merge profile:` once, on their declaration line, so even a
+  # reader that counts mentions rather than lines finds one profile there.
+  [ "$(awk '/^## Project rules[[:space:]]*$/ {p=1} p' "$KIT/AGENTS.md" | grep -c 'Merge profile:')" = 1 ] \
+    || { echo "self-test: the kit's Project rules should mention 'Merge profile:' only on their one declaration line"; exit 1; }
+  # The generated Beads block the whole-file copy used to carry still arrives, once, unchanged,
+  # after the placeholder.
+  beads="$(awk '/^<!-- BEGIN BEADS / {b=1} b; /^<!-- END BEADS / {exit}' "$KIT/AGENTS.md")"
+  if [ -n "$beads" ]; then
+    [ "$(grep -c '^<!-- BEGIN BEADS ' "$dir/AGENTS.md")" = 1 ] \
+      && [ "$beads" = "$(awk '/^<!-- BEGIN BEADS / {b=1} b; /^<!-- END BEADS / {exit}' "$dir/AGENTS.md")" ] \
+      && [ "$(awk '/^<!-- BEGIN BEADS / {print NR; exit}' "$dir/AGENTS.md")" -gt "$(grep -n '^Merge profile: legacy$' "$dir/AGENTS.md" | cut -d: -f1)" ] \
+      || { echo "self-test: a fresh AGENTS.md should end with the kit's Beads block, once and unchanged"; exit 1; }
+  fi
   # The fixture kit's own rules declare github-v1: the fresh copy still declares legacy alone.
   printf '# Standing instructions\n\n## The loop\n\n- shared text\n\n## Project rules\n\nMerge profile: github-v1\n\nThe kit itself.\n' > "$fix/AGENTS.md"
   fresh_agents "$fix/AGENTS.md" > "$fix/fresh.md" || { echo "self-test: fresh_agents should accept a kit AGENTS.md"; exit 1; }
@@ -266,11 +288,23 @@ agents_profile_test() {
   [ "$(grep -c '^Merge profile:' "$fix/fresh.md")" = 1 ] && grep -qx 'Merge profile: legacy' "$fix/fresh.md" \
     && grep -qx -- '- shared text' "$fix/fresh.md" && ! grep -q 'The kit itself' "$fix/fresh.md" \
     || { echo "self-test: a fresh AGENTS.md from the fixture kit should be its loop section and the legacy placeholder:"; cat "$fix/fresh.md"; exit 1; }
+  # A complete Beads block below the fixture kit's rules travels; the kit's text around it does not.
+  printf '# Standing instructions\n\n## The loop\n\n- shared text\n\n## Project rules\n\nMerge profile: github-v1\n\nThe kit itself.\n\n<!-- BEGIN BEADS CODEX SETUP: generated -->\n## Beads Issue Tracker\n\nUse bd.\n<!-- END BEADS CODEX SETUP -->\n\nAfter the block, the kit again.\n' > "$fix/AGENTS.md"
+  fresh_agents "$fix/AGENTS.md" > "$fix/fresh.md" || { echo "self-test: fresh_agents should accept a kit AGENTS.md with a Beads block"; exit 1; }
+  grep -qx 'Use bd.' "$fix/fresh.md" && grep -qx '<!-- END BEADS CODEX SETUP -->' "$fix/fresh.md" \
+    && [ "$(grep -c '^Merge profile:' "$fix/fresh.md")" = 1 ] && grep -qx 'Merge profile: legacy' "$fix/fresh.md" \
+    && ! grep -q 'The kit itself\|the kit again' "$fix/fresh.md" \
+    || { echo "self-test: a fresh AGENTS.md should carry the fixture kit's Beads block and none of its rules:"; cat "$fix/fresh.md"; exit 1; }
+  # A BEGIN with no END is not a block: nothing after it, the kit's rules among it, travels.
+  printf '# Standing instructions\n\n## The loop\n\n- shared text\n\n## Project rules\n\nMerge profile: github-v1\n\n<!-- BEGIN BEADS CODEX SETUP: generated -->\nThe kit itself.\n' > "$fix/AGENTS.md"
+  fresh_agents "$fix/AGENTS.md" > "$fix/fresh.md" || { echo "self-test: fresh_agents should accept a kit AGENTS.md with a broken Beads block"; exit 1; }
+  grep -q 'BEGIN BEADS\|The kit itself' "$fix/fresh.md" \
+    && { echo "self-test: an unterminated Beads block must not carry the kit's text into a fresh AGENTS.md:"; cat "$fix/fresh.md"; exit 1; }
   printf '# Standing instructions\n\n## The loop\n\n- shared text\n\nMerge profile: github-v1\n' > "$fix/AGENTS.md"
   if fresh_agents "$fix/AGENTS.md" > "$fix/fresh.md" 2>/dev/null; then
     echo "self-test: a kit AGENTS.md with no Project rules heading must be refused, not copied whole"; exit 1
   fi
-  echo "fresh AGENTS.md: the kit's loop section, Merge profile: legacy, and the next-ticket guard's default"
+  echo "fresh AGENTS.md: the kit's loop section, Merge profile: legacy, the Beads block, and the next-ticket guard's default"
 }
 
 self_test() {

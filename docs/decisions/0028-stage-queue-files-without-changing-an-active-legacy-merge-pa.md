@@ -1,7 +1,7 @@
 # 0028 — Stage queue files without changing an active legacy merge path
 
 Status: accepted, supersedes 0019
-Date: 2026-09-23
+Date: 2026-10-26
 
 ## Context
 
@@ -41,14 +41,18 @@ request handoff according to the project's merge profile:
   controller files, controller statuses and a running controller are never evidence that the
   profile changed: agents do not infer activation.
 - Queue-aware prompts stop before changing a gate only when the declaration is contradictory or
-  unreadable: more than one profile declared, a value other than `legacy` or `github-v1`,
-  `github-v1` declared while the Project rules describe a legacy gate as active, or staged/legacy
-  in force while they describe the App controller as the live merge actor. Otherwise they follow
-  the declared profile or the default.
-- A fresh install's `AGENTS.md` is the kit's loop section and a placeholder Project rules
-  declaring `Merge profile: legacy`; the kit's own Project rules, which declare `github-v1` for
-  the kit's repository, never reach a project. `install.sh` and grill-project ask a new project
-  for its profile and recommend the default.
+  unreadable: more than one `Merge profile:` line in the Project rules, a value other than
+  `legacy` or `github-v1`, `github-v1` declared while the Project rules describe a legacy gate
+  agents operate (a coordinator-posted required status, armed auto-merge) as active, or
+  staged/legacy in force while they describe the App controller as the live merge actor.
+  Otherwise they follow the declared profile or the default. A check the operator alone arranges
+  during migration, or keeps for rollback, is not a legacy gate agents operate: the Project rules
+  name it as operator-only, and a declaration beside it is consistent.
+- A fresh install's `AGENTS.md` is the kit's loop section, a placeholder Project rules declaring
+  `Merge profile: legacy`, and the generated Beads block the whole-file copy used to carry; the
+  kit's own Project rules, which declare `github-v1` for the kit's repository, never reach a
+  project. `install.sh` and grill-project ask a new project for its profile and recommend the
+  default.
 - A project-required status wrapper owns every legacy status transition, including pending
   invalidation. If stale success cannot be reset through that sanctioned path, the coordinator
   disables and verifies auto-merge before stopping, so known-invalid evidence cannot merge.
@@ -77,9 +81,22 @@ to the declared profile or the staged/legacy default, while retaining 0019's sin
 evidence gates. A legacy coordinator that cannot neutralize stale success must fence auto-merge
 and report the missing transition rather than continuing. A project whose controller goes live
 before its declaration lands is treated as staged/legacy, so the cutover order matters:
-repository auto-merge is disabled, then the declaration lands, before the controller's first live
-selection. The kit declares its own profile in its Project rules, and `install.sh` no longer
-copies those rules into a project.
+repository auto-merge is disabled, then the declaration is merged by hand under the legacy
+protection, then the update and `Queue merge gate` rulesets are applied, so the controller's
+first live selection, the controlled candidate, comes after it. Once those rulesets are active
+only the App can land a pull request, the declaration included. The kit declares its own profile
+in its Project rules, and `install.sh` no longer copies those rules into a project.
+
+The kit's own controller went live in the LK-e9y pilot before this record, so its declaration
+lands after the fact, through the App. This record is the kit's activation record, on this live
+evidence: LK-e9y closed on its controlled proof; pull requests #78, #82 to #84 and #86 to #88
+merged by the App (`app/fueledbychai-merge-queue`); ruleset 23848482 makes the App (integration
+5024825) the only updater of `main`, and ruleset 23848480, with no bypass actor, requires its
+`Queue merge gate`; repository auto-merge is off; the legacy `ci.yml` is disabled and
+`queue.yml` active; ruleset 23399949 no longer requires a status check. Decision 0005's account
+of the kit's gating (23399949 requiring `Check (check.sh)`, `--auto` arming) therefore predates
+the live gate; replacing it is a record of its own, since a record supersedes one record at a
+time and this one supersedes 0019.
 
 ## What would show this was wrong
 

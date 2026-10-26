@@ -86,7 +86,9 @@ not enforce their independence. The controller's App key remains separate and pr
 Legacy required checks remain during migration. For the selected pilot PR only, the operator
 must arrange the legacy check and independent `Agent review` status before publishing final
 queue acceptance, so the App does not try to merge against an unmet legacy gate. Other PRs
-remain waiting. This temporary overlap is not proof that duplicate CI has been retired.
+remain waiting. This temporary overlap is not proof that duplicate CI has been retired. Those
+legacy checks are operator-only: no agent posts, arms or merges through them, and the Project
+rules name them so beside the `Merge profile: github-v1` declaration (0028).
 
 Controller startup proves readiness to operate, not successful PR processing. LK-e9y owns
 the three-PR ordering, restart, admission and migration evidence. This document does not

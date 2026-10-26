@@ -179,10 +179,18 @@ in the author workflow. Preserve the legacy captain until the migration proof be
 The stronger hosted-worker mode remains separate and retains its original identity rules.
 Cutover also changes the retained contract (0028): through a reviewed PR, set the `AGENTS.md`
 Project rules line to `Merge profile: github-v1`, reconcile any Project rules that still describe
-a legacy gate as active, and record the activation in the project's migration decision. Land it
-after repository auto-merge is disabled and before the controller's first live selection.
-Until it lands, agents keep the staged/legacy handoff; queue files, workflows, statuses or a
-running controller never activate the profile.
+a legacy gate agents operate as active, and record the activation in the project's migration
+decision. Its place in the sequence is fixed: disable repository auto-merge and reconcile
+existing requests first, then merge the declaration PR by hand under the legacy protection,
+before the update and `Queue merge gate` rulesets below are applied. Once those rulesets are
+active only the App can update the base, so the controlled candidate is the controller's first
+live selection and the declaration is already in force when it happens. Until it lands, agents
+keep the staged/legacy handoff; queue files, workflows, statuses or a running controller never
+activate the profile. The legacy checks kept through the migration proof, and the legacy captain
+preserved for rollback without its acceptance and merge duties, are operator-only: the Project
+rules name them so (the operator arranges the legacy check and `Agent review` for the selected
+candidate; no agent posts, arms or merges through them). So named, they are not a legacy gate
+agents operate, and the declaration stays consistent through the proof.
 
 ## Workflow and rules
 
@@ -291,10 +299,12 @@ marking the ticket or candidate done.
 ## Controlled migration evidence
 
 Retain exports of original settings, rulesets, workflow bytes and automation configuration.
-Install the new workflow through a reviewed PR while legacy protection still applies. Register
-the App check and add its expected-source requirement and exclusive updater rule. Test a
-controlled candidate with **both** old and new checks, accepting one-time duplicate validation
-for migration. Preserve project deployments and distinct security checks.
+Install the new workflow through a reviewed PR while legacy protection still applies. Disable
+repository auto-merge, then merge the `Merge profile: github-v1` declaration by hand under that
+protection (cutover, above). Register the App check and add its expected-source requirement and
+exclusive updater rule. Test a controlled candidate with **both** old and new checks, accepting
+one-time duplicate validation for migration. Preserve project deployments and distinct security
+checks.
 
 Record three PR identities/order, the unchanged heads of both waiting PRs, no waiting run or
 refresh, independent acceptance binding, actual admitted run/job/step ids, App check source/id,

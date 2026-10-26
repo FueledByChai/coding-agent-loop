@@ -33,18 +33,19 @@ below it are this project's own and are what the loop prompts mean when they say
 - **Merge profile.** A project's pull-request gates follow one of two profiles: staged/legacy
   (the project's existing handoff and gates under the named coordinator, including a staged
   rollout whose queue files are installed but whose controller is not live) or `github-v1` (the
-  live App controller, 0026). The profile is staged/legacy unless the Project rules declare
-  `github-v1` active on a line of its own, `Merge profile: github-v1`; a line
+  live App controller, kit decision 0026). The profile is staged/legacy unless the Project rules
+  declare `github-v1` active on a line of its own, `Merge profile: github-v1`; a line
   `Merge profile: legacy` states the default, and a contract with no such line is staged/legacy.
   Activation and rollback are explicit edits to that line, made at the cutover and rollback in
   the queue runbook (`templates/queue-operations.md`, installed under `loop/templates/`) and
   recorded in the project's migration decision. Installed queue files, workflows, controller
   statuses or a running controller never change the profile (kit decision 0028). Reading it,
   the prompts stop before changing a gate only when the declaration is contradictory or
-  unreadable (more than one profile declared, a profile other than these two named,
-  `github-v1` declared while the Project rules describe a legacy gate as active, or
-  staged/legacy in force while they describe the App controller as the live merge actor);
-  their other stops still apply.
+  unreadable (more than one `Merge profile:` line in the Project rules, a value other than these
+  two, `github-v1` declared while the Project rules describe a legacy gate agents operate as
+  active, or staged/legacy in force while they describe the App controller as the live merge
+  actor); a check the operator alone arranges during migration or keeps for rollback is not a
+  legacy gate agents operate, and the prompts' other stops still apply.
 - **Claims and hand-off.** Before work starts, claim the ticket in Beads (`bd update <id>
   --claim`) and push `ticket/<id>` to origin with `scripts/open-ticket-pr.sh <id> --claim`;
   `backlog-status.sh --next` passes over claimed tickets, so several agents can hold several
@@ -56,8 +57,8 @@ below it are this project's own and are what the loop prompts mean when they say
   as draft or ready and whether auto-merge is armed; copied queue files do not activate the
   controller.
   Several agents can implement at once. In the legacy profile, the named coordinator records
-  merge order and selects one candidate in Beads (0028). In `github-v1` (0026),
-  the App selects the candidate and owns CI admission, the merge gate and merging. Existing
+  merge order and selects one candidate in Beads (kit decision 0028). In `github-v1` (kit
+  decision 0026), the App selects the candidate and owns CI admission, the merge gate and merging. Existing
   authors and independent reviewers use `queue-handoff` for nomination, selection verification
   and acceptance; they do not create or claim a legacy coordinator, reset legacy statuses or
   publish `Agent review`. Normal Beads ticket claims and proof requirements still apply.
@@ -135,8 +136,9 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
 - `check.sh` sits at the repository root on purpose, so `install.sh` never copies it over a
   project's own `scripts/check.sh`. `install.sh` copies everything else and never overwrites a
   project's `AGENTS.md`, `CLAUDE.md`, `.loop.toml`, or workflow. A fresh project's `AGENTS.md` is
-  the loop section above and a placeholder Project rules declaring `Merge profile: legacy`, so
-  these Project rules, and the merge profile below, never reach a project (0028).
+  the loop section above, a placeholder Project rules that declares the legacy merge profile,
+  and the generated Beads block at the end of this file, so these Project rules, and the merge
+  profile below, never reach a project (0028).
   `loop.toml.example` is the one file that sits beside a copy of itself: it is copied to the
   root and refreshed, while the `.loop.toml` written from it is kept, so the settings
   documentation a project reads stays current; `scripts/loop-kit-sync.sh` carries it for the
@@ -148,9 +150,9 @@ since the kit's own work is ticketed here (decision 0001), it is also the loop's
   `.github/` holds this repository's own pair — `.github/workflows/ci.yml` and
   `.github/ruleset.json` — whose required contexts are the job this repository reports
   (`Check (check.sh)`) and the legacy agent review (`Agent review`), a commit status the legacy
-  coordinator posts rather than a job (LK-06, decision 0007). That pair records the legacy gates;
-  under this repository's merge profile below it is not the live gate, and no agent here posts
-  `Agent review`. The two pairs differ by where the check sits — a project's under `scripts/`,
+  coordinator posts rather than a job (LK-06; decision 0007, superseded through 0019 by 0028).
+  That pair records the legacy gates; under this repository's merge profile below it is not the
+  live gate, and no agent here posts `Agent review`. The two pairs differ by where the check sits — a project's under `scripts/`,
   the kit's at the root — and by that second context, and they are not interchangeable.
   `scripts/ruleset-check.sh` fails when either pair disagrees, so neither can drift; the review
   context is the one context it accepts without a job (decision 0006).
@@ -184,8 +186,11 @@ selects the candidate, admits CI and merges, and is the only updater of `main`, 
 gate is the App's `Queue merge gate`; repository auto-merge is off. Authors open drafts, keep
 auto-merge disabled, and nominate through `scripts/queue-handoff.sh`; independent reviewers
 publish `Queue acceptance` through it. No agent here runs the legacy coordinator, posts
-`Agent review` or arms auto-merge. Rolling back to `legacy` is an edit to the line above, made
-with the rollback in `templates/queue-operations.md` and recorded in a decision (0028).
+`Agent review` or arms auto-merge. Decision 0028 records this activation and the live evidence
+behind it (LK-e9y's controlled proof, the App-merged pull requests, the two queue rulesets,
+auto-merge off and the legacy `ci.yml` disabled); 0005's account of this repository's gating
+predates it. Rolling back to `legacy` is an edit to the line above, made with the rollback in
+`templates/queue-operations.md` and recorded in a decision (0028).
 
 ### The check
 

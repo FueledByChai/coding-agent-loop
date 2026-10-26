@@ -4,7 +4,7 @@ not merge authorization. Waiting PRs may receive acceptance before CI, but no pa
 status. In durable worker mode, return the structured acceptance receipt only; the trusted
 controller owns final status publication. Never publish a status from an author worker.
 
-In the operator-enabled `github-v1` profile, use the existing independent review role instead
+In the declared `github-v1` profile, use the existing independent review role instead
 of starting a worker. Follow the assessment and feedback rules below, then use
 `scripts/queue-handoff.sh --pr <number> inspect` and
 `scripts/queue-handoff.sh --pr <number> --binding <digest> --proof-url <your-submitted-review-url> accept`.
@@ -18,11 +18,18 @@ Authors cannot act as their own reviewer even when both roles share an approved 
 The queue is Beads (`bd`), a hard dependency. Settings come from `.loop.toml`:
 `scripts/loop-config.sh` names `check` (the full check), `default_branch` (this queue's base),
 and `review_context` (the final status, default "Agent review"). Before changing a pull-request
-gate, inspect the entire retained `AGENTS.md` contract, including both its shared loop section and
-Project rules. If that contract mentions queue rollout or a controller and does not explicitly
-declare either staged/legacy operation or `github-v1` as the active profile, stop before mutating
-gates and update the project's migration decision and standing contract first. Do not infer
-activation from installed queue files. Inspect all open PRs targeting
+gate, read the merge profile from the entire retained `AGENTS.md` contract, both its shared loop
+section and its Project rules. The profile is staged/legacy unless the Project rules declare
+`github-v1`, the live App controller, active (a line `Merge profile: github-v1`); with no
+declaration, follow the staged/legacy handoff. Stop before mutating gates only when the
+declaration is contradictory or unreadable: more than one profile declared, a `Merge profile:`
+value other than `legacy` or `github-v1`, `github-v1` declared while the Project rules describe a
+legacy gate (a coordinator-posted required status, armed auto-merge) as active, or staged/legacy
+in force while they describe the App controller as the live merge actor. Then update the
+project's migration decision and standing contract first. That is the only stop the profile
+adds; every other stop below still applies. Do not infer activation from installed queue files,
+workflows or statuses: only that declaration activates `github-v1`, and only changing it rolls
+back. Inspect all open PRs targeting
 that configured base: paginate `gh api --method GET repos/{owner}/{repo}/pulls -f state=open
 -f "base=<default_branch>" -F per_page=100 --paginate`, substituting the configured value.
 Read their current heads, review evidence and coordinating Beads notes. This inventory and

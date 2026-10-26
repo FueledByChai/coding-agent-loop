@@ -31,8 +31,13 @@ next-ticket.md	selected candidate
 next-ticket.md	shadow plan is not admission
 next-ticket.md	During staged rollout or legacy mode, preserve
 next-ticket.md	Do not infer activation from installed queue files
-next-ticket.md	does not explicitly declare either staged/legacy operation or `github-v1` as the active profile, stop before mutating gates
+next-ticket.md	The profile is staged/legacy unless the Project rules declare `github-v1`, the live App controller, active
+next-ticket.md	with no declaration, follow the staged/legacy handoff
+next-ticket.md	Stop before mutating gates only when the declaration is contradictory or unreadable
+next-ticket.md	only that declaration activates `github-v1`, and only changing it rolls back
+next-ticket.md	every other stop below still applies
 next-ticket.md	including whether the PR opens as draft or ready and whether auto-merge is armed
+next-ticket.md	When the Project rules declare the live App controller active, use `scripts/open-ticket-pr.sh <id> --draft`
 respond-to-review.md	full head SHA
 respond-to-review.md	all pages
 respond-to-review.md	fix, dispute, or separate ticket
@@ -70,8 +75,13 @@ grill-me.md	settings file and the Beads queue
 grill-me.md	this repository, a new one, or a sibling
 grill-me.md	During staged rollout or legacy mode, preserve
 grill-me.md	Do not infer activation from installed queue files
-grill-me.md	does not explicitly declare either staged/legacy operation or `github-v1` as the active profile, stop before mutating gates
+grill-me.md	The profile is staged/legacy unless the Project rules declare `github-v1`, the live App controller, active
+grill-me.md	with no declaration, follow the staged/legacy handoff
+grill-me.md	Stop before mutating gates only when the declaration is contradictory or unreadable
+grill-me.md	only that declaration activates `github-v1`, and only changing it rolls back
+grill-me.md	every other stop below still applies
 grill-me.md	including whether the PR opens as draft or ready and whether auto-merge is armed
+grill-me.md	When those rules declare the live App controller active, open the PR as a draft
 review-prs.md	four questions
 review-prs.md	github-v1 skips legacy coordination and gate reconciliation
 review-prs.md	App selection replaces legacy coordinator selection
@@ -104,8 +114,16 @@ review-prs.md	If the Project rules name a project-owned readiness or status wrap
 review-prs.md	During staged rollout or legacy mode, preserve
 review-prs.md	Pending invalidations use that wrapper too
 review-prs.md	Do not infer activation from installed queue files
-review-prs.md	does not explicitly declare either staged/legacy operation or `github-v1` as the active profile, stop before mutating gates
+review-prs.md	The profile is staged/legacy unless the Project rules declare `github-v1`, the live App controller, active
+review-prs.md	with no declaration, follow the staged/legacy handoff
+review-prs.md	Stop before mutating gates only when the declaration is contradictory or unreadable
+review-prs.md	only that declaration activates `github-v1`, and only changing it rolls back
+review-prs.md	every other stop below still applies
 review-prs.md	If that wrapper cannot express the required pending reset, or if any required wrapper/API reset fails, disable any armed auto-merge request
+review-prs.md	Only when the Project rules require disabled auto-merge for this active handoff, disable each armed request
+review-prs.md	Otherwise use `scripts/review-status.sh <sha> fail "<question and defect>" --url <findings-url>`
+review-prs.md	`scripts/review-status.sh <sha> pass "<independent proof>" --url <evidence-url>` when no wrapper is required
+review-prs.md	when the Project rules require one. Otherwise use `gh api -X POST
 grill-project.md	in a sentence
 grill-project.md	Who and where
 grill-project.md	The data
@@ -119,7 +137,9 @@ grill-project.md	node.sh
 grill-project.md	java.sh
 grill-project.md	go.sh
 grill-project.md	wireframe
-grill-project.md	toolchain'
+grill-project.md	toolchain
+grill-project.md	also settles the merge profile
+grill-project.md	`Merge profile: legacy` (the default)'
 
 prompts_dir() {
   if [ -d "$ROOT/loop/prompts" ]; then echo "$ROOT/loop/prompts"
@@ -161,7 +181,9 @@ self_test() {
   local file phrase
   while IFS=$'\t' read -r file phrase; do
     case "$file:$phrase" in
-      respond-to-review.md:*|next-ticket.md:*|review-prs.md:*|grill-me.md:loop:coordination|grill-me.md:--type*|grill-me.md:merge\ order|grill-me.md:N*|grill-me.md:nine*|grill-me.md:ordering*|grill-me.md:single*|grill-me.md:waiting*|grill-me.md:does\ not*|grill-me.md:including\ whether*) ;;
+      respond-to-review.md:*|next-ticket.md:*|review-prs.md:*|grill-me.md:loop:coordination|grill-me.md:--type*|grill-me.md:merge\ order|grill-me.md:N*|grill-me.md:nine*|grill-me.md:ordering*|grill-me.md:single*|grill-me.md:waiting*|grill-me.md:including\ whether*) ;;
+      grill-me.md:During\ staged*|grill-me.md:Do\ not\ infer*|grill-me.md:The\ profile*|grill-me.md:with\ no\ declaration*|grill-me.md:Stop\ before*|grill-me.md:only\ that*|grill-me.md:every\ other*|grill-me.md:When\ those*) ;;
+      grill-project.md:also\ settles*|grill-project.md:*Merge\ profile*) ;;
       *) continue ;;
     esac
     # Remove this phrase independent of capitalization or line wrapping.
@@ -178,6 +200,34 @@ PY
     [ "$rc" = 1 ] && echo "$out" | grep -qF "$file no longer says \"$phrase\"" || { echo "self-test: missing handoff or planning rule should fail: $phrase (rc $rc):"; echo "$out"; exit 1; }
     cp "$src/$file" "$dir/loop/prompts/$file"
   done <<< "$RULES"
+  # The activation conditions and the kit-command fallback are rules as well (LK-ddt): the
+  # v0.22.0 behaviour returning beside the preserve sentence - an unconditional draft or
+  # auto-merge change, or a status path with no kit fallback - fails naming the rule it broke.
+  # Each line is file|text|its replacement|the rule that must then be reported missing.
+  local from to expect
+  while IFS='|' read -r file from to expect; do
+    [ -n "$file" ] || continue
+    tr -s '[:space:]' ' ' < "$src/$file" > "$dir/loop/prompts/$file"
+    FROM="$from" TO="$to" python3 - "$dir/loop/prompts/$file" <<'PY'
+import os, pathlib, re, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+rule = re.compile(re.escape(os.environ['FROM']), re.IGNORECASE)
+assert rule.search(s), os.environ['FROM']
+p.write_text(rule.sub(lambda m: os.environ['TO'], s, count=1))
+PY
+    rc=0; out="$("$me" 2>&1)" || rc=$?
+    [ "$rc" = 1 ] && echo "$out" | grep -qF "$file no longer says \"$expect" \
+      || { echo "self-test: mutant should fail naming its rule: $file: $from -> $to (rc $rc):"; echo "$out"; exit 1; }
+    cp "$src/$file" "$dir/loop/prompts/$file"
+  done <<'MUTANTS'
+next-ticket.md|When the Project rules declare the live App controller active, use|Always use|When the Project rules declare the live App controller active, use
+review-prs.md|Only when the Project rules require disabled auto-merge for this active handoff, disable|Always disable|Only when the Project rules require disabled auto-merge
+review-prs.md| or through `scripts/review-status.sh <sha> pass "<independent proof>" --url <evidence-url>` when no wrapper is required,||`scripts/review-status.sh <sha> pass
+review-prs.md|Otherwise use `scripts/review-status.sh <sha> fail "<question and defect>" --url <findings-url>`.|Otherwise use the wrapper.|Otherwise use `scripts/review-status.sh <sha> fail
+grill-me.md|When those rules declare the live App controller active, open the PR as a draft|Always open the PR as a draft|When those rules declare the live App controller active
+next-ticket.md|with no declaration, follow the staged/legacy handoff|with no declaration, stop|with no declaration, follow the staged/legacy handoff
+MUTANTS
   rm "$dir/loop/prompts/respond-to-review.md"
   rc=0; out="$("$me" 2>&1)" || rc=$?
   [ "$rc" = 1 ] && echo "$out" | grep -q 'respond-to-review.md is missing' || { echo "self-test: missing author prompt should fail (rc $rc):"; echo "$out"; exit 1; }

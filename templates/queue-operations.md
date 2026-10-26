@@ -177,6 +177,12 @@ At cutover, existing author and independent reviewer automations adopt these com
 Replace the captain's post-CI acceptance and merge duties with pre-CI acceptance; keep repair
 in the author workflow. Preserve the legacy captain until the migration proof below succeeds.
 The stronger hosted-worker mode remains separate and retains its original identity rules.
+Cutover also changes the retained contract (0028): through a reviewed PR, set the `AGENTS.md`
+Project rules line to `Merge profile: github-v1`, reconcile any Project rules that still describe
+a legacy gate as active, and record the activation in the project's migration decision. Land it
+after repository auto-merge is disabled and before the controller's first live selection.
+Until it lands, agents keep the staged/legacy handoff; queue files, workflows, statuses or a
+running controller never activate the profile.
 
 ## Workflow and rules
 
@@ -301,8 +307,12 @@ contexts on the same controlled head and the final live ruleset reads.
 Only after that evidence exists, propose the reviewed removal of duplicate push/label full
 builds and the exact legacy captain automation. Verify the resulting active workflow inventory,
 required contexts and service health before the next candidate. Rollback restores the saved
-legacy workflow/check/captain configuration before disabling the new gate. Do not leave an
-App-only gate required while its controller is offline and claim migration succeeded.
+legacy workflow/check/captain configuration before disabling the new gate. It also changes the
+retained contract back (0028): set the Project rules line to `Merge profile: legacy`, restore the
+legacy gates it describes, and record the rollback in the migration decision. Re-enable
+repository auto-merge only after the controller has stopped merging, so the legacy handoff never
+arms auto-merge beside the App. Do not leave an App-only gate required while its controller is
+offline and claim migration succeeded.
 
 This runbook is not evidence that migration happened. LK-e9y remains unfinished until its
 controlled live proof and migration verification are recorded; consumer adoption is RB-g6do.

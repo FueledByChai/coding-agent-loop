@@ -2,8 +2,8 @@
 
 For the governing review, coordination and CI rules, follow decisions
 [0017](../decisions/0017-require-author-evidence-and-completed-head-review-before-acc.md),
-[0019](../decisions/0019-plan-merge-order-and-separate-acceptance-from-final-status-p.md) and
-[0020](../decisions/0020-request-ci-explicitly-and-reject-unrelated-labels-without-sk.md).
+[0020](../decisions/0020-request-ci-explicitly-and-reject-unrelated-labels-without-sk.md) and
+[0028](../decisions/0028-stage-queue-files-without-changing-an-active-legacy-merge-pa.md).
 The V1 existing-agent procedure and its trust limits are defined in
 [0026 in the reviewed controller release](https://github.com/FueledByChai/coding-agent-loop/blob/ea20eeccb07f8de74582a5d4438a562f3b67698a/docs/decisions/0026-use-existing-agent-acceptance-for-the-first-live-merge-queue.md).
 The steps below are an operator walkthrough of those records, not a separate policy.

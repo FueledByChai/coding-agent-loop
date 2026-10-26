@@ -58,8 +58,31 @@ check_skill() {
   return 0
 }
 
+# A fresh project's AGENTS.md: the kit's loop section, everything above its `## Project rules`
+# heading, then a placeholder Project rules that declares the default merge profile. The kit's
+# own Project rules, and the profile they declare for the kit's repository, are the kit's alone:
+# installing starts no controller, so a project is staged/legacy until its operator activates one
+# and changes this line to github-v1 (0028).
+fresh_agents() {
+  local src="$1"
+  # Without the heading the whole file would pass for the loop section, the kit's own merge
+  # profile with it, so a source with no heading is refused rather than copied.
+  grep -q '^## Project rules[[:space:]]*$' "$src" \
+    || { echo "install: $src has no '## Project rules' heading to end the loop section at" >&2; return 1; }
+  awk '/^## Project rules[[:space:]]*$/ {exit} {print}' "$src"
+  cat <<'RULES'
+## Project rules
+
+Merge profile: legacy
+
+Replace this placeholder with the project's own rules; grill-project writes them on a new
+project. Keep the merge profile line above: `legacy`, the default, until an operator activates
+the App controller (loop/templates/queue-operations.md) and changes it to `github-v1`.
+RULES
+}
+
 install_into() {
-  local target="$1" commands="$2" skills="$3" f n d
+  local target="$1" commands="$2" skills="$3" f n d agents
   [ -d "$target" ] || { echo "no such directory: $target" >&2; return 1; }
   target="$(cd "$target" && pwd)"
   mkdir -p "$target/scripts" "$target/loop/prompts" "$target/loop/templates/check" "$target/loop/templates/ci"
@@ -77,9 +100,11 @@ install_into() {
   cp "$KIT/loop.toml.example" "$target/loop.toml.example"
   echo "installed: scripts/{$(cd "$KIT/scripts" && ls | tr '\n' ',' | sed 's/,$//')}, loop/prompts/*.md, loop/templates/*.md, loop/templates/check/*.sh, loop/templates/ci/*.yml, and loop.toml.example"
   if [ -e "$target/AGENTS.md" ]; then
-    echo "kept: AGENTS.md (already present; compare its loop section with the kit's when you update)"
+    echo "kept: AGENTS.md (already present; compare its loop section with the kit's when you update, and keep at most one Merge profile line in its Project rules)"
   else
-    cp "$KIT/AGENTS.md" "$target/AGENTS.md"; echo "installed: AGENTS.md (fill in the Project rules)"
+    agents="$(fresh_agents "$KIT/AGENTS.md")" || return 1
+    printf '%s\n' "$agents" > "$target/AGENTS.md"
+    echo "installed: AGENTS.md (the loop section and a placeholder Project rules declaring Merge profile: legacy; fill in the Project rules)"
   fi
   # Codex reads AGENTS.md on its own; Claude Code reads CLAUDE.md, so it gets a one-line
   # pointer at the same file (HK-37).
@@ -154,7 +179,10 @@ Still to supply:
      and the check skeleton already names that pair - scripts/ruleset-check.sh ci/ruleset.json
      .github/workflows/loop.yml - so a ruleset requiring a status the workflow never reports
      cannot land unnoticed.
-  4. The Project rules section of AGENTS.md (grill-project writes it on a new project).
+  4. The Project rules section of AGENTS.md (grill-project writes it on a new project), with its
+     merge profile: keep 'Merge profile: legacy', the default, or accept it by leaving the line
+     out; change it to 'Merge profile: github-v1' only when an operator activates the App
+     controller (loop/templates/queue-operations.md). Installing starts no controller.
   5. A Beads queue: run 'bd init --prefix <PREFIX>' when the repository has no .beads, and
      'bd dolt push' so the refs/dolt/data ref CI bootstraps from carries the tickets. bd is a
      hard dependency of the loop: the scripts read the queue with it.
@@ -203,6 +231,48 @@ print('CI request template: 10 admission scenarios passed')
 PYTEST
 }
 
+# A fresh install's merge profile is determinable and is the default (0028): its AGENTS.md is the
+# kit's loop section byte for byte, which states the default, then a placeholder Project rules
+# declaring `Merge profile: legacy` exactly once, with none of the kit's own Project rules; the
+# installed next-ticket guard follows that default instead of stopping; and what is still to
+# supply asks for the profile. A kit whose own rules declare github-v1 cannot pass it on, and a
+# kit AGENTS.md with no Project rules heading is refused rather than copied whole.
+agents_profile_test() {
+  local dir="$1" out="$2" fix="$SELF_TEST_DIR/agents" rules loop
+  mkdir -p "$fix"
+  loop="$(awk '/^## Project rules[[:space:]]*$/ {exit} {print}' "$KIT/AGENTS.md")"
+  [ -n "$loop" ] && [ "$loop" = "$(awk '/^## Project rules[[:space:]]*$/ {exit} {print}' "$dir/AGENTS.md")" ] \
+    || { echo "self-test: a fresh AGENTS.md should begin with the kit's loop section, unchanged"; exit 1; }
+  printf '%s\n' "$loop" | tr -s '[:space:]' ' ' | grep -qF 'The profile is staged/legacy unless the Project rules declare `github-v1` active' \
+    || { echo "self-test: the kit's loop section should state the staged/legacy default"; exit 1; }
+  printf '%s\n' "$loop" | grep -q '^Merge profile:' \
+    && { echo "self-test: the loop section must not declare a profile; the Project rules do"; exit 1; }
+  rules="$(awk '/^## Project rules[[:space:]]*$/ {p=1} p' "$dir/AGENTS.md")"
+  [ "$(printf '%s\n' "$rules" | grep -c '^Merge profile:')" = 1 ] && printf '%s\n' "$rules" | grep -qx 'Merge profile: legacy' \
+    || { echo "self-test: a fresh AGENTS.md should declare Merge profile: legacy exactly once:"; printf '%s\n' "$rules"; exit 1; }
+  [ "$(grep -c '^Merge profile:' "$dir/AGENTS.md")" = 1 ] \
+    || { echo "self-test: a fresh AGENTS.md should carry one Merge profile line in all"; exit 1; }
+  grep -qF 'This repository is the ticket loop itself' "$dir/AGENTS.md" \
+    && { echo "self-test: the kit's own Project rules must not reach a fresh AGENTS.md"; exit 1; }
+  tr -s '[:space:]' ' ' < "$dir/loop/prompts/next-ticket.md" | grep -qiF 'with no declaration, follow the staged/legacy handoff' \
+    || { echo "self-test: the installed next-ticket guard should follow the staged/legacy default"; exit 1; }
+  echo "$out" | tr -s '[:space:]' ' ' | grep -qF "keep 'Merge profile: legacy', the default" \
+    || { echo "self-test: what is still to supply should ask for the merge profile:"; echo "$out"; exit 1; }
+  # The fixture kit's own rules declare github-v1: the fresh copy still declares legacy alone.
+  printf '# Standing instructions\n\n## The loop\n\n- shared text\n\n## Project rules\n\nMerge profile: github-v1\n\nThe kit itself.\n' > "$fix/AGENTS.md"
+  fresh_agents "$fix/AGENTS.md" > "$fix/fresh.md" || { echo "self-test: fresh_agents should accept a kit AGENTS.md"; exit 1; }
+  grep -q '^Merge profile: github-v1' "$fix/fresh.md" \
+    && { echo "self-test: a kit's own github-v1 declaration must not reach a fresh AGENTS.md"; exit 1; }
+  [ "$(grep -c '^Merge profile:' "$fix/fresh.md")" = 1 ] && grep -qx 'Merge profile: legacy' "$fix/fresh.md" \
+    && grep -qx -- '- shared text' "$fix/fresh.md" && ! grep -q 'The kit itself' "$fix/fresh.md" \
+    || { echo "self-test: a fresh AGENTS.md from the fixture kit should be its loop section and the legacy placeholder:"; cat "$fix/fresh.md"; exit 1; }
+  printf '# Standing instructions\n\n## The loop\n\n- shared text\n\nMerge profile: github-v1\n' > "$fix/AGENTS.md"
+  if fresh_agents "$fix/AGENTS.md" > "$fix/fresh.md" 2>/dev/null; then
+    echo "self-test: a kit AGENTS.md with no Project rules heading must be refused, not copied whole"; exit 1
+  fi
+  echo "fresh AGENTS.md: the kit's loop section, Merge profile: legacy, and the next-ticket guard's default"
+}
+
 self_test() {
   request_workflow_test "$KIT/ci/workflow.yml"
   SELF_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/loop-install.XXXXXX")"
@@ -213,6 +283,7 @@ self_test() {
   printf '#!/usr/bin/env bash\necho stub check\n' > "$dir/scripts/check.sh"; chmod +x "$dir/scripts/check.sh"
   out="$("$KIT/install.sh" "$dir" --commands .agent/commands --skills .agent/skills)"
   echo "$out" | grep -q '^installed: AGENTS.md' || { echo "self-test: AGENTS.md should be installed:"; echo "$out"; exit 1; }
+  agents_profile_test "$dir" "$out"
   echo "$out" | grep -q '^installed: .loop.toml' || { echo "self-test: .loop.toml should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: .github/workflows/loop.yml' || { echo "self-test: the workflow should be installed:"; echo "$out"; exit 1; }
   echo "$out" | grep -q '^installed: ci/ruleset.json' || { echo "self-test: the ruleset should be installed:"; echo "$out"; exit 1; }

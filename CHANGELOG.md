@@ -3,6 +3,75 @@
 What shipped, by release: the commits that carry a ticket id between two tags, with the
 ticket text read from Beads (scripts/release-notes.sh --archive).
 
+## v0.23.0 — 2026-10-27 (v0.22.0..HEAD)
+
+### scripts (LK)
+
+- **LK-dds** Make the live-descendant worker fixture independent of elapsed time — 2026-09-23 · 50de354 (make descendant fixture deterministic)
+- **LK-ddt** Preserve legacy merge gates during staged queue rollout — 2026-09-23 · 1299cca (preserve staged legacy merge gates)
+- **LK-3ni** --reconcile has no way to record a ticket that leaves the queue without landing: duplicates, supersessions and retirements read as false closes and as todo — 2026-10-25 · d6de591 (Read a ticket closed without landing as dropped, and reconcile its drop)
+
+### scripts (LK): archived tickets
+
+#### LK-dds Make the live-descendant worker fixture independent of elapsed time — 2026-09-23 · 50de354
+
+Discovered during LK-0fs protected-Git repair checks. The fresh-install worker suite failed test_live_descendant_retains_slot_after_guardian_exits because run returned0, while the source run and immediate isolated rerun passed. Its synthetic descendant exits after time.sleep(2), so slow scheduling or provider observation can let it exit before the guardian checks liveness. Reproduced the same AssertionError 0==0 from unchanged origin/main eea5785 in a disposable copy by delaying the fixture parent2.25 seconds after spawning that two-second child. No shipping runtime change was needed to reproduce. Evidence: /tmp/lk-0fs-path-full-check.log and /tmp/lk-0fs-descendant-baseline-expiry.log. A separate exploratory provider-delay reproduction hit the fixture15-second timeout and is not the matching reproducer.
+
+**Done when:** Replace the two-second descendant lifetime assumption with explicit observable startup and test-controlled release/stop, including cleanup on failed assertions. The fixture must retain ownership while the child is provably alive, then release only after a verified stop. A deliberate delay longer than two seconds between worker exit and liveness assertion must still pass, on macOS and Linux. Full kit/fresh-install check passes without increasing a sleep to mask the race.
+
+#### LK-ddt Preserve legacy merge gates during staged queue rollout — 2026-09-23 · 1299cca
+
+The v0.22.0 prompts unconditionally open ticket PRs as drafts and publish legacy pass status through the kit review-status command. A consumer staging the queue workflow before activating its controller still relies on its existing non-draft auto-merge path and may require a project-owned readiness wrapper. The unconditional instructions can strand green PRs and bypass consumer-specific exact-head readiness checks during migration.
+
+**Done when:** next-ticket tells agents to use draft/disabled auto-merge only when the project rules say the live controller is active, and otherwise preserves the project legacy open/auto-merge procedure. review-prs routes legacy pass publication through a project-required wrapper when one is named, otherwise through the kit command. prompt-check pins both compatibility rules, and the full kit check passes.
+
+#### LK-3ni --reconcile has no way to record a ticket that leaves the queue without landing: duplicates, supersessions and retirements read as false closes and as todo — 2026-10-25 · d6de591
+
+Found in a consumer (fueledbychai-rs) on 2026-10-24. There, `scripts/backlog-status.sh --reconcile` fails four tickets that were closed on purpose with no commit:
+- FBC-omhd: an owner decision that changed nothing.
+- FBC-ue2q: a duplicate.
+- FBC-vgl: a ticket the owner retired in favour of others.
+- FBC-89f5: its fix landed under another ticket's commit.
+
+Decision 0012 names exactly this under "What would show this was wrong": a reconciliation that cannot be made to pass.
+
+The script has no exemption.
+- Every closed ticket that no landed commit names is a false close, and its state reads `todo`.
+- So `--next` can offer a retired ticket once its blockers land. A ticket it blocks stays blocked for good, and a story that counts it never reads done.
+
+Beads already records two of these closes.
+- `bd duplicate <id> --of <canonical>` and `bd supersede <id> --with <replacement>` close the ticket and leave a `duplicates` or `supersedes` dependency in `bd list --json`. Both work on a ticket that is already closed, and both keep its close reason.
+- A retirement with no replacement has only a close reason, and the script cannot tell that apart from a premature close.
+
+The change:
+1. A decision record that augments 0012. Git stays the only proof of done. A ticket leaves the queue without landing only as dropped: closed in Beads with a `duplicates` or `supersedes` link to the ticket that carries its work, or closed with the `loop:dropped` label and a close reason. A dropped ticket is never done.
+2. `backlog-status.sh` reads such a ticket as `dropped`, shown with its canonical or replacement ticket, or with its reason. It is not ready and `--next` never offers it. `--sprint-check` does not count it as an omission, and a story's ticket count leaves it out.
+3. `--reconcile` accepts a dropped ticket that no commit names. It fails on four cases:
+   - a `loop:dropped` label on a ticket Beads has not closed;
+   - a ticket dropped by label that has no close reason;
+   - a landed commit naming a dropped ticket (it landed, so it is not dropped);
+   - an open ticket blocked by a dropped one, naming the replacement where there is one so the dependency can be re-pointed.
+4. AGENTS.md's Tickets bullet and `prompts/next-ticket.md` say how to drop a ticket.
+
+**Done when:** `scripts/backlog-status.sh --self-test` adds these to its fixture, beside the existing false close AA-07.
+
+Three dropped tickets: one closed by a `duplicates` link, one by a `supersedes` link, and one closed with the `loop:dropped` label and a close reason.
+- Each reads `dropped` in the table.
+- `--next` offers none of them.
+- `--sprint-check` passes with them outside the sprint.
+- A story they serve beside one landed ticket reads done.
+- `--reconcile` names none of them.
+
+Four faults:
+- a `loop:dropped` label on an open ticket;
+- a closed ticket dropped by label with no close reason;
+- a dropped ticket that a landed commit names;
+- an open ticket blocked by a dropped one.
+
+`--reconcile` exits 1 naming each fault, and names the replacement for the last one.
+
+AA-07 still fails `--reconcile` as a false close. The new decision record passes `scripts/decisions.sh --check`, and `./check.sh` passes.
+
 ## v0.22.0 — 2026-09-23 (v0.21.1..HEAD)
 
 ### scripts (LK)
